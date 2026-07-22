@@ -1,6 +1,6 @@
 # devkit
 
-개인 + 조직 공용 Claude Code 플러그인. 웹 개발 · 코드리뷰/QA · 반복 워크플로우 · 팀 컨벤션 표준화를 한 곳에.
+Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커맨드·에이전트·훅으로 묶어둔 것.
 
 ## 구성
 
@@ -44,24 +44,25 @@
 | Doc | `RULES.md` | 팀 개발 규칙 원문 (규칙 단일 소스) |
 | Doc | `CHANGELOG.md` | 버전 이력 |
 
-## 설치 (조직원 공용)
+## 설치
 
-1. 이 레포를 조직 git에 올린다.
-2. 각자 Claude Code에서:
-   ```
-   /plugin marketplace add <이-레포-git-url>
-   /plugin install devkit@devkit-marketplace
-   ```
-3. 세션 다시 시작 → `/kit`으로 확인.
+Claude Code에서:
 
-### 조직 레포에 자동 설치 심기 (권장)
+```
+/plugin marketplace add <이-레포-git-url>
+/plugin install devkit@devkit-marketplace
+```
 
-각자 수동 설치하는 대신, 프로젝트 레포에 `.claude/settings.json`을 커밋해두면 clone 후 신뢰 대화에서 devkit이 자동 활성화된다:
+세션을 다시 시작한 뒤 `/kit`으로 확인한다.
+
+### 레포에 자동 설치 심기
+
+프로젝트 레포에 `.claude/settings.json`을 커밋해두면 clone 후 신뢰 대화에서 devkit이 자동 활성화된다:
 
 ```json
 {
   "extraKnownMarketplaces": {
-    "devkit-marketplace": { "source": { "source": "github", "repo": "<조직>/devkit" } }
+    "devkit-marketplace": { "source": { "source": "github", "repo": "<owner>/devkit" } }
   },
   "enabledPlugins": { "devkit@devkit-marketplace": true }
 }
