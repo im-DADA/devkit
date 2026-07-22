@@ -1,0 +1,44 @@
+# devkit CI 게이트 — PR에서 팀 규칙을 강제한다(typecheck·lint·test 통과해야 머지).
+# `.github/workflows/ci.yml` 로 두면 됨. `/kit init`이 이 템플릿을 복사한다.
+# 스크립트가 없는 레포도 안 깨지게 `--if-present` 사용(해당 스크립트 없으면 스킵).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck --if-present
+
+      - name: Lint
+        run: pnpm run lint --if-present
+
+      - name: Test (with coverage if present)
+        run: pnpm run test --if-present
+
+      - name: Secret scan (staged/changed history)
+        run: |
+          if git grep -nIE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{10,}|sk_live_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35})' -- . ':!*.lock' ':!pnpm-lock.yaml'; then
+            echo "::error::시크릿으로 보이는 값이 코드에 있습니다."; exit 1
+          fi
+
+      - name: Dependency audit (high 이상)
+        run: pnpm audit --audit-level=high || true # 취약점 리포트만, 게이트로 올리려면 || true 제거

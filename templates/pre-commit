@@ -1,0 +1,23 @@
+#!/bin/sh
+# devkit pre-commit — Claude 세션 밖(사람이 직접 `git commit`)에서도 최소 방어.
+# 설치: `/kit init`이 이 파일을 .githooks/pre-commit 로 두고 `git config core.hooksPath .githooks` 설정.
+# 의존성 0 (순수 sh + git). 우회하려면 `git commit --no-verify`.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# 1) 시크릿 스캔 — staged 변경분에서 명백한 키 탐지
+if git diff --cached -U0 -- $staged \
+  | grep -nE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk_live_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35})' >/dev/null 2>&1; then
+  echo "✋ [devkit] 커밋 거부 — 시크릿으로 보이는 값이 staged에 있습니다."
+  echo "   환경변수/시크릿 매니저로 옮긴 뒤 다시 커밋하세요. (강제: git commit --no-verify)"
+  exit 1
+fi
+
+# 2) lint — 스크립트 있으면 실행(없으면 스킵)
+if [ -f package.json ] && grep -q '"lint"' package.json; then
+  npm run -s lint || { echo "✋ [devkit] lint 실패 — 고친 뒤 커밋하세요."; exit 1; }
+fi
+
+exit 0

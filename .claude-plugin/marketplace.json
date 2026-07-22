@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "devkit-marketplace",
+  "version": "0.1.0",
+  "description": "팀 개발 킷 마켓플레이스 — devkit 플러그인 배포용.",
+  "owner": {
+    "name": "jaehun"
+  },
+  "plugins": [
+    {
+      "name": "devkit",
+      "description": "웹 개발 · 코드리뷰/QA · 반복 워크플로우 · 컨벤션 표준화 통합 킷.",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "development",
+      "keywords": [
+        "web",
+        "review",
+        "qa",
+        "workflow",
+        "conventions"
+      ]
+    }
+  ]
+}
