@@ -66,3 +66,13 @@ test('RULES.md SUMMARY 마커 존재(session-start.js 의존)', () => {
   assert.match(md, /<!-- SUMMARY:START -->/, 'SUMMARY:START 없음');
   assert.match(md, /<!-- SUMMARY:END -->/, 'SUMMARY:END 없음');
 });
+
+test('hooks.json에 UserPromptSubmit 등록(PDCA 자동 발동)', () => {
+  const hooks = JSON.parse(read('hooks/hooks.json')).hooks;
+  assert.ok(hooks.UserPromptSubmit, 'UserPromptSubmit 이벤트 없음');
+  assert.match(JSON.stringify(hooks.UserPromptSubmit), /pdca-detect\.js/);
+});
+
+test('RULES.md에 PDCA 사이클 절 존재(규약 단일 소스)', () => {
+  assert.match(read('RULES.md'), /^## PDCA 사이클$/m, 'PDCA 사이클 절 없음');
+});

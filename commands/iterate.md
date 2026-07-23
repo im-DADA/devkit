@@ -31,6 +31,8 @@ Gap 분석 → 보완 → 재분석을 **자동으로 반복**해 Match Rate를 
 
 각 회차마다 `회차 N — Match Rate X% → Y% (보완: …)`를 남긴다. 종료 시 추이 요약.
 
+사이클이 진행 중이면(`.devkit/pdca-state.json` 존재) **회차마다 `matchRates`에 점수를 append**한다. `/gap`만 기록하면 iterate 회차가 빠져 REPORT의 추이가 끊긴다. 사이클 폴더의 `GAP.md`도 회차를 누적해 갱신한다.
+
 ## 안전장치 (필수)
 
 - ❌ 무한 루프 금지 — max 5회 하드 상한.

@@ -1,6 +1,6 @@
 ---
 name: spec
-description: 구현 전에 엣지케이스·트레이드오프를 인터뷰해서 자체완결 SPEC.md 작성. 건드릴 파일·범위 밖·E2E 검증 단계 명시. 그다음 /tdd 또는 feature-builder로 실행.
+description: 선택적 보조 — 요구사항 인터뷰가 필요할 때 엣지케이스·트레이드오프를 물어 docs/{cycle}/SPEC.md 작성. 사이클 1단계는 /plan의 PLAN.md다.
 argument-hint: "<만들 기능 한 줄>"
 user-invocable: true
 allowed-tools:
@@ -13,12 +13,12 @@ allowed-tools:
 
 # /spec
 
-코딩 전에 요구사항을 확정한다. "구현을 지켜보는 것보다 스펙을 정밀하게 만드는 게 더 이득."
+**선택적 보조 단계다.** 사이클의 1단계 문서는 `/plan`이 만드는 `PLAN.md`이고, 요구사항 인터뷰가 특별히 필요할 때만 SPEC을 덧붙인다. 규약 상세는 RULES.md "PDCA 사이클".
 
 1. 인자(`$ARGUMENTS`)가 비면 무엇을 만들지 한 줄 물어보고 대기.
 2. 기존 코드 탐색 (Glob/Grep/Read) — 관련 파일·패턴·제약 파악.
 3. **모호한 지점을 AskUserQuestion으로 2~4개** 질문: 엣지케이스, 트레이드오프, 범위 경계, 데이터 형태.
-4. `SPEC.md` 작성 (프로젝트 루트 또는 `docs/`):
+4. `docs/{cycle}/SPEC.md` 작성 (사이클 폴더가 아직 없으면 `/plan`으로 먼저 만든다):
    - **목표** — 한 문단
    - **건드릴 파일** — 구체 경로 나열
    - **데이터/타입** — 입출력 형태

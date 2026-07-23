@@ -2,6 +2,20 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.8.0] - 2026-07-23
+
+### Added
+- **PDCA 사이클 폴더** — 기능 작업 문서를 `docs/{YYYY-MM-DD}-{slug}/`에 PLAN→DESIGN→GAP→REPORT로 남기고, 완료 시 `docs/archive/{날짜}/{slug}/`로 이동. 사이클마다 폴더가 분리돼 히스토리가 보존된다(기존엔 루트 고정 파일명을 덮어썼음). slug는 한글 허용.
+- **자동 발동 훅** — `UserPromptSubmit`에 `pdca-detect.js` 신설. 기능 요청을 감지하면 "PLAN부터 쓰고 승인받아라" 규약을 컨텍스트로 주입한다. **프롬프트를 차단하지 않는다**(주입만) — 오탐 시 사용자가 다시 타이핑하는 비용이 크기 때문. 3중 게이트(억제→배제→포함) + 동사 게이트키퍼로 질문·잡담·한 줄 수정을 걸러낸다.
+- **사이클 상태 파일** — `.devkit/pdca-state.json`(gitignore)에 현재 사이클·단계·다음 액션·Match Rate 추이를 기록. `session-start`가 이를 읽어 세션 재개 시 진행 상황을 주입한다.
+- **`/cycles` 커맨드** — 진행 중·아카이브된 사이클 목록과 문서 열람.
+
+### Changed
+- **1단계 문서를 PLAN으로 통일** — `/spec`은 폐기하지 않고 "선택적 보조"로 강등. 커맨드·에이전트가 PLAN.md를 1순위 근거로 삼는다.
+- **Gap을 필수 단계로** — `/report`는 `matchRates`가 비어 있으면 중단하고 `/gap`을 먼저 요구한다. `/iterate`도 회차마다 `matchRates`에 기록.
+- 에이전트 7종에 **한국어 보고 지시** 추가 — 서브에이전트는 RULES 주입을 받지 못해 영어로 답하는 경우가 있었다.
+- `findProjectRoot`를 `hooks/lib/project-root.js`로 추출해 `audit.js`와 신규 훅이 공유.
+
 ## [0.7.0] - 2026-07-15
 
 ### Added

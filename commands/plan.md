@@ -1,6 +1,6 @@
 ---
 name: plan
-description: 여러 파일 걸친 작업 전, 읽기전용 탐색 → 편집 가능한 구현 계획 → 계획대로 구현. 한 줄짜리 변경은 스킵. 구현 후 계획 대비 리뷰.
+description: PDCA 사이클 시작 — 탐색 후 docs/{날짜}-{slug}/PLAN.md 작성 → 승인 대기 → DESIGN → 구현 → Gap. 한 줄짜리 변경은 스킵.
 argument-hint: "<작업 설명>"
 user-invocable: true
 allowed-tools:
@@ -17,11 +17,16 @@ allowed-tools:
 
 1. **한 줄 diff로 끝날 일이면** 계획 생략하고 바로 구현하라고 안내 (오버헤드 방지).
 2. 아니면 **읽기전용 탐색** — 관련 코드/의존성 파악. 이 단계에선 **수정 금지**.
-3. `PLAN.md` 작성:
+3. **사이클 폴더 생성** — `docs/{YYYY-MM-DD}-{slug}/`. slug는 한글 허용 kebab-case 2~4단어, 같은 경로가 있으면 `-2` 접미. 규약 상세는 RULES.md "PDCA 사이클".
+4. `docs/{cycle}/PLAN.md` 작성:
+   - **목표** (한 문단)
    - **단계별 작업** (순서)
    - **건드릴 파일** + 각 변경 요지
    - **리스크/불확실성**
    - **검증 방법** (테스트/실행)
-4. 사용자에게 계획 보여주고 **수정 여지 주고 승인 대기**.
-5. 승인 후 계획대로 구현.
-6. 구현 완료되면 **code-reviewer 에이전트로 PLAN.md 대비 리뷰** — 요구사항 누락/이탈만 지적 (스타일 트집 금지).
+   - **범위 밖** (스코프 크립 방지)
+5. `.devkit/pdca-state.json` 생성/갱신 — `cycleId`는 폴더명, `stage:"plan"`, `status:"awaiting-approval"`, `nextAction:"PLAN.md 승인 대기"`.
+6. 사용자에게 계획 보여주고 **수정 여지 주고 승인 대기**. ⚠ 승인 전에 다음 단계로 넘어가지 말 것.
+7. 승인되면 **Design** — architect 에이전트로 `docs/{cycle}/DESIGN.md` 작성 → 보여주고 다시 승인 대기. 상태 `stage:"design"`.
+8. Design 승인 후 **구현(Do)**. 상태 `stage:"do"`, `status:"in-progress"`.
+9. 구현 완료되면 **`/gap` 필수** — PLAN·DESIGN 대비 Match Rate 산출. 미달이면 `/iterate` 보완 루프. 통과해야 `/report`로 진행.

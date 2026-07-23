@@ -81,15 +81,16 @@ allowed-tools:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 커맨드
-  /flow     기능 하나 요구사항→설계→구현(TDD)→리뷰 전체 파이프라인
-  /spec     인터뷰 → SPEC.md (구현 전 요구사항 확정)
-  /plan     탐색 → 계획 → 구현 (여러 파일 작업)
+  /flow     기능 하나 PLAN→DESIGN→구현(TDD)→Gap→리포트 전체 파이프라인
+  /plan     사이클 시작 — PLAN.md 작성 → 승인 → DESIGN → 구현
+  /spec     (선택) 요구사항 인터뷰 → SPEC.md — 1단계 문서는 /plan
   /tdd      TDD 레드-그린-리팩터 루프
   /commit   Conventional Commit (Co-Author 없이, 푸시 X)
-  /gap      SPEC/DESIGN 대비 구현 일치도 (Match Rate)
+  /gap      PLAN/DESIGN 대비 구현 일치도 (Match Rate) — 사이클 필수 단계
   /iterate  Gap 목표(90%)까지 자동 보완-재분석 루프
   /review   현재 diff 리뷰 (버그·보안·컨벤션)
-  /report   완료 리포트 REPORT.md 생성
+  /report   완료 리포트 REPORT.md → 사이클 아카이빙
+  /cycles   PDCA 사이클 목록·열람 (진행 중 + 아카이브)
   /ship     리뷰 → 커밋 메시지 + PR 초안 (승인 후)
   /improve  세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장)
   /kit      이 도움말
@@ -111,7 +112,8 @@ allowed-tools:
   visual-verify     웹 UI 스크린샷 vision 검증 (브라우저 MCP)
 
 훅 (자동)
-  SessionStart  팀 규칙 리마인드
+  SessionStart      팀 규칙 리마인드 + 진행 중 PDCA 사이클 재개 안내
+  UserPromptSubmit  기능 요청 감지 → PDCA 사이클 규약 안내 (차단 없음)
   PreToolUse    위험 bash 차단 · 새 의존성 차단 · 보호파일(.env/lock) 차단
   PostToolUse   자동 prettier 포맷 · 통과 위반 관측(convention-observe) (+ opt-in tsc)
   Stop          종료 시 typecheck/lint 실행·보고

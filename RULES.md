@@ -11,6 +11,7 @@
 - ❌ 금지: any 타입(→ `unknown`+narrowing), 에러 swallow(빈 catch), console.log 커밋, 추측 답변, 요청 안 한 파일 생성.
 - 🟡 확인 필요: 새 의존성 추가, force/reset --hard/브랜치 삭제, 커밋·푸시·PR, 외부 게시.
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
+- 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REPORT를 남긴다. **멈춤점은 PLAN·DESIGN 승인 2곳**, Gap은 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. 상세는 RULES "PDCA 사이클".
 - 파일 200줄 초과 시 분리. Feature 구조: ui=.tsx(뷰만) / hooks·api·utils·types=.ts.
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
 - 네이밍: 변수/함수 camelCase · 컴포넌트/타입 PascalCase · 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 상수 UPPER_SNAKE · 파일·폴더 kebab-case(심볼은 PascalCase). 축약어/부정boolean/I·T접두 금지.
@@ -19,7 +20,7 @@
 - 새 유틸/훅 작성 전 Grep으로 기존 것 탐색 → 재사용.
 - 커밋: Conventional Commits, Co-Authored-By 금지.
 
-커맨드: /review · /ship · /kit — 상세 규칙은 플러그인 RULES.md
+커맨드: /plan · /gap · /cycles · /review · /ship · /kit — 상세 규칙은 플러그인 RULES.md
 <!-- SUMMARY:END -->
 
 ## 언어 & 톤
@@ -50,6 +51,51 @@
 - 플랜에는 접근법·건드릴 파일·데이터 흐름·엣지케이스를 담고, 큰 기능은 SPEC/DESIGN 문서화(`/spec`, `/plan`, `/flow`)를 검토한다.
 - 한 줄짜리 변경·단순 수정·명확한 단일 작업은 플랜 없이 바로 실행 — 오버엔지니어링 금지.
 - 판단 기준: **되돌리기 어렵거나, 파일 3개 이상 만지거나, 구조 결정이 필요하면 플랜 먼저.**
+
+## PDCA 사이클
+
+기능 작업은 **문서를 남기며 단계별로** 진행한다. `pdca-detect` 훅이 기능 요청을 감지하면 이 규약을 리마인드한다.
+
+### 흐름
+
+```
+① 기능 요청 → PLAN.md 작성 → 보여주고 [승인 대기]
+② 승인 → DESIGN.md 작성(architect) → 보여주고 [승인 대기]
+③ 승인 → 구현(Do)
+④ 구현 후 /gap 필수 → Match Rate 산출
+   └ 기준 미달이면 /iterate 루프로 되돌아감
+⑤ 통과하면 REPORT.md → 사이클 아카이빙
+```
+
+**멈춤점은 ①② 두 곳.** 문서를 보여주고 사용자가 명시적으로 승인하기 전에 다음 단계로 넘어가지 않는다.
+
+### 폴더 규약
+
+```
+docs/
+  {YYYY-MM-DD}-{slug}/     ← 진행 중인 사이클만 여기
+    PLAN.md   DESIGN.md   GAP.md   REPORT.md
+  archive/
+    {YYYY-MM-DD}/{slug}/   ← 완료 후 이동
+```
+
+- **slug**: 기능 설명을 kebab-case로 2~4단어. **한글 허용**(`결제-실패-재시도`). 최대 40자. 경로 사용 불가 문자(`/ \ : * ? " < > |`) 제거.
+- 날짜는 사이클 **시작일**로 고정. 같은 날 충돌 시 `-2`, `-3` 접미.
+- 완료(REPORT 승인) 시 폴더를 `docs/archive/{날짜}/{slug}/`로 이동 → `docs/` 최상위엔 진행 중인 것만 남는다.
+- **Gap은 필수 단계다.** 스킵하고 REPORT로 건너뛰지 않는다.
+
+### 상태 파일
+
+`.devkit/pdca-state.json`(gitignore, 로컬 상태)에 현재 사이클을 기록한다. 문서를 쓴 **직후 커맨드가** 갱신하며, 훅은 읽기만 한다.
+
+```json
+{ "version": 1, "cycleId": "2026-07-23-결제-재시도", "stage": "design",
+  "status": "awaiting-approval", "nextAction": "DESIGN.md 승인 대기",
+  "matchRates": [], "docs": { "PLAN.md": "2026-07-23T…" } }
+```
+
+- `stage`: `plan` | `design` | `do` | `gap` | `report` | `done`
+- `status`: `in-progress` | `awaiting-approval` | `done`
 
 ## Figma / 디자인 구현
 

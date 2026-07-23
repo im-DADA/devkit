@@ -5,9 +5,33 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { findProjectRoot } = require('./lib/project-root');
+const { readState, isActive } = require('./lib/pdca-state');
 
 const FALLBACK = `## devkit 팀 규칙 리마인드
 상세 규칙은 플러그인 RULES.md 참조 (/kit).`;
+
+/** 진행 중 사이클이 있으면 재개 안내를 만든다. 없으면 빈 문자열 */
+function resumeBlock() {
+  try {
+    const state = readState(findProjectRoot(process.cwd()));
+    if (!isActive(state)) return '';
+    const lines = [
+      '',
+      '## 진행 중 PDCA 사이클',
+      `- ${state.cycleId} — 단계 ${state.stage} (${state.status})`,
+      `- 다음 액션: ${state.nextAction}`,
+      `- 문서: docs/${state.cycleId}/`,
+    ];
+    if (state.status === 'awaiting-approval') {
+      lines.push('- ⚠ 승인 대기 중 — 사용자 승인 전에 다음 단계로 넘어가지 말 것.');
+    }
+    return lines.join('\n');
+  } catch (e) {
+    process.stderr.write(`[devkit] session-start: 사이클 상태 로드 실패 — ${e.message}\n`);
+    return '';
+  }
+}
 
 function extractSummary() {
   const rulesPath = path.join(__dirname, '..', 'RULES.md');
@@ -25,4 +49,4 @@ try {
   summary = FALLBACK;
 }
 
-process.stdout.write(summary + '\n');
+process.stdout.write(summary + resumeBlock() + '\n');

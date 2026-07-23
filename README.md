@@ -6,15 +6,16 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 
 | 종류 | 이름 | 용도 |
 |---|---|---|
-| Command | `/flow` | **기능 하나 요구사항→설계→구현(TDD)→리뷰 전체 파이프라인** (게이트별 확인) |
-| Command | `/spec` | 인터뷰 → SPEC.md (구현 전 요구사항 확정) |
-| Command | `/plan` | 탐색 → 계획 → 구현 (여러 파일 작업) |
+| Command | `/flow` | **PLAN→DESIGN→구현(TDD)→Gap→리포트 전체 파이프라인** (게이트별 확인) |
+| Command | `/plan` | **PDCA 사이클 시작** — PLAN.md → 승인 → DESIGN → 구현 |
+| Command | `/spec` | (선택) 요구사항 인터뷰 → SPEC.md — 1단계 문서는 `/plan` |
 | Command | `/tdd` | TDD 레드-그린-리팩터 루프로 기능 구현 |
 | Command | `/commit` | Conventional Commit (Co-Author 없이, 푸시 X) |
-| Command | `/gap` | SPEC/DESIGN 대비 구현 일치도 (Match Rate) |
+| Command | `/gap` | PLAN/DESIGN 대비 구현 일치도 (Match Rate) — 사이클 필수 단계 |
 | Command | `/iterate` | Gap 목표(90%)까지 자동 보완-재분석 루프 (최대 5회) |
 | Command | `/review` | 현재 diff 리뷰 (버그·보안·컨벤션) |
-| Command | `/report` | 완료 리포트 REPORT.md 생성 |
+| Command | `/report` | 완료 리포트 REPORT.md → 사이클 아카이빙 |
+| Command | `/cycles` | PDCA 사이클 목록·열람 (진행 중 + 아카이브) |
 | Command | `/ship` | 리뷰 → 커밋 메시지 + PR 초안 (승인 후 실행) |
 | Command | `/improve` | 세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장) |
 | Command | `/kit` `[init]` | 도움말 / `init` 시 레포에 AGENTS.md·settings.json 생성 |
@@ -22,13 +23,14 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 | Agent | `feature-builder` | 웹 기능 구현 (feature 구조) |
 | Agent | `tdd-driver` | 테스트 우선 red-green-refactor 구현 |
 | Agent | `code-reviewer` | 읽기전용 코드 리뷰 |
-| Agent | `gap-detector` | SPEC/DESIGN 대비 구현 일치도 분석 (Match Rate) |
+| Agent | `gap-detector` | PLAN/DESIGN 대비 구현 일치도 분석 (Match Rate) |
 | Agent | `report-writer` | 사이클 종합 → REPORT.md (정직 리포트) |
 | Agent | `test-writer` | 변경분 테스트 작성 |
 | Skill | `convention-check` | 팀 컨벤션 준수 점검 |
 | Skill | `pr-description` | diff → PR 설명 생성 |
 | Skill | `visual-verify` | 웹 UI 스크린샷 vision 검증 (브라우저 MCP 필요) |
-| Hook | `SessionStart` | 세션 시작 시 팀 규칙 리마인드 |
+| Hook | `SessionStart` | 세션 시작 시 팀 규칙 리마인드 + 진행 중 PDCA 사이클 재개 안내 |
+| Hook | `UserPromptSubmit` | 기능 요청 감지 → PDCA 사이클 규약 안내 (차단 없이 주입만) |
 | Hook | `PreToolUse(Bash)` | 위험 명령 차단 + 새 의존성 설치 차단 |
 | Hook | `PreToolUse(Write\|Edit)` | 보호 파일(.env·lockfile·.git) 편집 차단 + **시크릿 감지 차단(secret-guard)** |
 | Hook | `PostToolUse(Write\|Edit)` | 자동 prettier 포맷 (+ opt-in `DEVKIT_TSC_ON_EDIT=1` 타입체크) |
