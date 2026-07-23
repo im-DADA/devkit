@@ -25,7 +25,7 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 | Agent | `code-reviewer` | 읽기전용 코드 리뷰 |
 | Agent | `gap-detector` | PLAN/DESIGN 대비 구현 일치도 분석 (Match Rate) |
 | Agent | `report-writer` | 사이클 종합 → REPORT.md (정직 리포트) |
-| Agent | `test-writer` | 변경분 테스트 작성 |
+| Agent | `test-writer` | 테스트 전략 판단 + 사후 테스트 고정 |
 | Skill | `convention-check` | 팀 컨벤션 준수 점검 |
 | Skill | `pr-description` | diff → PR 설명 생성 |
 | Skill | `visual-verify` | 웹 UI 스크린샷 vision 검증 (브라우저 MCP 필요) |

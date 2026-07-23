@@ -36,13 +36,16 @@ allowed-tools:
 
 - DESIGN의 "TDD로 고정할 계약"이 **있으면 tdd-driver**(테스트 먼저, RED-GREEN-REFACTOR), UI/조립 위주면 **feature-builder**를 Task로 띄운다. 둘 다 필요하면 로직→tdd-driver, 뷰→feature-builder 순.
 - 테스트 러너가 없고 계약이 있으면 **멈추고** "테스트 셋업(vitest 등) 추가할까요?"를 먼저 묻는다(새 의존성 승인).
+- **구현 후 검증 고정** — `test-writer`로 "무엇을 어느 레벨로 테스트할지" 판단하고 test-first로 안 덮인 영역을 남는 테스트로 고정한다. 임시 스크립트로 확인하고 지우는 것은 금지.
+- **UI 위주 작업이면** `visual-verify` 스킬로 시각 검증(시안 대조·스크린샷)을 수행한다. RULES.md "테스트 / TDD"가 정한 UI의 진짜 검증 방식이다 — 마크업을 유닛으로 고정하지 않는다.
 - 상태: `stage:"do"`, `status:"in-progress"`.
-- **게이트**: 구현·테스트 결과 요약 보여주고 확인.
+- **게이트**: 구현·테스트 결과 요약(+UI면 시각 검증 결과) 보여주고 확인.
 
 ## 4) Gap — 설계대로 됐나 (완전성) + 자동 보완 — `docs/{cycle}/GAP.md`
 
 - **필수 단계다.** 스킵하고 Report로 건너뛰지 않는다.
 - **gap-detector**로 `docs/{cycle}/PLAN.md`·`DESIGN.md` 대비 구현 대조 → ✅/⚠️/❌ + **Match Rate**. 결과는 `docs/{cycle}/GAP.md`에 저장.
+- UI 작업이면 **시각 검증 결과도 Gap 근거에 포함**한다 — 코드 대조만으로는 시안 일치 여부를 알 수 없다.
 - **90% 미만이면 `/iterate`(자동 보완 루프)**를 돌린다 — 갭을 tdd-driver/feature-builder로 메우고 재분석을 목표 도달까지(최대 5회, 진전 없으면 중단). 사용자가 "수동으로 볼게" 하면 자동 루프 생략.
 - 상태: `stage:"gap"`, `matchRates`에 회차별 점수 append.
 - **게이트**: 최종 Match Rate·회차 추이·남은 갭 보여주고 확인.

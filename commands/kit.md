@@ -102,9 +102,9 @@ allowed-tools:
   feature-builder   웹 기능 구현 (feature 구조)
   tdd-driver        테스트 우선 red-green-refactor 구현
   code-reviewer     읽기전용 코드 리뷰
-  gap-detector      SPEC/DESIGN 대비 구현 일치도 분석
+  gap-detector      PLAN/DESIGN 대비 구현 일치도 분석
   report-writer     사이클 종합 → REPORT.md
-  test-writer       변경분 테스트 작성
+  test-writer       테스트 전략 판단 + 사후 테스트 고정
 
 스킬 (모델 자동 호출 / 직접 호출)
   convention-check  팀 컨벤션 준수 점검

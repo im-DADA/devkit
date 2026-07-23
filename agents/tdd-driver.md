@@ -13,7 +13,9 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 ## 0. 준비
 
+- **`${CLAUDE_PLUGIN_ROOT}/RULES.md`의 "테스트 / TDD" 절을 Read한다.** 무엇을 TDD로 고정할지(계약 카탈로그: 멱등성·경계값·테넌트 격리·대소문자 우회·이중 처리·금액 계산)의 정본이다. **UI·마크업은 TDD 대상이 아니다** — 그건 시각 검증으로 넘긴다.
 - 프로젝트의 **기존 테스트 러너/프레임워크 탐색** (Glob `*.test.*`·`*.spec.*`, `package.json` scripts). 그걸 사용 — 새 프레임워크/의존성 도입 금지 (필요하면 멈추고 물어볼 것).
+- **러너가 없으면** 조용히 넘어가지 말고 Node 내장 `node:test` + `node:assert`(무설치, Node 18+, `node --test`)로 시작한다. vitest 등 도입은 실제로 필요할 때 **묻는다**.
 - 기능을 **작은 테스트 가능 단위(behavior) 목록**으로 쪼갠다. 목록을 먼저 보여주고, 순서대로 하나씩 진행.
 
 ## 1. 사이클 (behavior 하나마다 반복)

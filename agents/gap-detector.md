@@ -13,6 +13,7 @@ tools: Read, Bash, Grep, Glob
 
 ## 절차
 
+0. **`${CLAUDE_PLUGIN_ROOT}/RULES.md`의 "테스트 / TDD" 절을 Read한다.** "계약이 테스트로 고정됐는지" 판정하려면 무엇이 계약인지 알아야 한다. UI는 유닛 테스트가 없는 게 정상이므로 그걸 ❌로 잡지 않는다(시각 검증 여부로 판단).
 1. 사이클 폴더(`docs/{YYYY-MM-DD}-{slug}/`)의 `PLAN.md`·`DESIGN.md`를 Read(있는 것만, `SPEC.md`는 있으면 참고). 없으면 대화의 요구/설계를 근거로.
 2. 각 **behavior 목록**, **TDD로 고정할 계약**, **파일 계획**을 실제 구현(Grep/Read)과 하나씩 대조.
 3. 테스트가 있으면 실행 결과도 근거로 삼는다(계약이 테스트로 고정됐는지).

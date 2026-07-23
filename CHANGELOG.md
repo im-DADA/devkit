@@ -2,6 +2,18 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.8.1] - 2026-07-23
+
+### Fixed
+- **feature-builder의 폴더 구조 드리프트** — 에이전트가 `components/{feature}/{ui,...}`를 지시했으나 RULES.md는 `src/features/{feature}/views/`가 정본이었다. 두 규칙이 달라 구현 결과를 code-reviewer가 위반으로 잡을 수 있었다. 복붙된 규칙을 지우고 RULES 참조로 교체.
+
+### Changed
+- **에이전트가 RULES.md를 실제로 읽게 배선** — 기존엔 7개 중 code-reviewer만 참조했고 나머지는 지식을 복붙했거나 아예 없었다. architect·feature-builder·tdd-driver·test-writer·gap-detector·code-reviewer에 "시작 전 해당 절을 Read" 지시 추가. 줄번호가 아니라 **섹션 제목**으로 참조해 문서가 바뀌어도 안 깨진다.
+- **test-writer를 테스트 전략가로 재정의** — 호출 경로가 없던 고아 에이전트였다. RULES "테스트 / TDD"의 대상별 전략(순수로직=TDD / UI=시각검증 / API=통합)을 담고, `/flow`·`/iterate`에 배선. 에이전트 개수는 그대로 7개.
+- **code-reviewer 보안 리뷰 강화** — 4단어 나열이던 것을, 가드 훅이 못 잡는 의미론적 취약점(인가 위치·IDOR·테넌트 격리·injection·CSRF·SSRF·시크릿 노출)으로 확장. 출력에 보안 그룹 추가.
+- **architect에 도메인 체크리스트 추가** — 데이터 모델·API 계약·상태 관리·보안 배치·동시성·성능. 에이전트를 쪼개지 않고 한 파일에서 커버. 체크리스트가 없으면 "모른다"는 사실조차 인지되지 않는다.
+- **`/flow`에 UI 검증 경로 연결** — RULES는 "UI는 시각 검증"이라 정의해놓고 워크플로에 분기가 없어 UI도 코드 대조만 하고 통과했다. Build·Gap 단계에 `visual-verify` 연결.
+
 ## [0.8.0] - 2026-07-23
 
 ### Added
