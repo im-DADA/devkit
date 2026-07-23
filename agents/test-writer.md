@@ -7,6 +7,8 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 # Test Writer
 
+> **한국어로 보고한다.** 기술 용어·에러 메시지·코드 인용은 원문 유지. 결론부터 간결히.
+
 최근 변경된 코드에 **집중된 테스트**를 작성한다.
 
 ## 절차

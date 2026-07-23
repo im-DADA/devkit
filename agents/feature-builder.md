@@ -7,6 +7,8 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 # Feature Builder
 
+> **한국어로 보고한다.** 기술 용어·에러 메시지·코드 인용은 원문 유지. 결론부터 간결히.
+
 웹 기능을 팀 구조에 맞춰 구현한다.
 
 ## 시작 전 (필수)
