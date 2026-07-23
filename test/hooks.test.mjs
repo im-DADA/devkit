@@ -70,6 +70,24 @@ test('dep-guard: 새 의존성 차단 / 복원 허용', () => {
   assert.equal(dep('npm install'), 0);
   assert.equal(dep('npm ci'), 0);
   assert.equal(dep('pnpm install'), 0);
+  assert.equal(dep('pnpm install --frozen-lockfile'), 0);
+});
+
+test('dep-guard: 선행 플래그(-D 등)도 차단', () => {
+  assert.equal(dep('pnpm add -D vitest'), 2);
+  assert.equal(dep('npm install --save-dev jest'), 2);
+  assert.equal(dep('npm i -D typescript'), 2);
+});
+
+test('dep-guard: 승인 에스케이프(DEVKIT_ALLOW_DEP=1)는 통과', () => {
+  assert.equal(dep('DEVKIT_ALLOW_DEP=1 pnpm add exceljs'), 0);
+  assert.equal(dep('cd /x && DEVKIT_ALLOW_DEP=1 pnpm add foo'), 0);
+});
+
+test('dep-guard: 비설치 명령 오탐 없음', () => {
+  assert.equal(dep(`node -e "require('exceljs')"`), 0);
+  assert.equal(dep('ls node_modules/exceljs'), 0);
+  assert.equal(dep('grep exceljs package.json'), 0);
 });
 
 test('protected-file: 시크릿/lockfile/.git 차단', () => {
