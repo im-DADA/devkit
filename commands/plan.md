@@ -37,8 +37,9 @@ allowed-tools:
    }
    ```
    `evidence`는 구현 후 채운다: `{kind:"test"|"visual"|"manual", ref, cmd, output, at}`. **`output`(실행 흔적)이 없으면 통과로 세지 않는다.**
-6. `.devkit/pdca-state.json` 생성/갱신 — `cycleId`는 폴더명, `stage:"plan"`, `status:"awaiting-approval"`, `nextAction:"PLAN.md 승인 대기"`.
-7. 사용자에게 계획 보여주고 **수정 여지 주고 승인 대기**. ⚠ 승인 전에 다음 단계로 넘어가지 말 것.
-8. 승인되면 **Design** — architect 에이전트로 `docs/{cycle}/DESIGN.md` 작성 → 보여주고 다시 승인 대기. 상태 `stage:"design"`.
-9. Design 승인 후 **구현(Do)**. 상태 `stage:"do"`, `status:"in-progress"`. behavior가 통과할 때마다 `behaviors.json`의 `passes`·`evidence`를 갱신한다.
-10. 구현 완료되면 **`/gap` 필수** — PLAN·DESIGN 대비 대조. **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 없음)이지 Match Rate 숫자가 아니다. 미달이면 `/iterate` 보완 루프.
+6. `.devkit/pdca-state.json` 생성/갱신 — **4필드만**: `{version:1, cycleId:"폴더명", stage:"plan", status:"awaiting-approval"}`. (bkit이 같이 설치돼 있어도 이 형식을 지킬 것 — `cycle`/`phase`/`gates`는 bkit 스키마다.)
+7. `docs/{cycle}/PROGRESS.md` 생성 — 첫 줄은 정체성 앵커 `# PROGRESS — docs/{cycle}/`, 그 아래 `- {date} plan: PLAN.md + behaviors.json 작성, 승인 대기`. 이후 각 단계가 여기에 한 줄씩 append한다.
+8. 사용자에게 계획 보여주고 **수정 여지 주고 승인 대기**. ⚠ 승인 전에 다음 단계로 넘어가지 말 것.
+9. 승인되면 **Design** — architect 에이전트로 `docs/{cycle}/DESIGN.md` 작성 → 보여주고 다시 승인 대기. 상태 `stage:"design"`.
+10. Design 승인 후 **구현(Do)**. 상태 `stage:"do"`, `status:"in-progress"`. behavior가 통과할 때마다 `behaviors.json`의 `passes`·`evidence`를 갱신한다.
+11. 구현 완료되면 **`/gap` 필수** — PLAN·DESIGN 대비 대조. **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 없음)이지 Match Rate 숫자가 아니다. 미달이면 `/iterate` 보완 루프.

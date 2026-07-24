@@ -62,10 +62,9 @@ test('진행 중 사이클이 있으면 재개 컨텍스트를 주입(감지보�
     path.join(cwd, '.devkit', 'pdca-state.json'),
     JSON.stringify({
       version: 1,
-      cycleId: '2026-07-23-테스트',
+      cycleId: '2026-07-23-test-cycle',
       stage: 'design',
       status: 'awaiting-approval',
-      nextAction: 'DESIGN.md 승인 대기',
     }),
   );
   // 질문이라 감지는 미발동이지만, 진행 중 사이클이므로 재개 컨텍스트가 나와야 함
@@ -73,6 +72,8 @@ test('진행 중 사이클이 있으면 재개 컨텍스트를 주입(감지보�
   assert.equal(code, 0);
   assert.match(stdout, /진행 중 사이클/);
   assert.match(stdout, /승인 대기/);
+  // 4필드 축소로 제거된 필드를 참조하면 "undefined"가 주입된다 — 재발 방지
+  assert.doesNotMatch(stdout, /undefined/, '제거된 필드 참조로 undefined가 새면 안 됨');
 });
 
 test('비차단 불변식: 깨진 입력에도 exit 0 + 빈 stdout', () => {

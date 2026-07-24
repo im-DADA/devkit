@@ -10,7 +10,7 @@ import path from 'node:path';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { readState, writeState, isActive } = require(
+const { readState, writeState, isActive, gatePrerequisite } = require(
   path.join(dir, '..', 'hooks', 'lib', 'pdca-state.js'),
 );
 
@@ -30,14 +30,12 @@ after(() => {
   for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
 });
 
+// 4필드로 축소 — nextAction(PROGRESS에서 유도)·matchRates(behaviors.json)·docs(git)는 제거됨
 const SAMPLE = {
   version: 1,
-  cycleId: '2026-07-23-어드민-필터',
+  cycleId: '2026-07-24-admin-filter',
   stage: 'design',
   status: 'awaiting-approval',
-  nextAction: 'DESIGN.md 승인 대기',
-  matchRates: [],
-  docs: { 'PLAN.md': '2026-07-23T00:00:00.000Z' },
 };
 
 test('readState: 파일 없으면 null (throw 안 함)', () => {
@@ -73,4 +71,57 @@ test('isActive: done이면 false, 진행 중이면 true, null이면 false', () =
   assert.equal(isActive(null), false);
   assert.equal(isActive({ ...SAMPLE, stage: 'done' }), false);
   assert.equal(isActive(SAMPLE), true);
+});
+
+// ── D6: bkit 스키마 충돌 감지 ──────────────────────────
+// bkit이 같이 설치되면 AI가 bkit 스키마(cycle/phase/gates)로 상태를 쓴다.
+// "unknown → null"이 아니라 "foreign 명시"여야 훅이 경고를 띄울 수 있다.
+test('readState: bkit 스키마(cycle/phase/gates)는 foreign 명시', () => {
+  const root = makeRoot();
+  writeRaw(root, JSON.stringify({
+    cycle: '2026-07-24-cart-discount', phase: 'plan',
+    gates: { planApproved: false },
+  }));
+  assert.deepEqual(readState(root), { foreign: 'bkit' });
+});
+
+test('readState: phase만 있어도 foreign', () => {
+  const root = makeRoot();
+  writeRaw(root, JSON.stringify({ phase: 'do' }));
+  assert.deepEqual(readState(root), { foreign: 'bkit' });
+});
+
+test('readState: 우리 것은 4필드만 취한다(초과 필드 버림)', () => {
+  const root = makeRoot();
+  writeRaw(root, JSON.stringify({ ...SAMPLE, matchRates: [], docs: {}, nextAction: 'x' }));
+  assert.deepEqual(readState(root), SAMPLE); // 4필드만
+});
+
+test('readState: 우리도 bkit도 아니면 null', () => {
+  const root = makeRoot();
+  writeRaw(root, JSON.stringify({ foo: 'bar' }));
+  assert.equal(readState(root), null);
+});
+
+test('isActive: foreign이면 false (남의 사이클을 진행 중으로 오인 금지)', () => {
+  assert.equal(isActive({ foreign: 'bkit' }), false);
+});
+
+// ── D5: behaviors.json 게이트 (소비 시점 차단) ──────────
+test('gatePrerequisite: behaviors.json 있으면 통과', () => {
+  const root = makeRoot();
+  const cycleDir = path.join(root, 'docs', 'c');
+  fs.mkdirSync(cycleDir, { recursive: true });
+  fs.writeFileSync(path.join(cycleDir, 'behaviors.json'), '{"behaviors":[]}');
+  const r = gatePrerequisite(cycleDir);
+  assert.equal(r.ok, true);
+});
+
+test('gatePrerequisite: behaviors.json 없으면 거부 + 안내', () => {
+  const root = makeRoot();
+  const cycleDir = path.join(root, 'docs', 'c');
+  fs.mkdirSync(cycleDir, { recursive: true });
+  const r = gatePrerequisite(cycleDir);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /behaviors\.json|plan/i);
 });

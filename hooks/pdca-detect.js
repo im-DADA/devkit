@@ -32,8 +32,7 @@ function emit(context) {
 function resumeContext(state) {
   const lines = [
     `[devkit PDCA] 진행 중 사이클: ${state.cycleId} — 단계 ${state.stage} (${state.status})`,
-    `다음 액션: ${state.nextAction}`,
-    `문서: docs/${state.cycleId}/`,
+    `문서: docs/${state.cycleId}/ (진행 상황은 PROGRESS.md·behaviors.json)`,
   ];
   if (state.status === 'awaiting-approval') {
     lines.push(

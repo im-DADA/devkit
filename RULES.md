@@ -100,17 +100,30 @@ docs/
 - **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 0건). **Match Rate는 참고 신호일 뿐 게이트가 아니다** — 자기 설계를 자기가 채점하면 점수가 인플레된다.
 - **`/iterate` 회차 중 테스트 파일이 바뀌면 그 회차 점수는 무효**다(롤백은 아니고 사람에게 보고). 보완 과정의 정당한 테스트 추가와 "기존 테스트를 통과하도록 고치는 것"을 사람이 구분한다.
 
-### 상태 파일
+### 진행 추적 3층
 
-`.devkit/pdca-state.json`(gitignore, 로컬 상태)에 현재 사이클을 기록한다. 문서를 쓴 **직후 커맨드가** 갱신하며, 훅은 읽기만 한다.
+"어디까지 했나"를 세 곳이 나눠 담는다. 각 갱신이 "필드 하나 토글 / 줄 하나 추가 / 커밋"이라 전체 재작성이 없다 — 넓은 JSON 상태 파일은 null로 썩는다는 교훈.
 
+| 층 | 파일 | 담당 | 갱신 |
+|---|---|---|---|
+| 어디까지 | `docs/{cycle}/behaviors.json` | behavior별 통과+증거 | `passes`·`evidence` 토글 |
+| 어떻게 됐나 | `docs/{cycle}/PROGRESS.md` | 판단·회차·Breaker 판결 | append만 |
+| 실제 코드 | `git log` | 진실의 원천 | 커밋 |
+| 포인터 | `.devkit/pdca-state.json` | 현재 사이클·단계 | 4필드 |
+
+**상태 파일은 4필드 포인터**(gitignore):
 ```json
-{ "version": 1, "cycleId": "2026-07-24-payment-retry", "stage": "design",
-  "status": "awaiting-approval", "nextAction": "DESIGN.md 승인 대기" }
+{ "version": 1, "cycleId": "2026-07-24-payment-retry", "stage": "design", "status": "awaiting-approval" }
 ```
+- `stage`: `plan|design|do|gap|report|done` · `status`: `in-progress|awaiting-approval|done`
+- ⚠ **bkit이 같이 설치돼 있어도 이 형식을 쓸 것.** `cycle`/`phase`/`gates`는 bkit 스키마다 — 섞이면 재개가 깨진다(훅이 감지해 경고한다).
+- 문서를 쓴 **직후 커맨드가** 갱신하고, 훅은 읽기만 한다(SessionStart가 재개 시 PROGRESS 끝·behaviors 미완료·git log를 주입).
 
-- `stage`: `plan` | `design` | `do` | `gap` | `report` | `done`
-- `status`: `in-progress` | `awaiting-approval` | `done`
+**PROGRESS.md**는 첫 줄이 정체성 앵커(`# PROGRESS — docs/{cycle}/`)다. 각 단계·회차가 한 줄씩 append하며, git이 답할 수 있는 것(무엇이 변했나)은 안 쓰고 "왜 그렇게 판단했나"만 남긴다.
+
+### behaviors.json 게이트 (D5 — 소비 시점 차단)
+
+`/plan`이 behaviors.json을 만들지만 **그것에 의존하지 않는다.** 없으면 `/gap`·`/report`가 하드 거부하고("먼저 /plan의 behavior 단계 실행"), Stop 훅이 백스톱 경고를 낸다. 파일을 만들게 강제하는 대신 **없으면 다음 단계가 안 열리게** 한다(spec-kit 패턴).
 
 ## Figma / 디자인 구현
 

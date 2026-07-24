@@ -2,6 +2,27 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.10.0] - 2026-07-24
+
+재설계 Phase 2 — 훅 강제 + 진행 추적 3층. Phase 1(0.9.0) 배포 후 실전 재검증에서 드러난 두 결함을 뿌리부터 막는다.
+
+### Fixed
+- **D5: `/plan`이 behaviors.json을 안 만들던 문제** — 커맨드 지시만으로는 AI가 빠뜨린다("쓰기가 작업 흐름에 박혀있지 않으면 썩는다"). **"생성 강제"를 포기하고 "소비 시점 게이트"로 전환**(spec-kit `check-prerequisites.sh` 패턴): behaviors.json이 없으면 `/gap`·`/report`가 하드 거부하고, `stop-verify.js`가 백스톱 경고를 낸다. 없으면 다음 단계가 안 열린다.
+- **D6: bkit과 상태 스키마 충돌** — bkit이 같이 설치되면 AI가 bkit 스키마(`cycle`/`phase`/`gates`)로 상태를 써서 재개가 깨졌다. `readState`가 양성 시그니처(`version:1`+`cycleId`)만 우리 것으로 받고, `phase`/`gates`/`cycle`이 보이면 `{foreign:"bkit"}`로 명시 감지. SessionStart가 충돌을 경고한다. (Claude Code에 플러그인 간 상태 조율 공식 메커니즘이 없어 자체 방어.)
+
+### Added
+- **`hooks/lib/progress.js`** — PROGRESS.md 재개 파서(`identityAnchor`/`tail`). 첫 줄 정체성 앵커로 다른 사이클 저널 오독 방지.
+- **`hooks/lib/pdca-state.js`에 `gatePrerequisite`** — behaviors.json 존재 게이트(결정론적).
+- **SessionStart 컴팩션 복구** — matcher를 `startup|resume|clear|compact`로. 진행 중 사이클이면 PROGRESS.md 끝 10줄 + behaviors.json 미완료 + `git log -8`을 주입해 컴팩션 후 위치를 복구한다.
+- **`/iterate` Breaker** — 5회 소진/2회 정체 시 남은 갭을 parked(근거 기록)/BLOCKED(사용자 보고)로 판결. **"조용한 폐기 금지"** — 모든 판결을 PROGRESS.md에 남긴다.
+- 테스트: `test/progress.test.mjs`(7) + pdca-state foreign·게이트 케이스 → 총 85개.
+
+### Changed
+- **`.devkit/pdca-state.json`을 4필드로 축소** — `{version, cycleId, stage, status}`. `nextAction`·`matchRates`·`docs`는 각각 PROGRESS.md·behaviors.json·git에서 유도. 넓은 상태 JSON이 null로 썩는 것(bkit 관측) 방지.
+- **진행 추적 3층 규약**을 RULES에 명문화 — behaviors.json(토글) / PROGRESS.md(append) / git(커밋).
+- `PreCompact`는 도입하지 않음 — 모델에 컨텍스트 주입 불가(공식 확인). 복구는 SessionStart-compact 전담.
+- **B4(SubagentStop 산출물 검증)는 Phase 3으로 미룸** — stage와 agent가 1:1이 아니라 오탐 여지가 있고 경고만이라 효과가 약함. 반쯤 만드는 것보다 안 만드는 게 낫다.
+
 ## [0.9.0] - 2026-07-24
 
 재설계 Phase 1 — 버그 수정 + **검증 무결성**. 실전 도그푸딩과 리서치 3종(bkit 실사용 분석 / 외부 하네스 벤치마킹 / 품질게이트 문헌)에 근거한다.

@@ -10,7 +10,7 @@
     {
       "name": "devkit",
       "description": "웹 개발 · 코드리뷰/QA · 반복 워크플로우 · 컨벤션 표준화 통합 킷.",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "source": "./",
       "category": "development",
       "keywords": [

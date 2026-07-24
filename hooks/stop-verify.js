@@ -35,16 +35,35 @@ function findPkg(startDir) {
 }
 
 const pkgPath = findPkg(process.cwd());
-if (!pkgPath) process.exit(0);
-
-let scripts = {};
-try { scripts = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).scripts || {}; } catch { process.exit(0); }
-
-const root = path.dirname(pkgPath);
-const toRun = ['typecheck', 'lint'].filter((s) => scripts[s]);
-if (!toRun.length) process.exit(0);
-
+const root = pkgPath ? path.dirname(pkgPath) : process.cwd();
 const problems = [];
+
+// ── B9 백스톱: 구현 단계인데 behaviors.json이 없으면 경고 ──────────────
+// D5 대응. behaviors.json은 /gap의 소비 입력이라 /gap·/report가 하드 게이트로 막지만,
+// 그보다 이른 시점에 놓쳤음을 알려 되돌릴 여지를 준다. (강제 생성이 아니라 결핍 경고)
+try {
+  const { readState } = require('./lib/pdca-state');
+  const state = readState(root);
+  if (state && !state.foreign && ['do', 'gap', 'report'].includes(state.stage)) {
+    const cycleDir = path.join(root, 'docs', state.cycleId);
+    if (!fs.existsSync(path.join(cycleDir, 'behaviors.json'))) {
+      problems.push(
+        `### behaviors.json 누락 (stage: ${state.stage})\n` +
+          `구현 단계인데 \`docs/${state.cycleId}/behaviors.json\`이 없다. ` +
+          `/plan의 behavior 목록 단계를 완료해 분모를 고정하라 — 없으면 /gap이 진행되지 않는다.`,
+      );
+    }
+  }
+} catch {
+  // 상태 로드 실패는 무시(백스톱이 대화를 막지 않는다)
+}
+
+// ── typecheck/lint (있을 때만) ────────────────────────────────────
+let scripts = {};
+if (pkgPath) {
+  try { scripts = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).scripts || {}; } catch { /* noop */ }
+}
+const toRun = ['typecheck', 'lint'].filter((s) => scripts[s]);
 for (const s of toRun) {
   try {
     execSync(`npm run -s ${s}`, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });

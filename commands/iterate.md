@@ -1,7 +1,7 @@
 ---
 name: iterate
-description: Gap이 목표 Match Rate(기본 90%)에 도달할 때까지 자동으로 보완→재분석을 반복. gap-detector로 갭을 찾고 tdd-driver/feature-builder로 ❌·⚠️를 메운 뒤 다시 분석. 최대 5회, 안전장치 포함.
-argument-hint: "[목표% (기본 90)]"
+description: behaviors.json의 unproven(증거 없는 통과 주장)이 0이 될 때까지 자동으로 보완→재분석을 반복. gap-detector로 갭을 찾고 tdd-driver/feature-builder로 메운 뒤 재분석. 최대 5회, 소진 시 Breaker(parked/BLOCKED) 판결.
+argument-hint: ""
 user-invocable: true
 allowed-tools:
   - Read
@@ -15,16 +15,16 @@ allowed-tools:
 
 # /iterate
 
-Gap 분석 → 보완 → 재분석을 **자동으로 반복**해 Match Rate를 목표(인자 없으면 90%)까지 끌어올린다.
+Gap 분석 → 보완 → 재분석을 **자동으로 반복**해 `behaviors.json`의 unproven(증거 없는 통과 주장)을 0으로 만든다. Match Rate는 참고 신호일 뿐 목표가 아니다.
 
 ## 루프 (최대 5회)
 
 0. **회차 시작 SHA 기록** — `git rev-parse HEAD`로 BASE를 잡아둔다. 회차 끝에서 테스트 조작 검사에 쓴다.
 1. **gap-detector** Task로 PLAN/DESIGN 대비 현재 구현 분석 → 판정 + ❌/⚠️ 목록.
-2. **종료 조건 검사** — 아래 중 하나면 멈춘다:
-   - **`behaviors.json`의 unproven이 0** (증거 없는 통과 주장이 없음) → 성공. *Match Rate는 참고 신호일 뿐 종료 기준이 아니다.*
-   - 5회 소진 → 남은 갭 명시하고 사람에게.
-   - **같은 갭이 2회 연속 안 줄어듦** → 자동으로 못 메우는 것. 멈추고 사람에게(수동 개입 요청).
+2. **종료 조건 검사** — 아래 중 하나면 멈추고 **Breaker**로 넘어간다:
+   - **`behaviors.json`의 unproven이 0** → 성공. 종료.
+   - 5회 소진 → Breaker.
+   - **같은 갭이 2회 연속 안 줄어듦** → Breaker (자동으로 못 메움).
 3. ❌·⚠️ 항목을 보완: **계약/로직이면 tdd-driver(테스트 먼저), UI/조립이면 feature-builder**를 Task로. 갭이 "검증 부재"면 **test-writer**로 남는 테스트를 심고, UI 시안 불일치면 `visual-verify`로 대조한다.
 4. **테스트 조작 검사 (필수)** — 회차에서 테스트 파일이 바뀌었는지 확인한다:
    ```bash
@@ -40,11 +40,23 @@ Gap 분석 → 보완 → 재분석을 **자동으로 반복**해 Match Rate를 
    > 어떻게 바뀌었는지(추가/수정/삭제)를 함께 적는다.
 5. 1로 돌아가 재분석.
 
-## 회차 기록
+## Breaker (종료 후 판결)
 
-각 회차마다 `회차 N — Match Rate X% → Y% (보완: …)`를 남긴다. 종료 시 추이 요약.
+루프가 멈추면 **남은 갭을 하나하나 판결**한다. 조용히 넘어가지 않는다.
 
-사이클이 진행 중이면(`.devkit/pdca-state.json` 존재) **회차마다 `matchRates`에 점수를 append**한다. `/gap`만 기록하면 iterate 회차가 빠져 REPORT의 추이가 끊긴다. 사이클 폴더의 `GAP.md`도 회차를 누적해 갱신한다.
+- **parked** — 지적이 틀렸거나 PLAN이 명시적으로 배제한 범위. → 근거를 `PROGRESS.md`에 기록하고 진행.
+- **BLOCKED** — 진짜 갭이고 후속 작업이 이 위에 쌓인다. → 중단하고 **사용자에게 보고**.
+
+> **"조용한 폐기 금지"** — 모든 판결(parked·BLOCKED)은 반드시 PROGRESS.md에 남긴다. 남은 ❌가 무시된 건지 판단된 건지 사용자가 알 수 있어야 한다.
+
+## 회차 기록 (PROGRESS.md)
+
+각 회차마다 `docs/{cycle}/PROGRESS.md`에 한 줄 append한다:
+```
+- {date} iterate#{N}: unproven X → Y (보완: …)
+- {date} iterate#{N} BREAK: {id} parked(근거) / {id} BLOCKED(사용자 보고)
+```
+`matchRates`는 더 쓰지 않는다(상태 4필드 축소). 추이는 PROGRESS.md가 담고, 확정 판정은 behaviors.json이 담는다.
 
 ## 안전장치 (필수)
 
