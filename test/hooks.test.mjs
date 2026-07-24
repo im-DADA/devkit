@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -97,4 +98,37 @@ test('protected-file: 시크릿/lockfile/.git 차단', () => {
   assert.equal(prot('.git/config'), 2);
   assert.equal(prot('node_modules/x/index.js'), 2);
   assert.equal(prot('src/app.ts'), 0);
+});
+
+// ── stop-verify (B1·B2 회귀 방지) ─────────────────────────────
+// Stop 훅은 stdout이 컨텍스트로 안 간다(UserPromptSubmit·UserPromptExpansion·SessionStart만 예외).
+// 그래서 hookSpecificOutput JSON으로 내보내야 하는데, 이걸 plain text로 되돌리면
+// 조용히 "검증은 도는데 아무도 못 보는" 상태가 된다 — 소스로 계약을 고정한다.
+test('stop-verify: 출력이 hookSpecificOutput JSON 형식', () => {
+  const src = fs.readFileSync(hook('stop-verify'), 'utf8');
+  assert.match(src, /hookSpecificOutput/, 'Stop은 stdout이 컨텍스트로 안 감 — JSON 필요');
+  assert.match(src, /hookEventName['"]?\s*:\s*['"]Stop/, 'hookEventName: Stop 누락');
+  assert.match(src, /additionalContext/, 'additionalContext 누락');
+});
+
+test('stop-verify: stop_hook_active 가드 존재(무한루프 방지)', () => {
+  const src = fs.readFileSync(hook('stop-verify'), 'utf8');
+  assert.match(src, /stop_hook_active/, '재진입 가드 없음');
+});
+
+test('stop-verify: 어떤 입력에도 exit 0 (비차단)', () => {
+  // 검증 스크립트가 없는 tmp에서 도는 케이스 + 깨진 stdin
+  for (const input of [{}, { stop_hook_active: true }, 'not json']) {
+    let code = 0;
+    try {
+      execFileSync('node', [hook('stop-verify')], {
+        input: typeof input === 'string' ? input : JSON.stringify(input),
+        cwd: os.tmpdir(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (e) {
+      code = e.status ?? 1;
+    }
+    assert.equal(code, 0, `비차단이어야 함: ${JSON.stringify(input)}`);
+  }
 });

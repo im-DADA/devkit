@@ -1,10 +1,26 @@
 #!/usr/bin/env node
 // Stop: 턴 종료 시 프로젝트에 typecheck/lint 스크립트가 있으면 1회 실행하고 실패를 컨텍스트로 표면화 (비차단).
+//
+// ⚠ Stop 훅은 stdout이 그냥 디버그 로그로 간다 — 컨텍스트에 들어가는 건 UserPromptSubmit·
+// UserPromptExpansion·SessionStart 세 이벤트뿐이다. 따라서 hookSpecificOutput JSON으로 내보낸다.
+//
+// 차단(decision:"block")은 쓰지 않는다: WIP 상태에서 턴이 막히면 사용자가 훅 자체를 꺼버려
+// 효과가 0이 된다. 항상 켜져 있는 경고가 껐다 켜는 차단보다 실효가 크다.
+//
 // 노이즈 있으면 hooks.json에서 이 훅만 빼면 됨.
 const { execSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { record } = require('./lib/audit');
+
+// Stop 훅이 연속 차단하면 CC가 훅을 무시한다. 지금은 비차단이라 루프가 안 나지만,
+// 재진입 시 검증을 반복할 이유가 없으므로 조기 종료한다.
+try {
+  const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (input && input.stop_hook_active) process.exit(0);
+} catch {
+  // stdin이 없거나 깨져도 검증 자체는 진행한다(훅이 대화를 막으면 안 됨)
+}
 
 function findPkg(startDir) {
   let dir = path.resolve(startDir);
@@ -40,6 +56,13 @@ for (const s of toRun) {
 }
 
 if (problems.length) {
-  process.stdout.write(`[devkit] 종료 전 검증 실패 — 고쳐야 함:\n\n${problems.join('\n\n')}\n`);
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'Stop',
+        additionalContext: `[devkit] 종료 전 검증 실패 — 고쳐야 함:\n\n${problems.join('\n\n')}`,
+      },
+    }),
+  );
 }
 process.exit(0);

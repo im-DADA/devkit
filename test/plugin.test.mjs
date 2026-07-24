@@ -67,6 +67,21 @@ test('RULES.md SUMMARY 마커 존재(session-start.js 의존)', () => {
   assert.match(md, /<!-- SUMMARY:END -->/, 'SUMMARY:END 없음');
 });
 
+// B3 회귀 방지: marketplace 엔트리 버전이 plugin.json보다 뒤처지면 사용자가 갱신을 못 받는다.
+// 설치 시엔 plugin.json이 이기므로 조용히 어긋난 채로 방치되기 쉽다 — 사람 기억이 아니라 테스트로 고정한다.
+test('marketplace.json 플러그인 엔트리 버전 == plugin.json 버전', () => {
+  const pluginVersion = JSON.parse(read('.claude-plugin/plugin.json')).version;
+  const entry = JSON.parse(read('.claude-plugin/marketplace.json')).plugins.find(
+    (p) => p.name === 'devkit',
+  );
+  assert.ok(entry, 'marketplace.json에 devkit 엔트리 없음');
+  assert.equal(
+    entry.version,
+    pluginVersion,
+    `버전 불일치: marketplace=${entry.version} vs plugin.json=${pluginVersion}`,
+  );
+});
+
 test('hooks.json에 UserPromptSubmit 등록(PDCA 자동 발동)', () => {
   const hooks = JSON.parse(read('hooks/hooks.json')).hooks;
   assert.ok(hooks.UserPromptSubmit, 'UserPromptSubmit 이벤트 없음');

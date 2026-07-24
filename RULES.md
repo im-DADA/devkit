@@ -11,7 +11,8 @@
 - ❌ 금지: any 타입(→ `unknown`+narrowing), 에러 swallow(빈 catch), console.log 커밋, 추측 답변, 요청 안 한 파일 생성.
 - 🟡 확인 필요: 새 의존성 추가, force/reset --hard/브랜치 삭제, 커밋·푸시·PR, 외부 게시.
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
-- 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REPORT를 남긴다. **멈춤점은 PLAN·DESIGN 승인 2곳**, Gap은 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. 상세는 RULES "PDCA 사이클".
+- 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REPORT를 남긴다. **멈춤점은 PLAN·DESIGN 승인 2곳**, Gap은 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
+- ✅ 검증 무결성: `behaviors.json`이 Gap의 분모. **`passes:true`는 evidence(실행 흔적)가 있어야 유효** — 없으면 자동 강등된다. 통과 기준은 `unproven==0`이지 Match Rate 숫자가 아니다. 상세는 RULES "PDCA 사이클".
 - 파일 200줄 초과 시 분리. Feature 구조: ui=.tsx(뷰만) / hooks·api·utils·types=.ts.
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
 - 네이밍: 변수/함수 camelCase · 컴포넌트/타입 PascalCase · 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 상수 UPPER_SNAKE · 파일·폴더 kebab-case(심볼은 PascalCase). 축약어/부정boolean/I·T접두 금지.
@@ -62,8 +63,8 @@
 ① 기능 요청 → PLAN.md 작성 → 보여주고 [승인 대기]
 ② 승인 → DESIGN.md 작성(architect) → 보여주고 [승인 대기]
 ③ 승인 → 구현(Do)
-④ 구현 후 /gap 필수 → Match Rate 산출
-   └ 기준 미달이면 /iterate 루프로 되돌아감
+④ 구현 후 /gap 필수 → 증거 대조 (통과 기준: unproven == 0)
+   └ 증거 없는 통과 주장이 남으면 /iterate 루프로 되돌아감
 ⑤ 통과하면 REPORT.md → 사이클 아카이빙
 ```
 
@@ -79,19 +80,33 @@ docs/
     {YYYY-MM-DD}/{slug}/   ← 완료 후 이동
 ```
 
-- **slug**: 기능 설명을 kebab-case로 2~4단어. **한글 허용**(`결제-실패-재시도`). 최대 40자. 경로 사용 불가 문자(`/ \ : * ? " < > |`) 제거.
+- **slug**: 기능 설명을 **영문 kebab-case 2~4단어**(`payment-retry`). 최대 40자. 폴더·파일명은 경로 호환성 때문에 영문으로 고정하고, **문서 제목·본문은 사용자 언어를 따른다**(한국어로 대화하면 한국어 문서, 영어면 영어 문서).
 - 날짜는 사이클 **시작일**로 고정. 같은 날 충돌 시 `-2`, `-3` 접미.
 - 완료(REPORT 승인) 시 폴더를 `docs/archive/{날짜}/{slug}/`로 이동 → `docs/` 최상위엔 진행 중인 것만 남는다.
 - **Gap은 필수 단계다.** 스킵하고 REPORT로 건너뛰지 않는다.
+
+### 검증 무결성 (증거 없으면 통과 아님)
+
+사이클 폴더의 `behaviors.json`이 Gap 분석의 **분모**다. `/plan`이 behavior를 전부 `passes:false`로 만들어 분모를 고정한다(사후에 항목을 줄여 점수를 올리는 것을 막는다).
+
+```json
+{ "id": "B1", "desc": "…", "priority": "P1", "passes": true,
+  "evidence": { "kind": "test", "ref": "test/x.test.ts:42",
+                "cmd": "node --test", "output": "✔ … (2.1ms)", "at": "…" } }
+```
+
+- **`passes: true`는 evidence가 있어야 유효하다.** `output`(실행 흔적)이 없으면 읽는 시점에 자동으로 false로 강등된다 — 되돌릴 대상이 없으므로 우기기가 통하지 않는다.
+- `kind`는 `test` | `visual` | `manual`. UI처럼 유닛 테스트가 부적절한 것은 `visual`/`manual`로 하되 **확인 절차를 output에 남긴다**.
+- **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 0건). **Match Rate는 참고 신호일 뿐 게이트가 아니다** — 자기 설계를 자기가 채점하면 점수가 인플레된다.
+- **`/iterate` 회차 중 테스트 파일이 바뀌면 그 회차 점수는 무효**다(롤백은 아니고 사람에게 보고). 보완 과정의 정당한 테스트 추가와 "기존 테스트를 통과하도록 고치는 것"을 사람이 구분한다.
 
 ### 상태 파일
 
 `.devkit/pdca-state.json`(gitignore, 로컬 상태)에 현재 사이클을 기록한다. 문서를 쓴 **직후 커맨드가** 갱신하며, 훅은 읽기만 한다.
 
 ```json
-{ "version": 1, "cycleId": "2026-07-23-결제-재시도", "stage": "design",
-  "status": "awaiting-approval", "nextAction": "DESIGN.md 승인 대기",
-  "matchRates": [], "docs": { "PLAN.md": "2026-07-23T…" } }
+{ "version": 1, "cycleId": "2026-07-24-payment-retry", "stage": "design",
+  "status": "awaiting-approval", "nextAction": "DESIGN.md 승인 대기" }
 ```
 
 - `stage`: `plan` | `design` | `do` | `gap` | `report` | `done`

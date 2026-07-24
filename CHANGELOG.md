@@ -2,6 +2,27 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.9.0] - 2026-07-24
+
+재설계 Phase 1 — 버그 수정 + **검증 무결성**. 실전 도그푸딩과 리서치 3종(bkit 실사용 분석 / 외부 하네스 벤치마킹 / 품질게이트 문헌)에 근거한다.
+
+### Fixed
+- **Stop 훅 출력이 Claude에게 전달되지 않던 버그** — stdout이 컨텍스트로 들어가는 이벤트는 `UserPromptSubmit`·`UserPromptExpansion`·`SessionStart` 셋뿐이다. Stop은 예외에 없어 typecheck/lint 실패가 디버그 로그로만 갔다. `hookSpecificOutput` JSON으로 교체.
+- **`stop_hook_active` 가드 추가** — Stop 훅 재진입 시 검증을 반복하지 않는다. 향후 차단형으로 바꿀 때 무한루프 방지의 전제이기도 하다.
+- **`marketplace.json` 버전 불일치**(0.1.0 vs plugin.json 0.8.1) — `claude plugin validate`가 검출. 동기화.
+
+### Added
+- **`hooks/lib/behaviors.js`** — `behaviors.json` 검증. **`passes:true`라도 evidence(실행 흔적)가 없으면 읽는 시점에 false로 강등**한다. 파일을 고치지 않고 읽기 시점에 판정하는 이유는, 파일을 고치면 모델이 다시 true로 되돌리는 왕복이 생기기 때문이다.
+- **`hooks/lib/test-files.js`** — 테스트 파일 판정 + `git status --porcelain` 파싱. `/iterate` 회차 중 테스트가 수정되면 그 회차 점수를 무효화하기 위한 기반.
+- 테스트 24개(behaviors 16 / test-files 8) — 총 64개.
+
+### Changed
+- **Match Rate를 게이트에서 신호로 강등.** 통과 기준은 `unproven == 0`(증거 없는 통과 주장이 0건)이다. 근거: 자기 설계를 자기가 채점하면 점수가 인플레된다 — 실사용 관측에서 40여 사이클 중 90% 미만이 0건이었고, 분포가 없으면 그건 측정이 아니라 의례다.
+- **gap-detector가 테스트를 반드시 실행**하도록. "코드를 눈으로 읽은 것"은 동작 근거가 아니다. 외부 피드백 없는 자기 검증은 개선이 없거나 악화된다는 것이 일관된 연구 결과다.
+- **`/iterate`에 테스트 조작 검사 추가** — 회차 시작 SHA 대비 `git diff`로 테스트 파일 변경을 확인하고, 바뀌었으면 그 회차 점수를 무효로 하고 사람에게 보고한다. 규칙으로 훈계하는 것보다 검사가 강하다.
+- **`/plan`이 `behaviors.json`을 전부 `passes:false`로 생성** — 분모를 계획 시점에 고정해 사후 축소를 막는다.
+- **slug를 영문 kebab-case로 고정** — 폴더·파일명은 경로 호환성 때문에 영문, 문서 제목·본문은 사용자 언어를 따른다.
+
 ## [0.8.1] - 2026-07-23
 
 ### Fixed
