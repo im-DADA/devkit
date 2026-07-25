@@ -92,6 +92,7 @@ docs/
 
 ```json
 { "id": "B1", "desc": "…", "priority": "P1", "passes": true,
+  "target": "src/discount.ts:42",
   "evidence": { "kind": "test", "ref": "test/x.test.ts:42",
                 "cmd": "node --test", "output": "✔ … (2.1ms)", "at": "…" } }
 ```
@@ -99,6 +100,23 @@ docs/
 - **`passes: true`는 evidence가 있어야 유효하다.** `output`(실행 흔적)이 없으면 읽는 시점에 자동으로 false로 강등된다 — 되돌릴 대상이 없으므로 우기기가 통하지 않는다.
 - `kind`는 `test` | `visual` | `manual`. UI처럼 유닛 테스트가 부적절한 것은 `visual`/`manual`로 하되 **확인 절차를 output에 남긴다**.
 - **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 0건). **Match Rate는 참고 신호일 뿐 게이트가 아니다** — 자기 설계를 자기가 채점하면 점수가 인플레된다.
+- `ref`는 **검증하는 쪽**(테스트 파일), `target`은 **검증받는 쪽**(구현 코드 위치)이다. `target`은 선택이고 없으면 커버리지 판정을 건너뛴다.
+
+#### evidence 적합성 3층 (L3a — `node scripts/verify-evidence.mjs`)
+
+`unproven==0`은 "증거 없는 통과 주장이 없다"까지만 보장하고 "주장된 통과가 진짜다"를 보장하지 않는다. 그래서 세 가지를 더 본다.
+
+| 판정 | 질문 | 결과 |
+|---|---|---|
+| `unresolved` | `ref`가 가리키는 파일이 실재하나 | **게이트 — REPORT.md 쓰기가 차단된다** |
+| `uncited` | `output`의 인용이 실제 실행 로그(receipt)에 있나 | 보고 |
+| `dead-branch`·`uncovered` | `target` 코드가 실행되기는 하나 | 보고 |
+
+- **게이트는 `unresolved` 하나뿐이다.** 나머지는 오탐 여지가 있어 보고만 한다 — 오탐으로 정직한 사이클을 막는 것이 놓치는 것보다 나쁘다.
+- `target`은 **분기 조건 라인**을 가리켜야 도달 불가 분기(`dead-branch`)가 잡힌다. 블록 안쪽을 가리키면 `uncovered`만 나온다.
+- ⚠ Node는 경로에 `test/` 세그먼트가 있는 파일을 커버리지에서 제외한다. `target`이 `test/` 아래면 항상 `no-data`다.
+- **Bash 실행 기록은 `.devkit/receipts.jsonl`에 남는다**(gitignore 대상). 인용 대조의 근거이고, 지우려면 그냥 `rm`, 아예 끄려면 `DEVKIT_RECEIPTS=0`. 봉인이 시작되기 전 사이클을 소급 검사하면 `uncited`가 대량으로 뜨는데 그건 위조가 아니라 기록이 없는 것이다.
+  - 🔑 **마스킹은 `secret-patterns.js`의 알려진 키 형식 9종(AWS·GitHub·Slack·Stripe·Google·private key·JWT 등)뿐이다.** 그 외 — `export DB_PASSWORD=…`, `DATABASE_URL=postgres://user:pw@…`, `Authorization: Bearer …` 같은 형태는 **평문으로 남는다**. 명령·출력 전문이 기록된다는 뜻이므로 시크릿을 다루는 명령을 돌릴 땐 `DEVKIT_RECEIPTS=0`을 쓰거나 기록을 지워라.
 - **`/iterate` 회차 중 테스트 파일이 바뀌면 그 회차 점수는 무효**다(롤백은 아니고 사람에게 보고). 보완 과정의 정당한 테스트 추가와 "기존 테스트를 통과하도록 고치는 것"을 사람이 구분한다.
 
 ### 진행 추적 3층

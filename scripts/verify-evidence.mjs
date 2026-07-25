@@ -1,0 +1,150 @@
+// evidence 적합성 보고 — ref 실존 · receipt 인용 · 커버리지 3층을 조합해 출력한다.
+// 실행: node scripts/verify-evidence.mjs [--cycle <dir>] [--lcov <path>] [--json]
+//
+// ★ exit code는 어떤 상황에도 0이다. 이건 보고 도구다 — 차단은 pdca-gate 훅만 한다.
+//   unresolved>0을 exit 1로 만들면 gap-detector의 Bash 호출이 실패로 보이고,
+//   "보고 도구가 작업을 막는다"는 역할 혼선이 생긴다(DESIGN §6.2-5).
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { formatHuman, toJson } from './lib/report-format.mjs';
+
+const require = createRequire(import.meta.url);
+const lib = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'lib');
+const { findProjectRoot } = require(path.join(lib, 'project-root.js'));
+const { readState } = require(path.join(lib, 'pdca-state.js'));
+const { readBehaviors, effectivePasses } = require(path.join(lib, 'behaviors.js'));
+const { classifyRef } = require(path.join(lib, 'evidence.js'));
+const { readReceipts, checkCitation } = require(path.join(lib, 'receipt.js'));
+const { parseLcov, classifyTarget } = require(path.join(lib, 'lcov.js'));
+
+// 열린질문 ②: /gap이 다중 리포터로 여기에 lcov를 떨어뜨린다. 관례를 코드에 박아
+// --lcov 배선이 한 군데 빠져도 커버리지 층이 조용히 죽지 않게 한다.
+const DEFAULT_LCOV = path.join('.devkit', 'lcov.info');
+
+/** lcov 부재는 정상 경로다(커버리지를 안 돌린 사이클). 그 외 에러는 원문을 남기고 degrade */
+function readLcov(p) {
+  try {
+    return fs.readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code !== 'ENOENT') process.stderr.write(`[devkit] lcov 읽기 실패 (${p}): ${e.message}\n`);
+    return '';
+  }
+}
+
+function parseArgs(argv) {
+  const opts = { cycle: null, lcov: null, json: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === '--json') opts.json = true;
+    else if (argv[i] === '--cycle' || argv[i] === '--lcov') {
+      opts[argv[i].slice(2)] = argv[i + 1] ?? null;
+      i += 1;
+    }
+  }
+  return opts;
+}
+
+/** --cycle > pdca-state.json의 cycleId. 못 정하면 null (안내 후 정상 종료) */
+function resolveCycleDir(opts, root) {
+  if (opts.cycle) return path.resolve(root, opts.cycle);
+  const state = readState(root);
+  if (state && typeof state.cycleId === 'string' && state.cycleId !== '') {
+    return path.join(root, 'docs', state.cycleId);
+  }
+  return null;
+}
+
+const opts = parseArgs(process.argv.slice(2));
+// cwd 기준 root는 "어느 사이클을 볼지" 정하는 데만 쓴다 — --cycle 상대경로와
+// .devkit/pdca-state.json은 명령을 실행한 곳을 기준으로 찾는 게 맞다.
+const cwdRoot = findProjectRoot(process.cwd());
+const cycleDir = resolveCycleDir(opts, cwdRoot);
+
+if (cycleDir === null) {
+  process.stdout.write(
+    'evidence 검증 — 대상 사이클을 정하지 못했다.\n'
+    + '  .devkit/pdca-state.json이 없거나 cycleId가 비어 있다.\n'
+    + '  사이클 폴더를 직접 지정: node scripts/verify-evidence.mjs --cycle docs/{사이클폴더}\n',
+  );
+  process.exit(0);
+}
+
+// ★ 판정 root는 게이트(pdca-gate.js:43)와 **같은 근거**로 산정한다 — findProjectRoot(cycleDir).
+// cwd 기준으로 잡으면 워크스페이스 패키지가 자기 package.json을 가질 때 두 값이 갈려
+// "CLI는 unresolved 0인데 REPORT.md는 차단"되는 원인 불명 데드락이 난다(DESIGN 설계원칙 6).
+const root = findProjectRoot(cycleDir);
+
+const rel = (p) => path.relative(root, p).split(path.sep).join('/');
+const doc = readBehaviors(cycleDir);
+
+if (doc === null) {
+  process.stdout.write(
+    `evidence 검증 — ${rel(cycleDir)}/\n`
+    + '  behaviors.json이 없거나 읽을 수 없다 — 판정할 대상이 없다.\n'
+    + '  behavior 목록은 /plan 단계에서 만든다.\n',
+  );
+  process.exit(0);
+}
+
+const receipts = readReceipts(root);
+const lcovPath = path.resolve(root, opts.lcov ?? DEFAULT_LCOV);
+const cov = parseLcov(readLcov(lcovPath), root);
+
+// ref 층의 분모는 게이트(gateEvidence)와 정확히 같다 — passes:true + evidence 유효.
+// 분모가 다르면 "unresolved 0이라는데 왜 막히나"가 생긴다(DESIGN 설계원칙 6).
+const rows = doc.behaviors.map((b) => {
+  const ev = (b && typeof b === 'object') ? b.evidence : null;
+  return {
+    id: (b && b.id) || '?',
+    ref: (ev && typeof ev.ref === 'string') ? ev.ref : null,
+    refResult: effectivePasses(b) ? classifyRef(ev.ref, root) : null,
+    cite: checkCitation(ev, receipts),
+    target: (b && typeof b.target === 'string') ? b.target : null,
+    cov: classifyTarget(cov, b && b.target),
+  };
+});
+
+const refIs = (s) => rows.filter((r) => r.refResult !== null && r.refResult.status === s);
+const citeIs = (s) => rows.filter((r) => r.cite.status === s);
+const covIs = (s) => rows.filter((r) => r.cov.status === s);
+const unresolved = refIs('unresolved');
+const uncited = citeIs('uncited');
+const noReceipt = citeIs('no-receipt');
+const drifted = rows.filter((r) => r.refResult !== null && r.refResult.lineDrift.length > 0);
+const viaArchive = rows.flatMap((r) => (r.refResult === null ? [] : Object.keys(r.refResult.via)
+  .filter((p) => r.refResult.via[p] === 'archive')
+  .map((p) => ({ id: r.id, from: p }))));
+const uncovered = covIs('uncovered');
+const deadBranch = covIs('dead-branch');
+const noData = covIs('no-data');
+
+const counts = {
+  total: rows.length,
+  evaluated: rows.filter((r) => r.refResult !== null).length,
+  unresolved: unresolved.length,
+  uncited: uncited.length,
+  noReceipt: noReceipt.length,
+  uncovered: uncovered.length,
+  deadBranch: deadBranch.length,
+  noData: noData.length,
+  lineDrift: drifted.length,
+  viaArchive: viaArchive.length,
+};
+
+const view = {
+  cycle: rel(cycleDir),
+  lcov: rel(lcovPath),
+  counts,
+  rows,
+  receipts,
+  groups: {
+    unresolved, uncited, noReceipt, deadBranch, uncovered, drifted, viaArchive,
+  },
+};
+
+if (opts.json) {
+  process.stdout.write(JSON.stringify(toJson(view), null, 2) + '\n');
+  process.exit(0);
+}
+process.stdout.write(formatHuman(view));

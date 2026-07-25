@@ -36,7 +36,9 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 | Hook | `PostToolUse(Write\|Edit)` | 자동 prettier 포맷 (+ opt-in `DEVKIT_TSC_ON_EDIT=1` 타입체크) |
 | Hook | `Stop` | 종료 시 typecheck/lint 실행·보고 |
 | Hook | `PostToolUse(convention-observe)` | 통과한 규칙 위반(no-any·console.log·`.tsx` 로직) 관측 기록 |
+| Hook | `PostToolUse(Bash)` | 실행 receipt 봉인 — evidence 인용 대조의 근거 |
 | Observability | `.devkit/audit.jsonl` | 차단·통과위반·검증실패 기록 (`/kit audit` 조회) |
+| Observability | `.devkit/receipts.jsonl` | Bash 명령·출력 기록 (gitignore 대상, **알려진 키 형식 9종만 마스킹 — 그 외(`export K=V`·DB URL·Bearer 토큰 등)는 평문으로 남는다**, 끄려면 `DEVKIT_RECEIPTS=0`, 지우려면 `rm`) |
 | Eval | `test/*.test.mjs` | 정적 eval (훅 동작 + 플러그인 무결성) — `node --test` |
 | Eval | `evals/README.md` | 에이전트/스킬 행동 시나리오 (수동·반자동) |
 | Template | `templates/eslint.config.mjs` | 네이밍·no-any·에러·200줄·`.tsx` 로직을 **lint로 강제** |

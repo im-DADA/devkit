@@ -1,6 +1,6 @@
 {
   "name": "devkit",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "displayName": "devkit — 팀 개발 킷",
   "description": "웹 프로덕트 개발 · 코드리뷰/QA · 반복 워크플로우 · 팀 컨벤션 표준화를 담은 개인+조직 공용 Claude Code 플러그인.",
   "author": {

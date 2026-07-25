@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-hooks.json",
-  "description": "devkit — 리마인드 + PDCA 사이클 발동 + PDCA 게이트(선행 산출물/상태 스키마) + 자동 포맷 + 가드(명령/의존성/보호파일) + 타입체크 + 종료 검증",
+  "description": "devkit — 리마인드 + PDCA 사이클 발동 + PDCA 게이트(선행 산출물/상태 스키마) + 실행 receipt 봉인 + 자동 포맷 + 가드(명령/의존성/보호파일) + 타입체크 + 종료 검증",
   "hooks": {
     "SessionStart": [
       {
@@ -63,6 +63,16 @@
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/bash-receipt.js\"",
+            "timeout": 5000
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit",
         "hooks": [

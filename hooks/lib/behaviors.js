@@ -8,6 +8,7 @@
 // 규칙이 프롬프트 훈계보다 강하다.
 const fs = require('node:fs');
 const path = require('node:path');
+const { classifyRef } = require('./evidence');
 
 const FILE = 'behaviors.json';
 const EVIDENCE_KINDS = new Set(['test', 'visual', 'manual']);
@@ -37,15 +38,26 @@ function effectivePasses(behavior) {
   return isEvidenceValid(behavior.evidence);
 }
 
-/** 집계. unproven(증거 없는 통과 주장)이 0이어야 게이트를 통과한다 */
-function summarize(doc) {
+/**
+ * 집계. unproven(증거 없는 통과 주장)이 0이어야 게이트를 통과한다.
+ * opts.root를 주면 unresolved(증거가 가리키는 파일이 없음)까지 센다.
+ * 안 주면 null — 0으로 두면 "검사했고 깨끗하다"와 구분되지 않는다.
+ */
+function summarize(doc, opts = {}) {
   const list = (doc && Array.isArray(doc.behaviors)) ? doc.behaviors : [];
   const total = list.length;
   const passed = list.filter(effectivePasses).length;
   const unproven = list.filter((b) => b && b.passes === true && !isEvidenceValid(b.evidence)).length;
+  // 게이트(gateEvidence)와 같은 분모를 써야 "0이라는데 왜 막히나"가 안 생긴다
+  const root = (opts && typeof opts.root === 'string') ? opts.root : null;
+  const unresolved = root === null ? null : list.filter(
+    (b) => effectivePasses(b) && classifyRef(b.evidence.ref, root).status === 'unresolved',
+  ).length;
   // matchRate는 리포트용 신호일 뿐 통과 판정 기준이 아니다
   const matchRate = total === 0 ? 0 : Math.round((passed / total) * 100);
-  return { total, passed, unproven, matchRate };
+  return {
+    total, passed, unproven, unresolved, matchRate,
+  };
 }
 
 /** 사이클 폴더에서 behaviors.json 읽기. 실패는 전부 null로 degrade */

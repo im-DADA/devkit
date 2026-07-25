@@ -132,3 +132,40 @@ test('readBehaviors: 정상 파일은 파싱해서 반환', () => {
   assert.equal(got.behaviors.length, 1);
   assert.equal(got.behaviors[0].id, 'B1');
 });
+
+// ── B5: unresolved 집계 (unproven과 별도 축) ──
+// unproven은 "증거를 안 냈다", unresolved는 "낸 증거가 가리키는 파일이 없다".
+// 둘을 한 필드로 합치면 "왜 막혔는지"를 구분할 수 없다.
+const forgedEvidence = { ...validEvidence, ref: 'nope/ghost.test.mjs:1' };
+
+test('B5: root 없이 호출하면 기존 동작 불변 + unresolved는 null', () => {
+  const doc = {
+    behaviors: [
+      { id: 'B1', passes: true, evidence: validEvidence },
+      { id: 'B2', passes: true, evidence: null },
+      { id: 'B3', passes: false, evidence: null },
+    ],
+  };
+  const s = summarize(doc);
+  assert.deepEqual(
+    { total: s.total, passed: s.passed, unproven: s.unproven, matchRate: s.matchRate },
+    { total: 3, passed: 1, unproven: 1, matchRate: 33 },
+    '기존 호출자(session-start 등)의 결과가 바뀌면 회귀다',
+  );
+  assert.equal(s.unresolved, null, '판정 불가는 0이 아니라 null — 0은 "검사했고 깨끗하다"는 뜻이다');
+});
+
+test('B5: root를 주면 unresolved를 세고, unproven은 그대로다', () => {
+  const root = makeCycle();
+  const doc = {
+    behaviors: [
+      { id: 'B1', passes: true, evidence: forgedEvidence }, // 증거는 있는데 파일이 없다
+      { id: 'B2', passes: true, evidence: null },           // 증거 자체가 없다
+      { id: 'B3', passes: false, evidence: forgedEvidence },// 작업 중 — 세지 않는다
+    ],
+  };
+  const s = summarize(doc, { root });
+  assert.equal(s.unresolved, 1, 'B1만 unresolved');
+  assert.equal(s.unproven, 1, 'unproven의 의미는 한 글자도 바뀌지 않는다');
+  assert.equal(s.passed, 1, 'unresolved라도 passed 집계 방식은 그대로');
+});

@@ -1,8 +1,8 @@
 // devkit 가드 훅 회귀 테스트 — 훅을 수정하다 조용히 깨지는 것 방지.
 // 실행: node --test
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -98,6 +98,156 @@ test('protected-file: 시크릿/lockfile/.git 차단', () => {
   assert.equal(prot('.git/config'), 2);
   assert.equal(prot('node_modules/x/index.js'), 2);
   assert.equal(prot('src/app.ts'), 0);
+});
+
+// ── bash-receipt (B9) ────────────────────────────────────────
+// PostToolUse는 advisory라 애초에 차단 능력이 없다. 그래도 비정상 종료 코드조차 남기지
+// 않는다 — 훅이 죽어 보이면 사용자가 실행을 의심하게 되고, 그게 봉인의 목적을 해친다.
+const receiptRoots = [];
+function runReceiptHook(input, cwd, env) {
+  try {
+    execFileSync('node', [hook('bash-receipt')], {
+      input: typeof input === 'string' ? input : JSON.stringify(input),
+      cwd,
+      env: env ? { ...process.env, ...env } : process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return 0;
+  } catch (e) {
+    return e.status ?? 1;
+  }
+}
+function receiptRoot() {
+  const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-bashreceipt-')));
+  receiptRoots.push(d);
+  return d;
+}
+after(() => {
+  for (const d of receiptRoots) fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('bash-receipt: PostToolUse(Bash) 입력을 receipts.jsonl에 봉인한다', () => {
+  const root = receiptRoot();
+  const code = runReceiptHook({
+    tool_name: 'Bash',
+    tool_input: { command: 'node --test test/*.test.mjs' },
+    tool_response: { stdout: '✔ B9: 무언가 통과\n# pass 183\n', stderr: 'warn\n', interrupted: false },
+  }, root);
+
+  assert.equal(code, 0);
+  const lines = fs.readFileSync(path.join(root, '.devkit', 'receipts.jsonl'), 'utf8').trim().split('\n');
+  assert.equal(lines.length, 1, '한 실행당 한 줄');
+  const r = JSON.parse(lines[0]);
+  assert.equal(r.cmd, 'node --test test/*.test.mjs');
+  assert.match(r.stdout, /# pass 183/);
+  assert.equal(r.stderr, 'warn\n');
+  assert.match(r.ts, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+// 이 훅은 모든 Bash 명령의 command·stdout·stderr 전문을 사용자 프로젝트에 남기는데,
+// 마스킹은 알려진 키 형식 9종뿐이라 그 외는 평문으로 간다. 끄는 방법이 없으면
+// 시크릿을 다루는 명령을 돌릴 때 사용자에게 선택지가 없다. 기본값은 켜짐이다.
+test('bash-receipt: DEVKIT_RECEIPTS=0이면 아무것도 기록하지 않는다 (킬스위치)', () => {
+  const root = receiptRoot();
+  const input = {
+    tool_name: 'Bash',
+    tool_input: { command: 'echo secret' },
+    tool_response: { stdout: 'secret\n', stderr: '', interrupted: false },
+  };
+
+  assert.equal(runReceiptHook(input, root, { DEVKIT_RECEIPTS: '0' }), 0, '끈 상태에서도 exit 0');
+  assert.equal(fs.existsSync(path.join(root, '.devkit', 'receipts.jsonl')), false, '기록 파일이 생겼다');
+
+  // 기본값은 켜짐 — opt-out이지 opt-in이 아니다
+  assert.equal(runReceiptHook(input, root), 0);
+  assert.equal(fs.existsSync(path.join(root, '.devkit', 'receipts.jsonl')), true, '기본값이 꺼짐이 됐다');
+});
+
+// 킬스위치의 목적이 시크릿 보호이므로 **실패는 닫히는 쪽**이어야 한다. `'0'`에만 반응하면
+// `DEVKIT_RECEIPTS=false`·`off`·오타 하나가 조용히 열려 평문 시크릿이 기록된다(2회차 리뷰 🟡5).
+test('R8: 킬스위치는 인식한 on 값에만 켜진다 (fail-safe — 그 외는 꺼짐)', () => {
+  const input = {
+    tool_name: 'Bash',
+    tool_input: { command: 'echo secret' },
+    tool_response: { stdout: 'secret\n', stderr: '', interrupted: false },
+  };
+  const wrote = (value) => {
+    const root = receiptRoot();
+    assert.equal(runReceiptHook(input, root, value === null ? undefined : { DEVKIT_RECEIPTS: value }), 0,
+      `exit 0이 아니다: ${value}`);
+    return fs.existsSync(path.join(root, '.devkit', 'receipts.jsonl'));
+  };
+
+  for (const on of [null, '', '1', 'true', 'on', 'TRUE', ' on ']) {
+    assert.equal(wrote(on), true, `켜져 있어야 한다: ${JSON.stringify(on)}`);
+  }
+  for (const off of ['0', 'false', 'off', 'no', 'nope', '2', 'yes']) {
+    assert.equal(wrote(off), false, `꺼져 있어야 한다: ${JSON.stringify(off)}`);
+  }
+});
+
+test('R8: 인식 못 한 값은 조용히 끄지 않고 stderr에 남긴다', () => {
+  const root = receiptRoot();
+  const run = (value) => spawnSync('node', [hook('bash-receipt')], {
+    input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'echo x' }, tool_response: { stdout: 'x\n', stderr: '', interrupted: false } }),
+    cwd: root,
+    env: { ...process.env, DEVKIT_RECEIPTS: value },
+    encoding: 'utf8',
+  });
+
+  const unknown = run('yes');
+  assert.equal(unknown.status, 0);
+  assert.match(unknown.stderr, /DEVKIT_RECEIPTS/, '무엇 때문에 꺼졌는지 알려줘야 한다');
+  assert.match(unknown.stderr, /yes/, '어떤 값이 문제인지 알려줘야 한다');
+
+  // 알려진 off 값은 의도된 사용이므로 경고하지 않는다 — 매 Bash 호출마다 뜨면 노이즈다
+  assert.equal(run('0').stderr, '', 'DEVKIT_RECEIPTS=0은 문서화된 사용법이다');
+});
+
+test('bash-receipt: 어떤 입력에도 exit 0 (비차단)', () => {
+  const root = receiptRoot();
+  const cases = [
+    ['깨진 JSON', 'not json{'],
+    ['빈 입력', ''],
+    ['빈 객체', {}],
+    ['tool_response 없음', { tool_name: 'Bash', tool_input: { command: 'ls' } }],
+    ['tool_response가 문자열', { tool_input: { command: 'ls' }, tool_response: 'plain text output' }],
+    ['tool_response가 null', { tool_input: { command: 'ls' }, tool_response: null }],
+    ['tool_input 없음', { tool_response: { stdout: 'x', stderr: '' } }],
+    ['command가 비문자열', { tool_input: { command: 123 }, tool_response: { stdout: 'x', stderr: '' } }],
+  ];
+  for (const [label, input] of cases) {
+    assert.equal(runReceiptHook(input, root), 0, `비차단이어야 함: ${label}`);
+  }
+});
+
+test('bash-receipt: 쓰기 불가 경로에서도 exit 0 (기록 실패가 실행을 죽이지 않는다)', () => {
+  const root = receiptRoot();
+  fs.writeFileSync(path.join(root, '.devkit'), 'not a directory'); // mkdir을 실패시킨다
+  const code = runReceiptHook({
+    tool_input: { command: 'ls' },
+    tool_response: { stdout: 'x', stderr: '', interrupted: false },
+  }, root);
+  assert.equal(code, 0);
+});
+
+// 훅 파일이 있어도 등록이 없으면 봉인은 영원히 0건이고, 그러면 모든 evidence가
+// no-receipt로 떨어진다. 파일 존재와 배선은 별개의 사실이라 따로 고정한다.
+test('hooks.json: PostToolUse(Bash)에 bash-receipt가 등록되고 timeout 5000', () => {
+  const cfg = JSON.parse(fs.readFileSync(path.join(dir, '..', 'hooks', 'hooks.json'), 'utf8'));
+  const group = cfg.hooks.PostToolUse.find((g) => g.matcher === 'Bash');
+  assert.ok(group, 'PostToolUse에 matcher:"Bash" 그룹이 없다');
+
+  const h = group.hooks.find((x) => /bash-receipt\.js/.test(x.command));
+  assert.ok(h, 'bash-receipt.js 미등록');
+  assert.equal(h.type, 'command');
+  assert.equal(h.timeout, 5000);
+
+  // 기존 그룹 회귀 — Bash 그룹을 추가하다 Write|Edit를 덮어쓰면 포맷·타입체크가 조용히 죽는다
+  const we = cfg.hooks.PostToolUse.find((g) => g.matcher === 'Write|Edit');
+  assert.ok(we, 'PostToolUse의 Write|Edit 그룹이 사라졌다');
+  assert.equal(we.hooks.length, 3, 'Write|Edit 훅 개수가 변했다');
+  assert.match(cfg.description, /receipt|봉인/, 'description이 등록된 훅을 반영하지 않는다');
 });
 
 // ── stop-verify (B1·B2 회귀 방지) ─────────────────────────────

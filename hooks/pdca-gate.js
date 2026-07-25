@@ -8,6 +8,9 @@ const { record } = require('./lib/audit');
 const {
   matchCycleArtifact, isStateFile, gatePrerequisite, validateStateWrite,
 } = require('./lib/pdca-state');
+const { readBehaviors } = require('./lib/behaviors');
+const { gateEvidence } = require('./lib/evidence');
+const { findProjectRoot } = require('./lib/project-root');
 
 function deny(reason, file, tag) {
   record({ hook: 'pdca-gate', action: 'blocked', reason: tag, file });
@@ -32,6 +35,13 @@ function main() {
     if (!isAbs && !fs.existsSync(cycleDir)) return;
     const g = gatePrerequisite(cycleDir, hit.stage);
     if (!g.ok) deny(g.reason, file, `prereq:${hit.stage}:${g.missing.join(',')}`);
+
+    // ⑤ fail-open — GAP.md는 "unresolved가 있다"를 보고하는 것이 정상 산출이라 게이트하지 않는다
+    if (hit.stage !== 'report') return;
+    const doc = readBehaviors(cycleDir);
+    if (!doc) return; // ⑥ fail-open — 파일 없음·깨진 JSON = 판정 불가 = 통과
+    const ev = gateEvidence(doc, findProjectRoot(cycleDir));
+    if (!ev.ok) deny(`실행 흔적이 가리키는 파일이 없다\n${ev.reason}`, file, `evidence:${ev.unresolved.length}`);
     return;
   }
 

@@ -2,6 +2,50 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.12.0] - 2026-07-25
+
+evidence 적합성 검증 L3a — `unproven==0`이 보장하는 범위를 **"증거가 있나"에서 "그 증거가 실재하나"로** 넓힌다. 결함로그 D11-b 해소, D12 부분 해소. 새 의존성 0.
+
+### Added
+- **`hooks/lib/evidence.js`** — evidence `ref`의 파일 실존 판정. `hooks/pdca-gate.js`가 `unresolved > 0`이면 **REPORT.md 쓰기를 `exit 2`로 차단**한다(게이트는 이 한 종류뿐). 아카이빙된 사이클 문서를 자동으로 따라가는 **archive 폴백** 포함 — 없으면 완료된 사이클의 evidence가 전부 위조로 둔갑한다.
+- **`hooks/lib/receipt.js` + `hooks/bash-receipt.js`** — PostToolUse(Bash)가 명령·출력을 `.devkit/receipts.jsonl`에 봉인하고, evidence `output`의 인용을 대조한다(보고 전용). 시크릿은 `secret-patterns.js` 재사용으로 마스킹, `DEVKIT_RECEIPTS=0`으로 끌 수 있다.
+- **`hooks/lib/lcov.js`** — lcov 파싱으로 `target` 코드의 **도달 불가 분기(`dead-branch`)·미실행(`uncovered`)** 판정. Node 내장 `--experimental-test-coverage` 사용.
+- **`scripts/verify-evidence.mjs`** — 3층 판정 보고 CLI. `/gap`·`gap-detector`가 커버리지 수집형 테스트 명령과 함께 호출한다. **exit code는 항상 0**(차단은 훅만 한다).
+- **`behaviors.json`에 `target` 필드** — behavior가 겨냥하는 **구현 코드** 위치(`ref`는 테스트 파일, `target`은 검증받는 쪽). 다음 사이클 뮤테이션의 입력이기도 하다.
+- 테스트 147 → **234**. 무결성 22 → 28파일.
+
+### Fixed
+- **D11-b: evidence `ref` 실존 검사 없음** — 그럴듯한 문자열만 있으면 통과하던 것을 게이트로 막는다.
+- **D12(부분): 데드코드 시드 통과** — 커버리지가 도달 불가 분기를 실제로 잡는다(`BRDA:2,2,0,0` 독립 재현). PLAN이 "가설"로 분모에 넣은 항목이 실증됐다. 단 **"실행되지만 결과에 영향 없음"은 여전히 못 잡는다** — 뮤테이션(L3b)이 필요하다.
+- 도그푸딩으로 **DESIGN이 번호까지 박아둔 fail-open E4의 미검증**을 발견해 메웠다(테스트 208개가 통과하는데 그 분기는 한 번도 안 탔다).
+
+### Changed
+- `/gap`·`gap-detector`의 테스트 실행이 **커버리지 수집형**으로(다중 리포터 1회 실행으로 spec + lcov).
+- `RULES.md`에 L3a 판정표·`target` 설명·receipts 프라이버시 고지. `commands/plan.md` 템플릿에 `target`.
+
+### Known issues
+- 🔴 **L3a-2(receipt 인용)는 우회 가능하다** — `git diff` 한 번이면 위조 evidence가 `cited`로 뒤집힌다(결함로그 D15). `evidence.cmd`와 receipt `cmd` 대조로 전환해야 하며 **설계 변경이라 다음 사이클**이다.
+- **폴더명 위조는 어느 층에서도 안 막힌다** — 게이트에서 오탐 방지를 위해 의도적으로 포기했고 이관 대상 층이 미완이다.
+- **마스킹은 알려진 키 형식 9종뿐** — `export K=V`·DB URL·`Bearer …`는 평문으로 남는다.
+- **낡은 lcov로 판정이 돌 수 있다**(D16) — `verify-evidence`가 증거의 나이를 확인하지 않는다.
+
+## [0.11.0] - 2026-07-25
+
+*(당시 누락되어 0.12.0 작업 중 소급 기록)*
+
+review를 **GAP↔REPORT 사이 독립 필수 단계로 승격**하고, 게이트를 문서 지시가 아닌 훅으로 강제한다.
+
+### Added
+- **`hooks/pdca-gate.js`** (PreToolUse Write|Edit) — 사이클 산출물의 **선행조건을 실제로 강제**한다. `GAP.md`는 `behaviors.json`을, `REPORT.md`는 `behaviors.json`·`GAP.md`·`REVIEW.md`를 요구하고 없으면 `exit 2`. 빈 파일은 없는 것으로 본다(`touch` 우회 차단). `.devkit/pdca-state.json`의 4필드 스키마 검증도 같은 훅.
+- 테스트 87 → 147.
+
+### Changed
+- `/review`가 사이클 필수 단계 — REVIEW.md가 없으면 REPORT.md 쓰기가 훅에 차단된다(결함로그 D13: review 없이 "완료" 선언된 사이클에 실제 버그 3건이 남아 있었다).
+
+### Fixed
+- D13(review가 필수가 아님) · D14(아카이빙 경로·status 불일치).
+- **핵심 교훈**: `commands/gap.md`가 "`gatePrerequisite`가 같은 판정을 한다"고 써놨지만 **마크다운은 JS를 호출할 수 없었다.** 하드 게이트가 실제로는 AI의 성실성에 의존했고 그래서 D7·D8이 재발했다.
+
 ## [0.10.0] - 2026-07-24
 
 재설계 Phase 2 — 훅 강제 + 진행 추적 3층. Phase 1(0.9.0) 배포 후 실전 재검증에서 드러난 두 결함을 뿌리부터 막는다.

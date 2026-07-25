@@ -38,12 +38,15 @@ function run(input) {
   }
 }
 
-/** 사이클 폴더를 만들고 지정한 산출물만 채운다. 반환값은 사이클 폴더 절대경로 */
-function makeCycleDir(files, cycleId = '2026-07-25-review-gate') {
+/**
+ * 사이클 폴더를 만들고 지정한 산출물만 채운다. 반환값은 사이클 폴더 절대경로.
+ * contents로 특정 파일의 내용을 지정할 수 있다(behaviors.json 판정 테스트용).
+ */
+function makeCycleDir(files, cycleId = '2026-07-25-review-gate', contents = {}) {
   const root = makeRoot();
   const cycleDir = path.join(root, 'docs', cycleId);
   fs.mkdirSync(cycleDir, { recursive: true });
-  for (const f of files) fs.writeFileSync(path.join(cycleDir, f), 'x');
+  for (const f of files) fs.writeFileSync(path.join(cycleDir, f), contents[f] ?? 'x');
   return cycleDir;
 }
 
@@ -236,4 +239,54 @@ test('hooks.json의 PreToolUse(Write|Edit)에 pdca-gate가 등록돼 있다', ()
   const entry = group.hooks.find((h) => h.command.includes('pdca-gate.js'));
   assert.ok(entry, 'pdca-gate.js 미등록');
   assert.equal(entry.timeout, 5000);
+});
+
+// ── B6·B7: evidence 적합성 게이트 ────────────────────────
+// 선행 산출물이 다 있어도, 그 안의 실행 흔적이 존재하지 않는 파일을 가리키면
+// "다 했다"는 REPORT는 위조다(D11-b). 막는 조건은 unresolved 하나뿐이다.
+const FORGED = fs.readFileSync(path.join(dir, 'fixtures', 'forged', 'behaviors.json'), 'utf8');
+
+test('B6: unresolved ref가 있으면 REPORT.md를 막고 어느 behavior의 어느 ref인지 지목한다', () => {
+  const cycleDir = makeCycleDir(
+    ['behaviors.json', 'GAP.md', 'REVIEW.md'], '2026-07-25-review-gate', { 'behaviors.json': FORGED },
+  );
+  const { code, stderr } = writeArtifact(cycleDir, 'REPORT.md');
+  assert.equal(code, 2, '선행 산출물이 다 있어도 증거가 위조면 막아야 한다');
+  assert.match(stderr, /B2/, '어느 behavior인지 지목해야 고칠 수 있다');
+  assert.match(stderr, /t\.ts/, '어느 ref인지 지목해야 고칠 수 있다');
+});
+
+test('B6: GAP.md는 evidence 게이트를 적용하지 않는다(⑤) — 갭 보고 자체가 막히면 안 된다', () => {
+  const cycleDir = makeCycleDir(['behaviors.json'], '2026-07-25-review-gate', { 'behaviors.json': FORGED });
+  assert.equal(writeArtifact(cycleDir, 'GAP.md').code, 0);
+});
+
+test('B6: behaviors.json이 깨져 판정 불가면 통과(⑥)', () => {
+  const cycleDir = makeCycleDir(
+    ['behaviors.json', 'GAP.md', 'REVIEW.md'], '2026-07-25-review-gate', { 'behaviors.json': '{ 깨진' },
+  );
+  assert.equal(writeArtifact(cycleDir, 'REPORT.md').code, 0);
+});
+
+test('B7: 실존하는 ref면 REPORT.md 통과 — 선행산출물 게이트 회귀 없음', () => {
+  const doc = {
+    version: 1,
+    cycleId: '2026-07-25-review-gate',
+    behaviors: [{
+      id: 'B1',
+      passes: true,
+      evidence: {
+        kind: 'test', ref: 'src/x.test.js:2', cmd: 'node --test', output: '✔ 실제로 실행된 테스트 pass 1',
+      },
+    }],
+  };
+  const cycleDir = makeCycleDir(
+    ['behaviors.json', 'GAP.md', 'REVIEW.md'], '2026-07-25-review-gate',
+    { 'behaviors.json': JSON.stringify(doc) },
+  );
+  const root = path.resolve(cycleDir, '..', '..');
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, 'src', 'x.test.js'), 'a\nb\n');
+
+  assert.equal(writeArtifact(cycleDir, 'REPORT.md').code, 0);
 });

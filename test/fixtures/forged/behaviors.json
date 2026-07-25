@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "cycleId": "2026-07-25-forged",
+  "behaviors": [
+    { "id": "B2", "desc": "D11-b 재현 — 실행한 적 없는 테스트를 통과로 주장한다", "priority": "P1", "target": null, "passes": true, "evidence": { "kind": "test", "ref": "t.ts", "cmd": "node --test", "output": "pass 1 fail 0", "at": "2026-07-25" } }
+  ]
+}

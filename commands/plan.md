@@ -32,11 +32,12 @@ allowed-tools:
      "version": 1,
      "cycleId": "{폴더명}",
      "behaviors": [
-       { "id": "B1", "desc": "subtotal 100,000 경계에서 할인 적용", "priority": "P1", "passes": false, "evidence": null }
+       { "id": "B1", "desc": "subtotal 100,000 경계에서 할인 적용", "priority": "P1", "target": null, "passes": false, "evidence": null }
      ]
    }
    ```
    `evidence`는 구현 후 채운다: `{kind:"test"|"visual"|"manual", ref, cmd, output, at}`. **`output`(실행 흔적)이 없으면 통과로 세지 않는다.**
+   `target`은 그 behavior가 겨냥하는 **구현 코드** 위치(`파일:라인` 또는 `파일:시작-끝`)다 — `ref`(테스트 파일)와 반대쪽이다. 구현하면서 채우고, 모르면 `null`로 두면 커버리지 판정만 건너뛴다.
 6. `.devkit/pdca-state.json` 생성/갱신 — **4필드만**: `{version:1, cycleId:"폴더명", stage:"plan", status:"awaiting-approval"}`. (bkit이 같이 설치돼 있어도 이 형식을 지킬 것 — `cycle`/`phase`/`gates`는 bkit 스키마다.)
 7. `docs/{cycle}/PROGRESS.md` 생성 — 첫 줄은 정체성 앵커 `# PROGRESS — docs/{cycle}/`, 그 아래 `- {date} plan: PLAN.md + behaviors.json 작성, 승인 대기`. 이후 각 단계가 여기에 한 줄씩 append한다.
 8. 사용자에게 계획 보여주고 **수정 여지 주고 승인 대기**. ⚠ 승인 전에 다음 단계로 넘어가지 말 것.

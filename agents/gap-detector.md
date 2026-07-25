@@ -20,6 +20,22 @@ tools: Read, Bash, Grep, Glob
 4. **테스트를 실제로 실행한다 (필수).** 프로젝트의 테스트 명령을 Bash로 돌리고 그 출력을 근거로 삼는다.
    **실행하지 않았으면 ✅를 줄 수 없다** — 코드를 눈으로 읽은 것은 "동작 근거"가 아니다.
    테스트 러너가 없거나 UI라 유닛 테스트가 부적절하면 그 사실을 명시하고 `visual`/`manual` 근거로 대체한다.
+   node:test 프로젝트라면 **커버리지를 함께 수집**한다(1회 실행으로 화면 출력과 lcov를 둘 다 얻는다):
+   ```
+   node --test --experimental-test-coverage \
+     --test-reporter=spec --test-reporter-destination=stdout \
+     --test-reporter=lcov --test-reporter-destination=.devkit/lcov.info \
+     test/*.test.mjs
+   ```
+5. **evidence 적합성을 검증한다 (필수).** 반드시 위 테스트 실행 **다음에** 돌린다 — 순서가 반대면 이번 실행이 receipt에 안 잡혀 전부 `uncited`로 나온다.
+   ```
+   node scripts/verify-evidence.mjs
+   ```
+   해석 지침:
+   - `unresolved` — **evidence의 `ref`가 가리키는 파일이 없다.** 위조이거나 경로가 틀렸다. 해당 항목에 ✅를 주지 말고 지목하라. 이건 게이트라 남아 있으면 REPORT.md 쓰기가 차단된다.
+   - `dead-branch` — **`target` 코드의 분기가 한 번도 실행되지 않았다.** 테스트가 통과해도 그 behavior를 검증하지 못한 것이니 ⚠️ 이상으로 판정하고 근거로 인용하라.
+   - `uncited` / `no-receipt` — 인용을 실행 로그에서 못 찾았다. **그것만으로 ❌를 주지 마라.** receipt 봉인 이전에 만들어진 evidence는 기록이 없어서 뜨는 것이지 위조가 아니다.
+   - `uncovered` / `no-data` — 커버리지 미수집이거나 `target`이 없는 경우. 정보로만 쓴다.
 
    > 왜 필수인가: 외부 피드백 없는 자기 검증은 개선이 없거나 오히려 악화된다는 것이
    > 일관된 연구 결과다. "그럴듯해 보이는가"는 "설계대로인가"를 판정하지 못한다.
