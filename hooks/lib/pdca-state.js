@@ -13,9 +13,33 @@ const path = require('node:path');
 const SCHEMA_VERSION = 1;
 const FILE = path.join('.devkit', 'pdca-state.json');
 const OWN_FIELDS = ['version', 'cycleId', 'stage', 'status'];
+// 허용값 집합의 정본. 커맨드 문서가 아니라 여기가 enum의 소스다.
+const STAGES = ['plan', 'design', 'do', 'gap', 'review', 'report', 'done'];
+const STATUSES = ['in-progress', 'awaiting-approval', 'done'];
+const BKIT_KEYS = ['cycle', 'phase', 'gates'];
+
+// docs/{YYYY-MM-DD}-{kebab slug}/(GAP|REPORT).md — 사이클 폴더 안 + 정확한 파일명만.
+// 폭을 좁게 잡는 것이 오탐 방지의 1차 방어선이다(벗어나면 차단이 아니라 통과).
+const CYCLE_ARTIFACT =
+  /(?:^|\/)docs\/(\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*)\/(GAP|REPORT)\.md$/;
+const STATE_FILE = /(?:^|\/)\.devkit\/pdca-state\.json$/;
+const toPosix = (p) => p.replace(/\\/g, '/'); // Windows 구분자 우회 방지
 
 function statePath(root) {
   return path.join(root, FILE);
+}
+
+/**
+ * 사이클 산출물 경로 분류. 게이트 대상이면 담당 stage를 돌려준다.
+ * 호출자(pdca-gate.js)가 stage만 쓰므로 stage만 돌려준다 — cycleId·artifact는 경로에서 다시 얻을 수 있다.
+ * @param {string} filePath 절대/상대 경로(Windows 구분자 허용)
+ * @returns {{stage:'gap'|'report'} | null}
+ */
+function matchCycleArtifact(filePath) {
+  if (typeof filePath !== 'string') return null;
+  const m = CYCLE_ARTIFACT.exec(toPosix(filePath));
+  if (!m) return null;
+  return { stage: m[2] === 'GAP' ? 'gap' : 'report' };
 }
 
 /**
@@ -48,9 +72,7 @@ function readState(root) {
     return state;
   }
   // foreign 시그니처 — bkit
-  if (obj.phase !== undefined || obj.gates !== undefined || obj.cycle !== undefined) {
-    return { foreign: 'bkit' };
-  }
+  if (BKIT_KEYS.some((k) => obj[k] !== undefined)) return { foreign: 'bkit' };
   return null;
 }
 
@@ -67,19 +89,108 @@ function isActive(state) {
   return state.stage !== 'done';
 }
 
+/** `.devkit/pdca-state.json`인가 */
+function isStateFile(filePath) {
+  if (typeof filePath !== 'string') return false;
+  return STATE_FILE.test(toPosix(filePath));
+}
+
+// 단계별 선행 산출물 (사이클 폴더 기준 상대 파일명). 문서가 아니라 이 상수가 정본이다.
+const STAGE_REQUIREMENTS = {
+  gap: ['behaviors.json'],
+  report: ['behaviors.json', 'GAP.md', 'REVIEW.md'],
+};
+const MAKER = {
+  'behaviors.json': '/plan (behavior 목록 단계)',
+  'GAP.md': '/gap',
+  'REVIEW.md': '/review',
+};
+// 차단 안내에 "왜"를 붙이는 이유: 무엇이 없는지만 알려주면 AI가 파일을 빈 껍데기로 만들어 통과시킨다.
+const WHY = {
+  gap: '이게 없으면 Gap 분석의 대조 기준(분모)이 없다.',
+  report:
+    'GAP과 REPORT 사이의 review는 필수 단계다. review 결과가 파일로 남지 않아 종합에서\n' +
+    '조용히 빠진 사이클에 실제 버그 3건이 남아 있었다(결함로그 D13).',
+};
+
 /**
- * D5: behaviors.json 게이트 (소비 시점 차단).
- * /gap·/report가 진입 전에 부른다. 없으면 "먼저 /plan의 behavior 단계 실행"이라고 거부한다.
- * 파일을 만들게 강제하는 대신, 없으면 다음 단계가 안 열리게 한다(spec-kit 패턴).
+ * 내용이 있는 파일인가. 존재만 보면 `touch REVIEW.md` 한 줄로 게이트가 열린다 —
+ * 게이트를 형식적 통과 의식으로 만드는 가장 싼 우회라서 빈 파일은 없는 것으로 본다.
+ * 읽기 실패(파일 없음 포함)도 "없다"가 답이다.
  */
-function gatePrerequisite(cycleDir) {
-  const p = path.join(cycleDir, 'behaviors.json');
-  if (fs.existsSync(p)) return { ok: true };
+function hasContent(filePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return false;
+  }
+  return raw.trim().length > 0;
+}
+
+/**
+ * D5: 단계별 선행조건 게이트 (소비 시점 차단).
+ * 파일을 만들게 강제하는 대신, 없으면 다음 단계가 안 열리게 한다(spec-kit 패턴).
+ * @param {string} cycleDir 사이클 폴더 절대경로
+ * @param {'gap'|'report'} [stage='gap'] 미지정이면 기존 behaviors.json 판정(하위호환)
+ * @returns {{ok:true} | {ok:false, missing:string[], reason:string}}
+ */
+function gatePrerequisite(cycleDir, stage = 'gap') {
+  const required = STAGE_REQUIREMENTS[stage];
+  if (!required) return { ok: true }; // 게이트를 정의하지 않은 단계는 통과
+  const missing = required.filter((f) => !hasContent(path.join(cycleDir, f)));
+  if (missing.length === 0) return { ok: true };
   return {
     ok: false,
+    missing,
     reason:
-      'behaviors.json이 없다 — /plan의 behavior 목록 단계를 먼저 실행해 분모를 고정하라. ' +
-      '이게 없으면 Gap 분석의 대조 기준이 없다.',
+      `${stage} 단계 선행조건 미충족 — docs/${path.basename(cycleDir)}/에 없는 파일:\n` +
+      missing.map((f) => `  - ${f} → ${MAKER[f]} 로 생성`).join('\n') +
+      `\n${WHY[stage]}`,
+  };
+}
+
+/**
+ * 상태 파일 쓰기 검증(4필드 정확 일치 + enum).
+ * 위반을 전부 모아서 돌려준다 — 한 번에 다 알려줘야 AI가 1회 재시도로 회복한다.
+ * @param {unknown} obj 파싱된 상태 객체
+ * @returns {{ok:true} | {ok:false, problems:string[], reason:string}}
+ */
+function validateStateWrite(obj) {
+  const problems = [];
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    problems.push('최상위가 객체가 아니다');
+  } else {
+    if (obj.version !== SCHEMA_VERSION) {
+      problems.push(`version은 ${SCHEMA_VERSION}이어야 한다(현재: ${JSON.stringify(obj.version)})`);
+    }
+    if (typeof obj.cycleId !== 'string' || !obj.cycleId) {
+      problems.push('cycleId(사이클 폴더명)가 없다');
+    }
+    if (!STAGES.includes(obj.stage)) {
+      problems.push(`stage 허용값 밖: ${JSON.stringify(obj.stage)} (허용: ${STAGES.join('|')})`);
+    }
+    if (!STATUSES.includes(obj.status)) {
+      problems.push(`status 허용값 밖: ${JSON.stringify(obj.status)} (허용: ${STATUSES.join('|')})`);
+    }
+    const extra = Object.keys(obj).filter((k) => !OWN_FIELDS.includes(k));
+    if (extra.length) {
+      const bkit = extra.some((k) => BKIT_KEYS.includes(k)) ? ' — bkit 스키마다' : '';
+      problems.push(`허용되지 않은 키: ${extra.join(', ')}${bkit}`);
+    }
+  }
+  if (problems.length === 0) return { ok: true };
+  return {
+    ok: false,
+    problems,
+    reason: [
+      `${FILE} 스키마 위반:`,
+      ...problems.map((p) => `  - ${p}`),
+      '정확한 형식(4필드만, 순서 무관):',
+      '  {"version":1,"cycleId":"{docs/ 아래 사이클 폴더명}","stage":"gap","status":"in-progress"}',
+      `  stage: ${STAGES.join('|')}`,
+      `  status: ${STATUSES.join('|')}`,
+    ].join('\n'),
   };
 }
 
@@ -88,6 +199,13 @@ module.exports = {
   writeState,
   isActive,
   gatePrerequisite,
+  matchCycleArtifact,
+  isStateFile,
+  validateStateWrite,
   statePath,
   SCHEMA_VERSION,
+  STAGES,
+  STATUSES,
+  STAGE_REQUIREMENTS,
+  MAKER,
 };

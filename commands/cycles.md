@@ -15,7 +15,7 @@ allowed-tools:
 
 ## 인자가 없으면 — 목록
 
-1. **진행 중** — `.devkit/pdca-state.json`을 읽어 현재 사이클의 `cycleId`·`stage`·`status`·`nextAction`을 보여준다. 없으면 "진행 중인 사이클 없음".
+1. **진행 중** — `.devkit/pdca-state.json`을 읽어 현재 사이클의 `cycleId`·`stage`·`status`(4필드 전부)를 보여준다. 다음에 할 일은 `PROGRESS.md` 마지막 줄과 `behaviors.json`의 미완료 항목에서 유도한다. 없으면 "진행 중인 사이클 없음".
 2. **완료** — `docs/archive/*/*/`를 훑어 아카이브된 사이클을 최신순으로. 각 줄에 날짜·slug·어떤 문서가 있는지(PLAN/DESIGN/GAP/REPORT).
 3. `docs/` 최상위에 사이클 폴더가 있는데 상태 파일과 안 맞으면(중단된 사이클) **함께 표시하고 알려준다** — 조용히 넘기지 말 것.
 

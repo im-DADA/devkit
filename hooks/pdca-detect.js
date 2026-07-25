@@ -42,11 +42,23 @@ function resumeContext(state) {
   return lines.join('\n');
 }
 
+// 산출물 형식을 여기에 직접 박는다. "RULES.md 참조"로 넘기면 읽지 않고 창작한다
+// (실전 검증에서 behaviors.json 누락 + 상태 스키마 창작으로 확인됨).
 const KICKOFF = [
-  '[devkit PDCA] 이 요청은 여러 파일에 걸친 기능 작업으로 보인다.',
-  '바로 구현하지 말고: ① docs/{YYYY-MM-DD}-{slug}/PLAN.md 작성 → 보여주고 승인 대기',
-  '② 승인되면 architect로 DESIGN.md → 보여주고 승인 대기 ③ 승인되면 구현 ④ 구현 후 /gap 필수(미달이면 /iterate).',
-  '사이클 시작 시 .devkit/pdca-state.json을 생성/갱신할 것. 규약 상세는 RULES.md "PDCA 사이클".',
+  '[devkit PDCA] 이 요청은 여러 파일에 걸친 기능 작업으로 보인다. 바로 구현하지 말 것.',
+  '① docs/{YYYY-MM-DD}-{slug}/ 생성 (slug는 영문 kebab-case 2~4단어) 후 PLAN.md 작성 —',
+  '   목표 · 단계별 작업 · 건드릴 파일 · behavior 목록 · 리스크 · 검증 방법 · 범위 밖.',
+  '② 같은 폴더에 behaviors.json 생성 (필수). PLAN의 behavior를 전부 passes:false로 넣어 Gap의 분모를 고정한다:',
+  '   {"version":1,"cycleId":"{폴더명}","behaviors":[{"id":"B1","desc":"...","priority":"P1","passes":false,"evidence":null}]}',
+  '   evidence는 구현 후 {kind,ref,cmd,output,at}로 채운다. output(실행 흔적)이 없으면 통과로 세지 않는다.',
+  '③ .devkit/pdca-state.json 생성 — 정확히 이 4필드만:',
+  '   {"version":1,"cycleId":"{폴더명}","stage":"plan","status":"awaiting-approval"}',
+  '   cycle · slug · phase · startedAt · artifacts · gates 같은 다른 키를 넣지 말 것(bkit 스키마다).',
+  '④ docs/{cycle}/PROGRESS.md 생성 — 첫 줄 "# PROGRESS — docs/{cycle}/", 이후 각 단계가 한 줄씩 append.',
+  '⑤ PLAN을 보여주고 승인 대기. ⚠ 사용자가 명시적으로 승인하기 전에 다음 단계로 넘어가지 말 것.',
+  '⑥ 승인되면 architect로 DESIGN.md → 다시 승인 대기 ⑦ 승인되면 구현(behavior 통과 시마다 behaviors.json 갱신)',
+  '⑧ 구현 후 /gap 필수 — 통과 기준은 unproven==0(증거 없는 통과 주장 0건)이지 Match Rate 숫자가 아니다. 미달이면 /iterate.',
+  '⑨ Gap 통과 후 /review 필수 — 결과를 docs/{cycle}/REVIEW.md로 남긴다. 이게 없으면 ⑩ REPORT.md 쓰기가 훅에 차단된다.',
   '사소한 작업이라 판단되면 이 안내를 무시하고 바로 진행해도 된다.',
 ].join('\n');
 

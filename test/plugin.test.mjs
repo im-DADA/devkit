@@ -82,6 +82,14 @@ test('marketplace.json 플러그인 엔트리 버전 == plugin.json 버전', () 
   );
 });
 
+// 기능 추가(review 필수화 + PDCA 게이트)는 minor bump. 안 올리면 사용자가 갱신을 못 받는다.
+test('plugin.json 버전이 0.11.0 이상', () => {
+  const [major, minor] = JSON.parse(read('.claude-plugin/plugin.json'))
+    .version.split('.')
+    .map(Number);
+  assert.ok(major > 0 || minor >= 11, 'review 게이트 기능이 들어갔는데 버전이 그대로다');
+});
+
 test('hooks.json에 UserPromptSubmit 등록(PDCA 자동 발동)', () => {
   const hooks = JSON.parse(read('hooks/hooks.json')).hooks;
   assert.ok(hooks.UserPromptSubmit, 'UserPromptSubmit 이벤트 없음');

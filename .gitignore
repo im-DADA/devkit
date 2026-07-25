@@ -1,3 +1,8 @@
 node_modules/
 .devkit/
+.bkit/
 .DS_Store
+
+# devkit 자체 개발 산출물 — 배포에는 불필요하고 공개 레포에 둘 성격도 아니다.
+# 플러그인을 받아 쓰는 쪽에 필요한 건 코드 + README + RULES.md뿐.
+docs/

@@ -15,7 +15,11 @@ tools: Read, Bash, Grep, Glob
 
 1. `git diff` (스테이징 안 됐으면 working tree, 아니면 `git diff --staged`)로 변경분 파악. 인자로 파일이 지정되면 그 파일들만.
 2. 변경된 함수/파일의 주변 맥락을 Read로 확인 (diff만 보고 판단 금지).
-3. 팀 규칙(`${CLAUDE_PLUGIN_ROOT}/RULES.md`) 기준으로 위반 점검. **"보안"·"코드 철학"·"네이밍 컨벤션" 절을 실제로 Read할 것** — 컨벤션만 보고 보안을 건너뛰기 쉽다.
+3. 팀 규칙 기준으로 위반 점검 — **프로젝트 `AGENTS.md`의 "## 공통 규칙" 절을 Read**한다. 없으면 아래로 진행:
+   - **네이밍**: 변수·함수 camelCase · 컴포넌트/타입 PascalCase · 훅 `use*` · 핸들러 `handle*`/`on*` · boolean `is/has/can*` · 상수 UPPER_SNAKE · 파일·폴더 kebab-case. 축약어·부정 boolean·`I`/`T` 접두 금지.
+   - **no-any**: `any` 금지 → `unknown` + narrowing.
+   - **에러 swallow 금지**: 빈 catch로 삼키지 말고 throw하거나 상위 전파.
+   - 컨벤션만 보고 **보안을 건너뛰지 말 것** — 아래 보안 절이 이 리뷰의 본체다.
 
 ## 점검 항목
 
@@ -38,20 +42,26 @@ tools: Read, Bash, Grep, Glob
 
 ## 출력 형식
 
-심각도별로 그룹핑, 각 항목은 `file:line` + 한 줄 진단 + 제안:
+**REVIEW.md 본문 형식으로 반환**한다(파일 쓰기는 `/review` 커맨드 몫 — 서브에이전트의 문서 Write는 하네스가 차단한다). 심각도별로 그룹핑, 각 항목은 `file:line` + 한 줄 진단 + 제안:
 
-```
-🔴 버그 (N)
+```markdown
+# REVIEW — docs/{cycle}/ · {YYYY-MM-DD} (1회차)
+
+범위: <git diff 기준 또는 파일 목록>
+판정: 🔴 N · 🟡 N · 🟢 N
+
+## 🔴 버그 (N)
 - src/api/user.ts:42 — await 누락으로 Promise가 그대로 반환됨 → await 추가
 
-🔴 보안 (N)
+## 🔴 보안 (N)
 - src/api/order.ts:18 — 조회 쿼리에 소유자 필터 없음(IDOR) → where에 ownerId 조건 추가
 
-🟡 컨벤션 (N)
-- src/hooks/useX.ts:11 — any 사용 → unknown + 타입가드로
+## 🟡 컨벤션 (N)
+- src/hooks/use-x.ts:11 — any 사용 → unknown + 타입가드로
 
-🟢 nit (N)
-- ...
+## 🟢 nit (N)
+## 확인 필요
+- <확신 없지만 조용히 넘기지 않을 것>
 ```
 
-발견 없으면 "이상 없음"이라고 명확히. 추측성 지적 금지 — 확신 있는 것만.
+사이클 폴더가 없으면 첫 줄 앵커의 `docs/{cycle}/`를 생략하고 같은 형식으로 반환한다. 발견 없으면 각 섹션을 `(0)`으로 두고 "이상 없음"을 명확히. 추측성 지적 금지 — 확신 있는 것만.

@@ -104,6 +104,14 @@ test('protected-file: 시크릿/lockfile/.git 차단', () => {
 // Stop 훅은 stdout이 컨텍스트로 안 간다(UserPromptSubmit·UserPromptExpansion·SessionStart만 예외).
 // 그래서 hookSpecificOutput JSON으로 내보내야 하는데, 이걸 plain text로 되돌리면
 // 조용히 "검증은 도는데 아무도 못 보는" 상태가 된다 — 소스로 계약을 고정한다.
+// hooks.json의 description은 사람이 훅 구성을 훑는 유일한 요약이다.
+// 훅을 추가하고 여기를 안 고치면 "무엇이 도는지"가 조용히 어긋난다.
+test('hooks.json: description이 등록된 훅 종류를 반영', () => {
+  const cfg = JSON.parse(fs.readFileSync(path.join(dir, '..', 'hooks', 'hooks.json'), 'utf8'));
+  assert.match(cfg.description, /PDCA 게이트|PDCA.*게이트/, 'pdca-gate가 설명에 없음');
+  assert.match(JSON.stringify(cfg.hooks.PreToolUse), /pdca-gate\.js/, 'pdca-gate 미등록');
+});
+
 test('stop-verify: 출력이 hookSpecificOutput JSON 형식', () => {
   const src = fs.readFileSync(hook('stop-verify'), 'utf8');
   assert.match(src, /hookSpecificOutput/, 'Stop은 stdout이 컨텍스트로 안 감 — JSON 필요');

@@ -46,10 +46,14 @@ allowed-tools:
 4. **`eslint.config.mjs` 복사**: `${CLAUDE_PLUGIN_ROOT}/templates/eslint.config.mjs` → 레포 루트(이미 eslint 설정 있으면 덮지 말고 병합안 제안). 필요 devDep(`eslint typescript-eslint @eslint/js`)은 **직접 설치하지 말고** 사용자에게 안내만(새 의존성은 승인제).
 5. **CI 워크플로 복사**: `${CLAUDE_PLUGIN_ROOT}/templates/ci.yml` → `.github/workflows/ci.yml`.
 6. **pre-commit 설치**(세션 밖 방어): `${CLAUDE_PLUGIN_ROOT}/templates/pre-commit` → `.githooks/pre-commit`, `chmod +x`, 그리고 `git config core.hooksPath .githooks`. 사람이 터미널에서 직접 커밋해도 시크릿·lint가 걸린다.
-7. **`.claude/settings.json` 생성/병합**: `enabledPlugins`에 devkit 선언(기존 키 보존):
+7. **`.claude/settings.json` 생성/병합**: `enabledPlugins`에 devkit 선언 + `.devkit/` 쓰기 사전 승인(**기존 키는 보존 병합**):
    ```json
-   { "enabledPlugins": { "devkit@devkit-marketplace": true } }
+   {
+     "enabledPlugins": { "devkit@devkit-marketplace": true },
+     "permissions": { "allow": ["Write(.devkit/pdca-state.json)", "Edit(.devkit/pdca-state.json)"] }
+   }
    ```
+   PDCA 상태 파일은 단계마다 갱신되므로 없으면 매번 승인 프롬프트가 뜬다. **범위는 그 파일 하나로 좁힌다** — `.devkit/**`로 넓히면 가드 훅의 차단 기록이 쌓이는 `.devkit/audit.jsonl`까지 무프롬프트 덮어쓰기 대상이 되어 관측 기능을 스스로 약화시킨다. 프로젝트 상대경로만 넣는다 — 플러그인 설치 경로는 사용자·OS마다 달라 공유 설정에 넣을 수 없다.
    마켓플레이스가 조직 git이면 `extraKnownMarketplaces`도 함께 안내(README 참조).
 8. **`.gitignore`에 `.devkit/` 추가** 제안(감사 로그는 로컬 산출물).
 9. 생성/변경한 파일 목록을 보고한다. 커밋은 하지 않는다(사용자 요청 시에만).
@@ -88,7 +92,7 @@ allowed-tools:
   /commit   Conventional Commit (Co-Author 없이, 푸시 X)
   /gap      PLAN/DESIGN 대비 구현 일치도 (Match Rate) — 사이클 필수 단계
   /iterate  Gap 목표(90%)까지 자동 보완-재분석 루프
-  /review   현재 diff 리뷰 (버그·보안·컨벤션)
+  /review   현재 diff 리뷰 (버그·보안·컨벤션) → REVIEW.md — 사이클 필수 단계
   /report   완료 리포트 REPORT.md → 사이클 아카이빙
   /cycles   PDCA 사이클 목록·열람 (진행 중 + 아카이브)
   /ship     리뷰 → 커밋 메시지 + PR 초안 (승인 후)
@@ -115,6 +119,7 @@ allowed-tools:
   SessionStart      팀 규칙 리마인드 + 진행 중 PDCA 사이클 재개 안내
   UserPromptSubmit  기능 요청 감지 → PDCA 사이클 규약 안내 (차단 없음)
   PreToolUse    위험 bash 차단 · 새 의존성 차단 · 보호파일(.env/lock) 차단
+                PDCA 게이트 — GAP/REPORT 선행 산출물 없으면 쓰기 거부 · 상태 4필드 스키마 강제
   PostToolUse   자동 prettier 포맷 · 통과 위반 관측(convention-observe) (+ opt-in tsc)
   Stop          종료 시 typecheck/lint 실행·보고
   관측성        차단·통과위반·검증실패를 .devkit/audit.jsonl 기록 (/kit audit)

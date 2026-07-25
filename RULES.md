@@ -11,7 +11,7 @@
 - ❌ 금지: any 타입(→ `unknown`+narrowing), 에러 swallow(빈 catch), console.log 커밋, 추측 답변, 요청 안 한 파일 생성.
 - 🟡 확인 필요: 새 의존성 추가, force/reset --hard/브랜치 삭제, 커밋·푸시·PR, 외부 게시.
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
-- 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REPORT를 남긴다. **멈춤점은 PLAN·DESIGN 승인 2곳**, Gap은 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
+- 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REVIEW→REPORT를 남긴다. **멈춤점은 PLAN·DESIGN 승인 2곳**, Gap·Review는 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
 - ✅ 검증 무결성: `behaviors.json`이 Gap의 분모. **`passes:true`는 evidence(실행 흔적)가 있어야 유효** — 없으면 자동 강등된다. 통과 기준은 `unproven==0`이지 Match Rate 숫자가 아니다. 상세는 RULES "PDCA 사이클".
 - 파일 200줄 초과 시 분리. Feature 구조: ui=.tsx(뷰만) / hooks·api·utils·types=.ts.
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
@@ -65,7 +65,8 @@
 ③ 승인 → 구현(Do)
 ④ 구현 후 /gap 필수 → 증거 대조 (통과 기준: unproven == 0)
    └ 증거 없는 통과 주장이 남으면 /iterate 루프로 되돌아감
-⑤ 통과하면 REPORT.md → 사이클 아카이빙
+⑤ /review 필수 → REVIEW.md (🔴 버그·보안 / 🟡 컨벤션 / 🟢 nit)
+⑥ 통과하면 REPORT.md → 사이클 아카이빙
 ```
 
 **멈춤점은 ①② 두 곳.** 문서를 보여주고 사용자가 명시적으로 승인하기 전에 다음 단계로 넘어가지 않는다.
@@ -75,7 +76,7 @@
 ```
 docs/
   {YYYY-MM-DD}-{slug}/     ← 진행 중인 사이클만 여기
-    PLAN.md   DESIGN.md   GAP.md   REPORT.md
+    PLAN.md   DESIGN.md   behaviors.json   PROGRESS.md   GAP.md   REVIEW.md   REPORT.md
   archive/
     {YYYY-MM-DD}/{slug}/   ← 완료 후 이동
 ```
@@ -83,7 +84,7 @@ docs/
 - **slug**: 기능 설명을 **영문 kebab-case 2~4단어**(`payment-retry`). 최대 40자. 폴더·파일명은 경로 호환성 때문에 영문으로 고정하고, **문서 제목·본문은 사용자 언어를 따른다**(한국어로 대화하면 한국어 문서, 영어면 영어 문서).
 - 날짜는 사이클 **시작일**로 고정. 같은 날 충돌 시 `-2`, `-3` 접미.
 - 완료(REPORT 승인) 시 폴더를 `docs/archive/{날짜}/{slug}/`로 이동 → `docs/` 최상위엔 진행 중인 것만 남는다.
-- **Gap은 필수 단계다.** 스킵하고 REPORT로 건너뛰지 않는다.
+- **Gap·Review는 필수 단계다.** 스킵하고 REPORT로 건너뛰지 않는다 — `GAP.md`·`REVIEW.md`가 없으면(빈 파일 포함) `pdca-gate` 훅이 REPORT.md 쓰기를 차단한다.
 
 ### 검증 무결성 (증거 없으면 통과 아님)
 
@@ -115,7 +116,7 @@ docs/
 ```json
 { "version": 1, "cycleId": "2026-07-24-payment-retry", "stage": "design", "status": "awaiting-approval" }
 ```
-- `stage`: `plan|design|do|gap|report|done` · `status`: `in-progress|awaiting-approval|done`
+- `stage`: `plan|design|do|gap|review|report|done` · `status`: `in-progress|awaiting-approval|done` — **허용값 밖이면 `pdca-gate` 훅이 상태 쓰기를 거부한다**(정본은 `hooks/lib/pdca-state.js`의 `STAGES`·`STATUSES`).
 - ⚠ **bkit이 같이 설치돼 있어도 이 형식을 쓸 것.** `cycle`/`phase`/`gates`는 bkit 스키마다 — 섞이면 재개가 깨진다(훅이 감지해 경고한다).
 - 문서를 쓴 **직후 커맨드가** 갱신하고, 훅은 읽기만 한다(SessionStart가 재개 시 PROGRESS 끝·behaviors 미완료·git log를 주입).
 
@@ -124,6 +125,15 @@ docs/
 ### behaviors.json 게이트 (D5 — 소비 시점 차단)
 
 `/plan`이 behaviors.json을 만들지만 **그것에 의존하지 않는다.** 없으면 `/gap`·`/report`가 하드 거부하고("먼저 /plan의 behavior 단계 실행"), Stop 훅이 백스톱 경고를 낸다. 파일을 만들게 강제하는 대신 **없으면 다음 단계가 안 열리게** 한다(spec-kit 패턴).
+
+지시가 아니라 **훅이 실제로 강제**한다 — `pdca-gate`(PreToolUse)가 사이클 폴더의 산출물 쓰기를 가로채 선행조건을 검사한다:
+
+| 쓰려는 파일 | 선행 산출물 |
+|---|---|
+| `docs/{cycle}/GAP.md` | `behaviors.json` |
+| `docs/{cycle}/REPORT.md` | `behaviors.json` · `GAP.md` · `REVIEW.md` |
+
+빈 파일은 없는 것으로 본다(`touch`로 게이트를 여는 우회 차단). 정본은 `hooks/lib/pdca-state.js`의 `STAGE_REQUIREMENTS`다.
 
 ## Figma / 디자인 구현
 
