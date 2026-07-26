@@ -8,14 +8,14 @@
 ## devkit 팀 규칙 리마인드
 
 - 한국어 간결히. 결론부터.
-- ❌ 금지: any 타입(→ `unknown`+narrowing), 에러 swallow(빈 catch), console.log 커밋, 추측 답변, 요청 안 한 파일 생성.
+- ❌ 금지: 추측 답변, 요청 안 한 코드·문서 생성(PDCA 산출물은 예외).
 - 🟡 확인 필요: 새 의존성 추가, force/reset --hard/브랜치 삭제, 커밋·푸시·PR, 외부 게시.
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
 - 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REVIEW→REPORT를 남긴다. **멈춤점은 PLAN·DESIGN 승인 2곳**, Gap·Review는 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
 - ✅ 검증 무결성: `behaviors.json`이 Gap의 분모. **`passes:true`는 evidence(실행 흔적)가 있어야 유효** — 없으면 자동 강등된다. 통과 기준은 `unproven==0`이지 Match Rate 숫자가 아니다. 상세는 RULES "PDCA 사이클".
-- 파일 200줄 초과 시 분리. Feature 구조: ui=.tsx(뷰만) / hooks·api·utils·types=.ts.
+- Feature 구조: ui=.tsx(뷰만) / hooks·api·utils·types=.ts.
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
-- 네이밍: 변수/함수 camelCase · 컴포넌트/타입 PascalCase · 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 상수 UPPER_SNAKE · 파일·폴더 kebab-case(심볼은 PascalCase). 축약어/부정boolean/I·T접두 금지.
+- 네이밍(린터가 못 잡는 것만): 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 파일·폴더 kebab-case. 축약어/부정boolean 금지.
 - 라이브러리·프레임워크가 있다고 가정하지 말 것 — 쓰기 전 package.json으로 확인.
 - 🧪 새 순수함수/명확한 계약(멱등성·경계·격리·대소문자 등)은 **테스트 먼저(TDD)**. 테스트 러너 없으면 조용히 넘기지 말고 "테스트 셋업할까?"를 물어볼 것. 강하게 하려면 `/tdd`.
 - 새 유틸/훅 작성 전 Grep으로 기존 것 탐색 → 재사용.
@@ -38,6 +38,7 @@
 - ❌ 에러 메시지/로그 한국어 번역 → **원문 유지**.
 - ❌ 커밋 전 `console.log` 잔존.
 - ❌ 요청 안 한 리팩토링/파일 생성(README, 테스트 등).
+  - **예외: PDCA 사이클 산출물**(`PLAN.md`·`DESIGN.md`·`behaviors.json`·`PROGRESS.md`·`GAP.md`·`REVIEW.md`·`REPORT.md`)은 워크플로 자체라 여기 해당하지 않는다. 기능 작업에서 이 문서들을 만드는 건 "요청 안 한 파일 생성"이 아니다.
 
 ## 선제 확인 필요
 

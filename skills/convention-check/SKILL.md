@@ -1,6 +1,6 @@
 ---
 name: convention-check
-description: 코드가 팀 컨벤션(feature 구조, TS strict/no-any, 에러 미swallow, console.log 없음, 200줄 이하, 바퀴 재발명 없음)을 따르는지 점검. 커밋/PR 전 또는 "컨벤션 맞아?" 요청 시 사용.
+description: 코드가 팀 컨벤션을 따르는지 점검한다 — feature 구조(views/components/hooks/api), .tsx 로직 분리, 바퀴 재발명, 훅·핸들러·boolean 네이밍처럼 **린터가 못 잡는 항목**이 중심이다. 커밋·PR 직전이나, 사용자가 "컨벤션 맞아?", "규칙대로 짰나?", "구조 이거 맞아?", "리뷰 전에 한번 봐줘"라고 할 때 사용.
 argument-hint: "[파일 또는 디렉토리 경로]"
 user-invocable: true
 allowed-tools:

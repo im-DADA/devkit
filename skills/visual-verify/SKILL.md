@@ -1,6 +1,6 @@
 ---
 name: visual-verify
-description: 웹 UI를 실제로 띄워 시각 검증 — dev 서버 실행 → 브라우저로 페이지 구동 → 스크린샷 → 레퍼런스/디자인과 vision 비교 → diff 목록 → 수정. 테스트만으론 못 잡는 UI 실동작 확인. 브라우저 자동화 MCP(Playwright 등) 필요.
+description: 웹 UI를 실제 브라우저로 띄워 시각 검증한다 — dev 서버 실행 → 스크린샷 → 레퍼런스/디자인과 vision 비교 → diff 목록 → 수정. 사용자가 "화면 확인해줘", "제대로 보이나", "디자인이랑 맞나", "스크린샷 찍어서 비교", "눈으로 봐줘"라고 하거나, UI를 구현한 뒤 테스트만으로는 못 잡는 실동작 확인이 필요할 때 사용. 브라우저 자동화 MCP(Playwright 등)가 연결돼 있어야 동작한다.
 argument-hint: "<검증할 화면 경로/URL> [레퍼런스 이미지 경로]"
 user-invocable: true
 allowed-tools:

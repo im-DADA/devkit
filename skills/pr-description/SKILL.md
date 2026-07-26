@@ -1,6 +1,6 @@
 ---
 name: pr-description
-description: 현재 git diff에서 PR 설명(요약·변경사항·테스트 플랜)을 팀 형식으로 생성. PR 준비 시 사용. 외부에 게시하지 않고 초안만 출력.
+description: 현재 git diff에서 PR 설명(요약·변경사항·테스트 플랜)을 팀 형식으로 생성한다. 사용자가 "PR 설명 써줘", "PR 본문 만들어줘", "PR 올릴 준비", "이거 뭐라고 설명하지"라고 하거나 브랜치 작업을 마무리할 때 사용. 외부에 게시하지 않고 초안만 출력한다.
 argument-hint: "[base 브랜치, 기본 main]"
 user-invocable: true
 allowed-tools:
