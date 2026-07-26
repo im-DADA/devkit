@@ -90,7 +90,7 @@ allowed-tools:
   /spec     (선택) 요구사항 인터뷰 → SPEC.md — 1단계 문서는 /plan
   /tdd      TDD 레드-그린-리팩터 루프
   /commit   Conventional Commit (Co-Author 없이, 푸시 X)
-  /gap      PLAN/DESIGN 대비 구현 일치도 (Match Rate) — 사이클 필수 단계
+  /gap      PLAN/DESIGN 대비 구현 일치도 — 통과 기준은 unproven==0. 사이클 필수 단계
   /iterate  Gap 목표(90%)까지 자동 보완-재분석 루프
   /review   현재 diff 리뷰 (버그·보안·컨벤션) → REVIEW.md — 사이클 필수 단계
   /report   완료 리포트 REPORT.md → 사이클 아카이빙

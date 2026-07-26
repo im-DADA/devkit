@@ -1,6 +1,6 @@
 ---
 name: gap-detector
-description: Gap 분석 — 사이클 폴더의 PLAN.md/DESIGN.md 대비 실제 구현이 얼마나 일치하는지 대조한다. behavior·계약·파일 계획을 하나씩 코드와 맞춰 ✅/⚠️/❌로 판정하고 Match Rate를 낸다. 읽기전용, 코드 수정 안 함.
+description: Gap 분석 — 사이클 폴더의 PLAN.md/DESIGN.md 대비 실제 구현이 얼마나 일치하는지 대조한다. behavior·계약·파일 계획을 하나씩 코드와 맞춰 ✅/⚠️/❌로 판정한다. 통과 기준은 `unproven == 0`(증거 없는 통과 주장 0건)이고 Match Rate는 참고 신호일 뿐이다. 읽기전용, 코드 수정 안 함.
 model: inherit
 tools: Read, Bash, Grep, Glob
 ---

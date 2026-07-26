@@ -11,8 +11,8 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 | Command | `/spec` | (선택) 요구사항 인터뷰 → SPEC.md — 1단계 문서는 `/plan` |
 | Command | `/tdd` | TDD 레드-그린-리팩터 루프로 기능 구현 |
 | Command | `/commit` | Conventional Commit (Co-Author 없이, 푸시 X) |
-| Command | `/gap` | PLAN/DESIGN 대비 구현 일치도 (Match Rate) — 사이클 필수 단계 |
-| Command | `/iterate` | Gap 목표(90%)까지 자동 보완-재분석 루프 (최대 5회) |
+| Command | `/gap` | PLAN/DESIGN 대비 구현 일치도 — 통과 기준은 `unproven==0`(증거 없는 통과 주장 0건). 사이클 필수 단계 |
+| Command | `/iterate` | `unproven==0`이 될 때까지 자동 보완-재분석 루프 (최대 5회) |
 | Command | `/review` | 현재 diff 리뷰 (버그·보안·컨벤션) |
 | Command | `/report` | 완료 리포트 REPORT.md → 사이클 아카이빙 |
 | Command | `/cycles` | PDCA 사이클 목록·열람 (진행 중 + 아카이브) |
@@ -23,7 +23,7 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 | Agent | `feature-builder` | 웹 기능 구현 (feature 구조) |
 | Agent | `tdd-driver` | 테스트 우선 red-green-refactor 구현 |
 | Agent | `code-reviewer` | 읽기전용 코드 리뷰 |
-| Agent | `gap-detector` | PLAN/DESIGN 대비 구현 일치도 분석 (Match Rate) |
+| Agent | `gap-detector` | PLAN/DESIGN 대비 구현 일치도 분석 (통과 기준 `unproven==0`) |
 | Agent | `report-writer` | 사이클 종합 → REPORT.md (정직 리포트) |
 | Agent | `test-writer` | 테스트 전략 판단 + 사후 테스트 고정 |
 | Skill | `convention-check` | 팀 컨벤션 준수 점검 |

@@ -49,7 +49,7 @@ allowed-tools:
 - UI 작업이면 **시각 검증 결과도 Gap 근거에 포함**한다 — 코드 대조만으로는 시안 일치 여부를 알 수 없다.
 - **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 0건)이지 Match Rate 숫자가 아니다. 미달이면 **`/iterate`(자동 보완 루프)**를 돌린다 — 갭을 tdd-driver/feature-builder로 메우고 재분석을 통과까지(최대 5회, 진전 없으면 중단). 사용자가 "수동으로 볼게" 하면 자동 루프 생략.
 - 상태: `stage:"gap"`. 회차별 점수·판단은 `docs/{cycle}/PROGRESS.md`에 한 줄씩 append(상태 파일은 4필드 그대로).
-- **게이트**: 최종 Match Rate·회차 추이·남은 갭 보여주고 확인.
+- **게이트**: `unproven` 개수(0이어야 통과)·회차 추이·남은 갭 보여주고 확인. Match Rate는 참고로만 곁들인다.
 
 ## 5) Review — 코드 품질 → `docs/{cycle}/REVIEW.md`
 
