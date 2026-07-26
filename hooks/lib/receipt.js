@@ -1,9 +1,10 @@
-// 실행 receipt — Bash 실행의 command/stdout/stderr를 `.devkit/receipts.jsonl`에 봉인하고,
-// evidence.output의 인용 조각이 그 안에 실제로 있는지 대조한다.
+// 실행 receipt 봉인 — Bash 실행의 command/stdout/stderr를 `.devkit/receipts.jsonl`에 남기고
+// 다시 읽어준다. 그 기록으로 인용을 대조하는 쪽은 citation.js다.
 // 기록이 훅을 죽이면 안 되므로 실패는 stderr에 남기고 계속한다(audit.js와 동일 degrade).
 const fs = require('node:fs');
 const path = require('node:path');
 const { HIGH, SUSPECT } = require('./secret-patterns');
+const { warn } = require('./diag');
 
 // secret-patterns.js의 패턴을 그대로 재사용한다(신규 패턴을 만들지 않는다).
 // scanHigh/scanSuspect는 why 배열만 주므로 치환에 못 쓴다 → re에 'g'만 덧붙인다.
@@ -21,12 +22,24 @@ function maskSecrets(text) {
 }
 
 // 크기 정책. stdout만 양끝을 살린다 — node:test spec 리포터는 앞에 테스트명(✔ …),
-// 끝에 요약(# pass 166)을 내는데 head만 남기면 판독(fail 0 확인)이 불가능해진다.
-const MAX_STDOUT = 8192;
-const TAIL_STDOUT = 2048;
-const MAX_STDERR = 2048;
+// 끝에 요약(# pass 234)을 내는데 head만 남기면 판독(fail 0 확인)이 불가능해진다.
+//
+// 32KB의 근거: 전체 테스트 출력 실측 20,752 B의 1.58배 = 테스트 약 370개까지 무절단
+// (줄당 평균 84 B). 8KB에서는 가운데가 통째로 날아가 그 구간을 인용한 evidence가
+// 전부 uncited로 뜨면서 대조 층이 사실상 죽었다(D18). 16KB는 실측을 겨우 넘어 마진이 없다.
+// 370개를 넘으면 다시 절단이다 — 그때는 상한이 아니라 다른 축(사이클별 분리)을 봐야 한다.
+const MAX_STDOUT = 32768;
+// 절단이 실제로 걸리는 상황은 대개 테스트가 "실패한" 경우이고, spec 리포터는 실패 상세
+// (assert diff + stack)를 끝에 낸다. tail이 얇으면 왜 실패했는지가 통째로 사라진다. head:tail = 7:1.
+const TAIL_STDOUT = 4096;
+const MAX_STDERR = 2048; // 훅 차단 메시지는 수백 바이트다 — 근거 없이 올리지 않는다
+// ⚠ 여기서 절단이 걸리면 뒤쪽 토큰(=대상 인자)이 날아가 citation.js의 cmd 매칭이 실패하고,
+// 정직한 실행이 no-cmd-match 오탐이 된다. 실측 receipt.cmd 최장이 300 B 미만이라 지금은
+// 여유 10배 이상이므로 올리지 않는다 — 밟히면 그때 올린다.
 const MAX_COMMAND = 4096;
-const MAX_FILE = 2 * 1024 * 1024;
+// MAX_FILE / MAX_STDOUT = 256을 불변으로 유지한다. 이 비율이 최악 보관 건수(256건 × 2세대)라,
+// stdout 상한만 올리면 과거 실행이 4배 빨리 사라지고 그건 곧 no-cmd-match 오탐이다.
+const MAX_FILE = 8 * 1024 * 1024;
 
 const FILE = 'receipts.jsonl';
 const PREV = 'receipts.1.jsonl';
@@ -55,7 +68,7 @@ function rotate(dir) {
   try {
     size = fs.statSync(path.join(dir, FILE)).size;
   } catch (e) {
-    if (e.code !== 'ENOENT') process.stderr.write(`[devkit] receipt 크기 확인 실패: ${e.message}\n`);
+    if (e.code !== 'ENOENT') warn(`receipt 크기 확인 실패: ${e.message}`);
     return;
   }
   if (size <= MAX_FILE) return;
@@ -85,7 +98,7 @@ function appendReceipt(root, rec) {
     rotate(d);
     fs.appendFileSync(path.join(d, FILE), JSON.stringify(line) + '\n');
   } catch (e) {
-    process.stderr.write(`[devkit] receipt 기록 실패: ${e.message}\n`);
+    warn(`receipt 기록 실패: ${e.message}`);
   }
 }
 
@@ -102,7 +115,7 @@ function readReceipts(root) {
     try {
       raw = fs.readFileSync(path.join(dir, name), 'utf8');
     } catch (e) {
-      if (e.code !== 'ENOENT') process.stderr.write(`[devkit] receipt 읽기 실패 (${name}): ${e.message}\n`);
+      if (e.code !== 'ENOENT') warn(`receipt 읽기 실패 (${name}): ${e.message}`);
       continue;
     }
     present = true;
@@ -116,79 +129,19 @@ function readReceipts(root) {
       }
     }
   }
-  if (broken > 0) process.stderr.write(`[devkit] receipt 깨진 줄 ${broken}개 건너뜀: ${firstBrokenMsg}\n`);
+  if (broken > 0) warn(`receipt 깨진 줄 ${broken}개 건너뜀: ${firstBrokenMsg}`);
 
   const dates = records.map((r) => (typeof r.ts === 'string' ? r.ts.slice(0, 10) : '')).filter(Boolean).sort();
   return { records, present, firstDate: dates[0] ?? null };
 }
 
-// ── 인용 대조 ──────────────────────────────────────────
-const SEP = ' · '; // evidence.output의 실측 구분자
-const TICK_RE = /^[✔✓]\s+/;
-const MIN_QUOTE = 8;
-// 이 명령의 출력은 "실행 흔적"이 아니라 "판정 결과"다 — 대조 후보에서 뺀다
-const SELF_RE = /verify-evidence/;
-
-/** 소요시간 표기는 evidence와 receipt가 서로 다르다 — 그대로 두면 영원히 불일치 */
-function normalize(text) {
-  return String(text).replace(/\s+/g, ' ').replace(/\s\(\d+(?:\.\d+)?m?s\)/g, '').trim();
-}
-
-/**
- * 대조할 인용 조각을 뽑는다. kind:'test'만 대상 — manual/visual은 사람이 눈으로 본
- * 결과라 Bash receipt에 있을 이유가 없다. 이 한 줄이 오탐의 대부분을 없앤다.
- * ✔로 시작하는 조각만 후보 — '라이브: …'·'뮤테이션 …'은 서술이라 실행 로그에 없다.
- */
-function extractQuotes(evidence) {
-  if (!evidence || typeof evidence !== 'object') return [];
-  if (evidence.kind !== 'test' || typeof evidence.output !== 'string') return [];
-
-  const out = [];
-  for (const piece of evidence.output.split(SEP)) {
-    const frag = piece.trim();
-    if (!TICK_RE.test(frag)) continue;
-    const q = normalize(frag.replace(TICK_RE, ''));
-    if (q.length >= MIN_QUOTE) out.push(q);
-  }
-  return out;
-}
-
-/** 보고이지 차단이 아니다 — 어떤 결과도 throw하지 않는다 */
-function checkCitation(evidence, receipts) {
-  const rs = (receipts && typeof receipts === 'object')
-    ? receipts : { records: [], present: false, firstDate: null };
-  const quotes = extractQuotes(evidence);
-  const base = { quotes, hits: [], truncatedNearby: false };
-  if (quotes.length === 0) return { ...base, status: 'skipped' };
-  // 대조할 receipt가 애초에 없는 것과 인용이 틀린 것은 다른 사건이다
-  if (rs.present !== true) return { ...base, status: 'no-receipt' };
-  // 날짜 단위 비교. 시각 단위로 비교하면 같은 날 evidence가 전부 no-receipt로 오탐난다
-  const at = typeof (evidence && evidence.at) === 'string' ? evidence.at.slice(0, 10) : '';
-  if (at !== '' && rs.firstDate && at < rs.firstDate) return { ...base, status: 'no-receipt' };
-
-  const records = Array.isArray(rs.records) ? rs.records : [];
-  // 자기입증 차단: verify-evidence의 출력에는 uncited 인용이 그대로 실려 있고 그게 다시
-  // 봉인된다. 대조가 부분 문자열 검사라 다음 실행에서 위조가 'cited'로 뒤집힌다
-  // (실측: 코드·evidence 변경 없이 3회 실행만으로 uncited 1 → 0). 보고서로 보고서를
-  // 입증하는 경로를 끊는다 — 이 층은 "실제로 실행된 적 있는가"만 봐야 한다.
-  const evidential = records.filter((r) => !SELF_RE.test(String(r && r.cmd)));
-  const hay = normalize(evidential.map((r) => `${r.stdout || ''}\n${r.stderr || ''}`).join('\n'));
-  // 후보 중 하나라도 맞으면 cited — 전부 요구하면 여러 명령에 걸쳐 나온 출력에서 오탐
-  const hits = quotes.filter((q) => hay.includes(q));
-  return {
-    quotes,
-    hits,
-    truncatedNearby: records.some((r) => r.truncated === true),
-    status: hits.length > 0 ? 'cited' : 'uncited',
-  };
-}
+// 인용 대조(normalize·extractQuotes·tokenizeCmd·matchesCmd·checkCitation)는 citation.js에 있다.
+// 경계는 봉인(쓰기·읽기) vs 대조(판정)다 — 훅 경로(bash-receipt.js)는 대조를 로드하지 않는다.
 
 module.exports = {
   appendReceipt,
   maskSecrets,
   readReceipts,
-  extractQuotes,
-  checkCitation,
   MAX_STDOUT,
   MAX_STDERR,
   MAX_COMMAND,

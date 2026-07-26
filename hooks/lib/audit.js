@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { findProjectRoot } = require('./project-root');
+const { warn } = require('./diag');
 
 function record(event) {
   try {
@@ -12,7 +13,7 @@ function record(event) {
     const line = JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n';
     fs.appendFileSync(path.join(dir, 'audit.jsonl'), line);
   } catch (e) {
-    process.stderr.write(`[devkit] audit 기록 실패: ${e.message}\n`);
+    warn(`audit 기록 실패: ${e.message}`);
   }
 }
 

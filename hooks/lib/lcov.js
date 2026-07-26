@@ -4,6 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { warn } = require('./diag');
 
 function isInt(v) {
   return typeof v === 'string' && /^\d+$/.test(v);
@@ -14,7 +15,7 @@ function realpathOr(p) {
   try {
     return fs.realpathSync(p);
   } catch (e) {
-    if (e.code !== 'ENOENT') process.stderr.write(`[devkit] lcov 경로 정규화 실패 (${p}): ${e.message}\n`);
+    if (e.code !== 'ENOENT') warn(`lcov 경로 정규화 실패 (${p}): ${e.message}`);
     return p;
   }
 }

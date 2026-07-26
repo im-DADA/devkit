@@ -28,11 +28,16 @@ allowed-tools:
      test/*.test.mjs
    ```
    (프로젝트의 테스트 명령이 다르면 그 명령의 lcov 출력을 `.devkit/lcov.info`로 떨군다.)
-4. **evidence 적합성 검증** — 위 테스트 실행 **다음에** 돌린다(순서가 반대면 이번 실행이 receipt에 안 잡혀 전부 `uncited`가 된다):
+
+   ⚠ **검증 명령에 `| head`·`| tail`·`| grep`·`> /dev/null`을 붙이지 마라.** 봉인되는 것은 화면에 보이는 출력이라 파이프 한 번이면 **그 실행의 증거가 잘린 채 남는다**(실측: 14,920자 → 78자). 출력이 길어도 그대로 돌리고, 읽을 때만 눈으로 훑는다.
+4. **evidence 적합성 검증** — 위 테스트 실행 **다음에** 돌린다(순서가 반대면 이번 실행이 receipt에 안 잡혀 전부 `no-cmd-match`가 된다):
    ```
    node scripts/verify-evidence.mjs
    ```
-   `unresolved`는 **게이트**(>0이면 REPORT.md 쓰기가 훅에 차단된다). `uncited`·`no-receipt`·`dead-branch`·`uncovered`는 **보고**이니 GAP.md에 옮기되 그것만으로 ❌를 주지 않는다. 특히 **receipt 봉인 이전에 만들어진 evidence는 `uncited`가 대량으로 뜨는데 위조가 아니라 기록이 없는 것**이다.
+   `unresolved`는 **게이트**(>0이면 REPORT.md 쓰기가 훅에 차단된다). 나머지는 **보고**이니 GAP.md에 옮기되 사유별로 조치가 다르다:
+   - `no-receipt`·`dead-branch`·`uncovered` — 그것만으로 ❌를 주지 않는다. 특히 **receipt 봉인 이전에 만들어진 evidence는 `no-receipt`가 대량으로 뜨는데 위조가 아니라 기록이 없는 것**이다.
+   - `no-cmd-match` — **주장한 명령의 실행 기록이 없다. 위조일 수도, `cmd` 표기가 실제와 다를 수도 있다. 그 명령을 그대로 돌리고 다시 검증하라.** 위 면죄 문구가 여기 적용된다고 읽지 마라.
+   - `uncited` — 그 명령은 돌렸는데 출력에 인용이 없다. 진짜 불일치이니 해당 항목을 지목한다.
 5. 결과 정리: 항목별 ✅구현 / ⚠️부분 / ❌누락 / ➕설계밖 + **unproven 개수** + **unresolved 개수** + Match Rate(참고) + 다음 액션.
 6. 결과를 `docs/{cycle}/GAP.md`로 저장. 재분석이면 회차를 덧붙여 추이가 남게 한다.
 7. `.devkit/pdca-state.json` 갱신 — `stage:"gap"`(4필드 유지). `docs/{cycle}/PROGRESS.md`에 `- {date} gap: unproven N` 한 줄 append.

@@ -7,6 +7,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { warn } = require('./diag');
 
 // 앞 경계. 토큰 바로 앞이 문자열 시작·공백·쉼표·여는 괄호·`·`가 **아니면** 경로가 아니다.
 //
@@ -75,7 +76,7 @@ function statFile(abs, label) {
   } catch (e) {
     if (e.code === 'ENOENT') return 'enoent';
     // E4 fail-open — 권한 문제(EACCES 등)가 차단 이유가 되면 안 된다
-    process.stderr.write(`[devkit] evidence ref 확인 실패 (${label}): ${e.message}\n`);
+    warn(`evidence ref 확인 실패 (${label}): ${e.message}`);
     return 'error';
   }
 }
@@ -92,7 +93,7 @@ function noteDrift(r, p, abs) {
     // 끝의 개행 하나는 줄을 만들지 않는다 — 여기서 +1이 나면 정직한 마지막 줄 ref가 드리프트로 잡힌다
     total = fs.readFileSync(abs, 'utf8').replace(/\n$/, '').split('\n').length;
   } catch (e) {
-    process.stderr.write(`[devkit] evidence 라인 확인 실패 (${p.path}): ${e.message}\n`);
+    warn(`evidence 라인 확인 실패 (${p.path}): ${e.message}`);
     return;
   }
   if (want > total) r.lineDrift.push(`${p.path}:${p.line}${p.endLine ? `-${p.endLine}` : ''} (총 ${total}줄)`);

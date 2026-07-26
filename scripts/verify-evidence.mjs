@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { formatHuman, toJson } from './lib/report-format.mjs';
+import { formatHuman, toJson, field } from './lib/report-format.mjs';
 
 const require = createRequire(import.meta.url);
 const lib = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'lib');
@@ -16,8 +16,10 @@ const { findProjectRoot } = require(path.join(lib, 'project-root.js'));
 const { readState } = require(path.join(lib, 'pdca-state.js'));
 const { readBehaviors, effectivePasses } = require(path.join(lib, 'behaviors.js'));
 const { classifyRef } = require(path.join(lib, 'evidence.js'));
-const { readReceipts, checkCitation } = require(path.join(lib, 'receipt.js'));
+const { readReceipts } = require(path.join(lib, 'receipt.js'));
+const { checkCitation } = require(path.join(lib, 'citation.js'));
 const { parseLcov, classifyTarget } = require(path.join(lib, 'lcov.js'));
+const { warn } = require(path.join(lib, 'diag.js'));
 
 // 열린질문 ②: /gap이 다중 리포터로 여기에 lcov를 떨어뜨린다. 관례를 코드에 박아
 // --lcov 배선이 한 군데 빠져도 커버리지 층이 조용히 죽지 않게 한다.
@@ -28,7 +30,7 @@ function readLcov(p) {
   try {
     return fs.readFileSync(p, 'utf8');
   } catch (e) {
-    if (e.code !== 'ENOENT') process.stderr.write(`[devkit] lcov 읽기 실패 (${p}): ${e.message}\n`);
+    if (e.code !== 'ENOENT') warn(`lcov 읽기 실패 (${p}): ${e.message}`);
     return '';
   }
 }
@@ -75,7 +77,10 @@ if (cycleDir === null) {
 // "CLI는 unresolved 0인데 REPORT.md는 차단"되는 원인 불명 데드락이 난다(DESIGN 설계원칙 6).
 const root = findProjectRoot(cycleDir);
 
-const rel = (p) => path.relative(root, p).split(path.sep).join('/');
+// field()를 통과시킨다 — cycleId는 위조자 통제 필드고(pdca-state.json은 파일이다),
+// 아래 조기 종료 출구는 formatHuman을 안 거쳐 detick 방벽 밖이다. cycleId에 개행+✔를
+// 심으면 이 헤더가 그대로 대조 후보 줄을 낸다(벡터 A, 실측).
+const rel = (p) => field(path.relative(root, p).split(path.sep).join('/'));
 const doc = readBehaviors(cycleDir);
 
 if (doc === null) {
@@ -111,6 +116,8 @@ const covIs = (s) => rows.filter((r) => r.cov.status === s);
 const unresolved = refIs('unresolved');
 const uncited = citeIs('uncited');
 const noReceipt = citeIs('no-receipt');
+// "그 명령을 안 돌렸다"는 uncited(진짜 불일치)와도, no-receipt(소급 불가)와도 조치가 다르다
+const noCmdMatch = citeIs('no-cmd-match');
 const drifted = rows.filter((r) => r.refResult !== null && r.refResult.lineDrift.length > 0);
 const viaArchive = rows.flatMap((r) => (r.refResult === null ? [] : Object.keys(r.refResult.via)
   .filter((p) => r.refResult.via[p] === 'archive')
@@ -124,6 +131,7 @@ const counts = {
   evaluated: rows.filter((r) => r.refResult !== null).length,
   unresolved: unresolved.length,
   uncited: uncited.length,
+  noCmdMatch: noCmdMatch.length,
   noReceipt: noReceipt.length,
   uncovered: uncovered.length,
   deadBranch: deadBranch.length,
@@ -139,7 +147,7 @@ const view = {
   rows,
   receipts,
   groups: {
-    unresolved, uncited, noReceipt, deadBranch, uncovered, drifted, viaArchive,
+    unresolved, uncited, noCmdMatch, noReceipt, deadBranch, uncovered, drifted, viaArchive,
   },
 };
 

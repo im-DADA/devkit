@@ -9,6 +9,7 @@
 // 아니라 "foreign 명시"로 감지해야 훅이 충돌을 경고할 수 있다.
 const fs = require('node:fs');
 const path = require('node:path');
+const { warn } = require('./diag');
 
 const SCHEMA_VERSION = 1;
 const FILE = path.join('.devkit', 'pdca-state.json');
@@ -23,6 +24,17 @@ const BKIT_KEYS = ['cycle', 'phase', 'gates'];
 const CYCLE_ARTIFACT =
   /(?:^|\/)docs\/(\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*)\/(GAP|REPORT)\.md$/;
 const STATE_FILE = /(?:^|\/)\.devkit\/pdca-state\.json$/;
+
+// cycleId는 `path.join(root, 'docs', cycleId)`의 **경로 조각 한 개**다. 검증이
+// "빈 문자열이 아닌 string"뿐이라 개행·`..`·절대경로가 전부 통과했다:
+//   - 개행 → verify-evidence의 조기 종료 헤더가 그대로 보간해 대조 후보 줄을 만든다(벡터 A)
+//   - `..`·`/` → 사이클 폴더 밖을 판정 대상으로 만든다
+// 열거(무엇이 위험한가)가 아니라 형태 강제(무엇만 허용하나)로 좁힌다.
+// ⚠ `\w`(ASCII)로 좁히면 실재하는 폴더명이 막힌다 — `2026-07-24-devkit-재설계`·
+//   `에이전트-배선-강화`. 이 함수는 pdca-gate가 상태 쓰기를 하드 차단하는 근거라
+//   너무 좁히면 정직한 사이클이 멈춘다. 그래서 유니코드 글자/숫자는 허용한다.
+const CYCLE_ID = /^[\p{L}\p{N}_.-]+$/u;
+const ALL_DOTS = /^\.+$/; // '.'·'..'는 위 집합을 통과하지만 폴더명이 아니라 이동이다
 const toPosix = (p) => p.replace(/\\/g, '/'); // Windows 구분자 우회 방지
 
 function statePath(root) {
@@ -60,7 +72,7 @@ function readState(root) {
   try {
     obj = JSON.parse(raw);
   } catch (e) {
-    process.stderr.write(`[devkit] pdca-state 파싱 실패: ${e.message}\n`);
+    warn(`pdca-state 파싱 실패: ${e.message}`);
     return null;
   }
   if (!obj || typeof obj !== 'object') return null;
@@ -166,6 +178,11 @@ function validateStateWrite(obj) {
     }
     if (typeof obj.cycleId !== 'string' || !obj.cycleId) {
       problems.push('cycleId(사이클 폴더명)가 없다');
+    } else if (!CYCLE_ID.test(obj.cycleId) || ALL_DOTS.test(obj.cycleId)) {
+      problems.push(
+        'cycleId는 docs/ 아래 폴더명 한 개여야 한다 — 경로 구분자·공백·개행·상위 이동(..) 불가'
+        + ` (현재: ${JSON.stringify(obj.cycleId)})`,
+      );
     }
     if (!STAGES.includes(obj.stage)) {
       problems.push(`stage 허용값 밖: ${JSON.stringify(obj.stage)} (허용: ${STAGES.join('|')})`);

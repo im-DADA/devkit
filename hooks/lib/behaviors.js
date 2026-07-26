@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { classifyRef } = require('./evidence');
+const { warn } = require('./diag');
 
 const FILE = 'behaviors.json';
 const EVIDENCE_KINDS = new Set(['test', 'visual', 'manual']);
@@ -73,7 +74,7 @@ function readBehaviors(cycleDir) {
     if (!doc || !Array.isArray(doc.behaviors)) return null;
     return doc;
   } catch (e) {
-    process.stderr.write(`[devkit] behaviors.json 파싱 실패: ${e.message}\n`);
+    warn(`behaviors.json 파싱 실패: ${e.message}`);
     return null;
   }
 }

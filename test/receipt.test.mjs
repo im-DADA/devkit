@@ -1,4 +1,5 @@
-// 실행 receipt 봉인·대조 계약 — "evidence가 인용한 출력이 실제로 실행된 적 있는가".
+// 실행 receipt 봉인 계약 — "무엇이 어떻게 .devkit/receipts.jsonl에 남는가".
+// 그 기록으로 인용을 대조하는 쪽의 계약은 test/citation.test.mjs에 있다.
 // receipt를 쓰는 테스트는 전부 mkdtempSync 임시 root에 쓰고 after()에서 지운다
 // ($TMPDIR/.devkit/audit.jsonl을 무한히 키운 기존 문제를 반복하지 않기 위해).
 import { test, after } from 'node:test';
@@ -14,8 +15,10 @@ const repoRoot = path.join(dir, '..');
 const require = createRequire(import.meta.url);
 const receipt = require(path.join(repoRoot, 'hooks', 'lib', 'receipt.js'));
 const {
-  appendReceipt, readReceipts, extractQuotes, checkCitation, maskSecrets, MAX_STDOUT, MAX_FILE, FILE,
+  appendReceipt, readReceipts, maskSecrets, MAX_STDOUT, MAX_FILE,
 } = receipt;
+// 상한은 "인용 대조가 성립하는가"로 판정한다 — 봉인만 보면 무엇을 위해 큰지 알 수 없다
+const { checkCitation } = require(path.join(repoRoot, 'hooks', 'lib', 'citation.js'));
 
 // ⚠ 시크릿 샘플은 런타임 문자열 결합으로 만든다 — 리터럴로 적으면 secret-guard(PreToolUse)가
 // 이 테스트 파일의 Write 자체를 exit 2로 막는다(DESIGN 리스크 7의 실전 관측).
@@ -23,10 +26,6 @@ const AWS_KEY = 'AK' + 'IA' + 'ABCDEFGHIJKLMNOP';
 const GH_TOKEN = 'gh' + 'p_' + 'A'.repeat(36);
 const PEM_HEAD = '-----BEGIN ' + 'OPENSSH PRIVATE KEY' + '-----';
 const JWT = 'ey' + 'JhbGciOiJIUzI1NiJ9' + '.eyJzdWIiOiIxMjM0NTY3ODkwIn0.' + 'abcdef';
-
-// receipt ts는 UTC ISO다. 시스템 날짜가 무엇이든 같은 기준으로 비교해야 테스트가 안 흔들린다.
-const TODAY = new Date().toISOString().slice(0, 10);
-const ev = (o) => ({ kind: 'test', ref: 'test/x.test.mjs:1', cmd: 'node --test', at: TODAY, ...o });
 
 const tmpDirs = [];
 function makeRoot() {
@@ -44,10 +43,14 @@ function readLines(root) {
 }
 
 // ── B8: 크기 상한 초과 시 truncate 표기 ──────────────────
-test('B8: 12KB stdout은 상한까지 잘리고 양끝이 남는다 + truncated 표기', () => {
+// 픽스처 크기는 MAX_STDOUT에서 파생시킨다 — 바이트 수를 하드코딩하면 상한이 올라간 순간
+// 절단이 아예 안 일어나 이 테스트가 조용히 아무것도 고정하지 못한다(공허한 green).
+const OVER_STDOUT = Math.round(MAX_STDOUT * 1.5);
+
+test('B8: 상한을 1.5배 넘는 stdout은 상한까지 잘리고 양끝이 남는다 + truncated 표기', () => {
   const root = makeRoot();
-  const big = 'HEAD_MARKER_' + 'a'.repeat(12288 - 24) + 'TAIL_MARKER_';
-  assert.equal(big.length, 12288, '픽스처가 12KB여야 한다');
+  const big = 'HEAD_MARKER_' + 'a'.repeat(OVER_STDOUT - 24) + 'TAIL_MARKER_';
+  assert.equal(big.length, OVER_STDOUT, '픽스처가 상한의 1.5배여야 한다');
 
   appendReceipt(root, { command: 'node --test test/*.test.mjs', stdout: big, stderr: '', interrupted: false });
 
@@ -57,7 +60,7 @@ test('B8: 12KB stdout은 상한까지 잘리고 양끝이 남는다 + truncated 
   assert.equal(r.cmd, 'node --test test/*.test.mjs');
   assert.ok(r.stdout.length <= MAX_STDOUT, `상한 초과: ${r.stdout.length} > ${MAX_STDOUT}`);
   assert.equal(r.truncated, true);
-  assert.equal(r.bytes.stdout, 12288, '원본 바이트 수를 남겨야 판독이 된다');
+  assert.equal(r.bytes.stdout, OVER_STDOUT, '원본 바이트 수를 남겨야 판독이 된다');
   assert.match(r.stdout, /truncated/, '잘렸음을 사람이 읽을 수 있어야 한다');
   // 양끝 보존 — head만 남기면 '# fail 0' 같은 요약 확인이 불가능해진다
   assert.ok(r.stdout.startsWith('HEAD_MARKER_'), '앞이 사라졌다');
@@ -77,6 +80,44 @@ test('B8: 상한 이하 출력은 원문 그대로 (truncated 플래그 없음)'
   assert.equal(recs[1].cmd, 'pwd');
 });
 
+// ── B6: 실사용 규모(20KB급) 출력에서 중간 테스트명이 살아남는다 ──
+// D18 실측 — 테스트 234개의 spec 리포터 출력이 20,752 B였는데 상한이 8KB라 가운데가 통째로
+// 날아갔고, 그 구간의 ✔ 줄을 인용한 evidence가 전부 uncited로 뜬 것이 이 층이 죽은 원인이다.
+// head/tail만 보존해서는 통과할 수 없는 지점(중간)을 고른다.
+const BIG_LINES = 234;
+const bigLine = (i) => `✔ B${i}: 실사용 규모 재현용 테스트명 ${'가'.repeat(12)} (1.234ms)\n`; // 한글 = UTF-8 경계
+
+test('B6: 실사용 규모 출력은 절단되지 않고 중간 테스트명으로 인용 대조까지 된다', () => {
+  const root = makeRoot();
+  const CMD = 'node --test test/*.test.mjs';
+  let body = '';
+  for (let i = 1; i <= BIG_LINES; i += 1) body += bigLine(i);
+  const tail = '\n# tests 234\n# pass 234\n# fail 0\n# duration_ms 1234.5\n';
+  // 픽스처가 실측 규모임을 스스로 증명한다 — 바이트 수를 하드코딩하면 근거가 사라진다
+  assert.ok(Buffer.byteLength(body + tail) >= 20000, `픽스처가 실측(20,752 B) 규모여야 한다: ${Buffer.byteLength(body + tail)}`);
+
+  appendReceipt(root, { command: CMD, stdout: body + tail, stderr: '', interrupted: false });
+
+  const r = readLines(root)[0];
+  assert.equal(r.truncated, undefined, '실사용 규모가 잘리면 사이클마다 인용 대조가 무너진다');
+
+  const MID = bigLine(Math.round(BIG_LINES / 2)).trim(); // 117번째 — head도 tail도 아닌 자리
+  assert.ok(r.stdout.includes(MID), `가운데 줄이 사라졌다: ${MID}`);
+
+  // 봉인만으로는 부족하다 — 그 줄을 인용한 evidence가 실제로 cited가 돼야 의미가 있다
+  const at = new Date().toISOString().slice(0, 10);
+  const c = checkCitation({ kind: 'test', ref: 'test/x.test.mjs:1', cmd: CMD, at, output: MID }, readReceipts(root));
+  assert.equal(c.status, 'cited', `중간 구간 인용이 대조되지 않는다: ${JSON.stringify(c.quotes)}`);
+});
+
+// ── B7: 상한 상향이 로테이션을 조기 유발하지 않는다 ────────
+// stdout 상한만 올리고 파일 상한을 두면 최악 보관 건수가 4배 줄어(256 → 64건) 과거 실행이
+// 빨리 사라지고, 그건 곧 "안 돌렸다"(no-cmd-match) 오탐이다. 비율을 계약으로 고정한다.
+test('B7: MAX_FILE이 레코드 상한의 256배 이상이다 (보관 건수 정책 불변)', () => {
+  const ratio = MAX_FILE / MAX_STDOUT;
+  assert.ok(ratio >= 256, `stdout 상한만 올리면 보관 건수가 줄어 과거 실행이 사라진다: ${ratio}배`);
+});
+
 // 파일 자체도 무한히 커지면 안 된다. 1세대만 유지하고 대조는 두 파일을 함께 읽는다.
 test('B8: 파일이 상한을 넘으면 1세대로 로테이션하고 새로 시작한다', () => {
   const root = makeRoot();
@@ -90,151 +131,6 @@ test('B8: 파일이 상한을 넘으면 1세대로 로테이션하고 새로 시
   assert.equal(recs.length, 1, '새 파일로 시작해야 한다');
   assert.equal(recs[0].cmd, 'echo hi');
   assert.ok(fs.existsSync(path.join(devkit, 'receipts.1.jsonl')), '직전 세대가 보존돼야 한다');
-});
-
-// ── B10: 인용 조각 대조 (보고이지 차단이 아니다) ──────────
-// 실측 output(v0.11.0 아카이브 B1). ' · '로 나뉜 3조각 중 실행 로그는 첫 조각뿐이고
-// '라이브: …'·'뮤테이션 M1 …'은 서술이라 receipt에 문자열로 존재할 수 없다.
-// 후보에 넣으면 100% uncited가 나와 보고가 소음이 된다.
-const ARCHIVE_B1 = "✔ B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내 · 라이브: 실제 사이클 폴더 REPORT.md Write → exit=2, stderr 'REVIEW.md → /review' · 뮤테이션 M1(STAGE_REQUIREMENTS에서 REVIEW.md 제거) → 이 테스트 실패";
-
-test('B10: 후보는 ✔ 조각만 — 서술(라이브·뮤테이션)은 인용이 아니다', () => {
-  assert.deepEqual(
-    extractQuotes(ev({ output: ARCHIVE_B1 })),
-    ['B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내'],
-  );
-  // ✔ 조각이 2개인 실측 형식(아카이브 B3)
-  assert.equal(extractQuotes(ev({ output: '✔ B3: 없는 것만 정확히 지목한다 · ✔ gatePrerequisite: REVIEW.md만 없으면 그것만 지목' })).length, 2);
-});
-
-test('B10: kind가 test가 아니면 대조하지 않는다 (오탐 방지)', () => {
-  const out = 'matcher: startup|resume|clear|compact / pre-compact.js: No such file (의도대로 부재)';
-  assert.deepEqual(extractQuotes(ev({ kind: 'manual', output: out })), []);
-  assert.deepEqual(extractQuotes(ev({ kind: 'visual', output: '✔ 스크린샷 대조 완료' })), []);
-  assert.deepEqual(extractQuotes(null), []);
-});
-
-test('B10: 인용이 receipt에 있으면 cited', () => {
-  const root = makeRoot();
-  appendReceipt(root, {
-    command: 'node --test test/*.test.mjs',
-    stdout: '✔ B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내 (12.34ms)\n# pass 166\n',
-    stderr: '', interrupted: false,
-  });
-  const c = checkCitation(ev({ output: ARCHIVE_B1 }), readReceipts(root));
-  assert.equal(c.status, 'cited');
-  assert.equal(c.hits.length, 1);
-});
-
-test('B10: 인용을 못 찾으면 uncited로 보고한다 — throw하지 않는다(차단 아님)', () => {
-  const root = makeRoot();
-  appendReceipt(root, { command: 'node --test', stdout: '✔ 전혀 다른 테스트가 통과함\n', stderr: '', interrupted: false });
-  let c;
-  assert.doesNotThrow(() => { c = checkCitation(ev({ output: ARCHIVE_B1 }), readReceipts(root)); });
-  assert.equal(c.status, 'uncited');
-  assert.deepEqual(c.hits, []);
-  assert.equal(c.quotes.length, 1, '무엇을 못 찾았는지 알려줘야 판단이 된다');
-});
-
-test('B10: 소요시간 표기 차이는 불일치가 아니다', () => {
-  const root = makeRoot();
-  appendReceipt(root, { command: 'node --test', stdout: '✔ B7: 정상 4필드는 통과 (13.502ms)\n', stderr: '', interrupted: false });
-  assert.equal(checkCitation(ev({ output: '✔ B7: 정상 4필드는 통과 (2.1ms)' }), readReceipts(root)).status, 'cited');
-});
-
-test('B10: stderr도 대조 대상 (훅 차단 메시지는 stderr로 나온다)', () => {
-  const root = makeRoot();
-  appendReceipt(root, { command: 'node hooks/pdca-gate.js', stdout: '', stderr: "✔ B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내\n", interrupted: false });
-  assert.equal(checkCitation(ev({ output: ARCHIVE_B1 }), readReceipts(root)).status, 'cited');
-});
-
-test('B10: 후보가 0개면 skipped (대조 불가는 위반이 아니다)', () => {
-  const root = makeRoot();
-  appendReceipt(root, { command: 'ls', stdout: 'x', stderr: '', interrupted: false });
-  assert.equal(checkCitation(ev({ kind: 'manual', output: '눈으로 확인함 — 배지가 보인다' }), readReceipts(root)).status, 'skipped');
-});
-
-// ── B11: 대조할 receipt가 애초에 없는 경우 ────────────────
-// receipt가 없는 것과 인용이 틀린 것은 완전히 다른 사건이다. 둘을 uncited로 뭉치면
-// "receipt 도입 이전 사이클"이 전부 위반으로 보여 보고가 못 쓰게 된다.
-test('B11: receipts 파일 자체가 없으면 no-receipt (uncited가 아니다)', () => {
-  const root = makeRoot(); // .devkit 없음
-  const rs = readReceipts(root);
-  assert.equal(rs.present, false);
-  assert.equal(rs.firstDate, null);
-
-  const c = checkCitation(ev({ output: ARCHIVE_B1 }), rs);
-  assert.equal(c.status, 'no-receipt');
-  assert.deepEqual(c.hits, []);
-  assert.equal(c.quotes.length, 1, '무엇을 대조하려 했는지는 남겨야 한다');
-});
-
-// ts를 통제해야 firstDate 경계를 볼 수 있다 — appendReceipt는 now를 쓴다
-function seedReceipts(root, lines) {
-  const d = path.join(root, '.devkit');
-  fs.mkdirSync(d, { recursive: true });
-  fs.writeFileSync(path.join(d, FILE), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
-  return root;
-}
-const QUOTED = '✔ B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내 (12.3ms)\n';
-
-test('B11: evidence가 receipt 봉인 시작보다 이전 날짜면 no-receipt', () => {
-  const root = seedReceipts(makeRoot(), [
-    { ts: '2026-07-25T01:00:00.000Z', cmd: 'node --test', stdout: QUOTED, stderr: '' },
-    { ts: '2026-07-26T01:00:00.000Z', cmd: 'ls', stdout: '', stderr: '' },
-  ]);
-  const rs = readReceipts(root);
-  assert.equal(rs.present, true);
-  assert.equal(rs.firstDate, '2026-07-25', '가장 오래된 ts의 날짜여야 한다');
-
-  // 문자열은 우연히 맞지만(cited로 보일 수 있다) 봉인 이전이라 대조 자체가 성립하지 않는다
-  const c = checkCitation(ev({ at: '2026-07-24', output: ARCHIVE_B1 }), rs);
-  assert.equal(c.status, 'no-receipt');
-});
-
-// 실측 evidence.at은 '2026-07-25'처럼 날짜만인 경우가 많다. 시각 단위로 비교하면
-// 같은 날 봉인된 receipt가 전부 '이전'으로 판정돼 이번 사이클 evidence가 몰살당한다.
-test('B11: 같은 날짜는 no-receipt가 아니다 (날짜 단위 비교)', () => {
-  const root = seedReceipts(makeRoot(), [
-    { ts: '2026-07-25T23:59:59.000Z', cmd: 'node --test', stdout: QUOTED, stderr: '' },
-  ]);
-  const rs = readReceipts(root);
-
-  // ① at이 날짜만 — receipt ts보다 시각상 앞서지만 같은 날이다
-  assert.equal(checkCitation(ev({ at: '2026-07-25', output: ARCHIVE_B1 }), rs).status, 'cited');
-  // ② at이 전체 ISO여도 같은 날이면 동일
-  assert.equal(checkCitation(ev({ at: '2026-07-25T00:00:01.000Z', output: ARCHIVE_B1 }), rs).status, 'cited');
-  // ③ 같은 날인데 인용이 다르면 그건 uncited — no-receipt로 뭉개면 안 된다
-  assert.equal(checkCitation(ev({ at: '2026-07-25', output: '✔ 전혀 다른 문구가 통과함' }), rs).status, 'uncited');
-  // ④ at이 없으면 날짜 판정을 하지 않는다 (없다고 no-receipt로 몰지 않는다)
-  assert.equal(checkCitation(ev({ at: undefined, output: ARCHIVE_B1 }), rs).status, 'cited');
-});
-
-// ── R4: 보고서 자신이 봉인돼 uncited가 스스로 지워지는 것을 막는다 ──
-// verify-evidence는 uncited 항목의 인용을 stdout에 찍고, 그 stdout을 bash-receipt가
-// 봉인한다. 대조가 전체 receipt에 대한 부분 문자열 검사라, 다음 실행에서 그 인용이
-// 발견돼 한 번도 실행된 적 없는 위조가 'cited'로 뒤집힌다(3회 실행이면 uncited: 0).
-// → 자기 출력으로 자기를 입증하는 경로를 끊는다.
-test('R4: verify-evidence 자신의 출력은 대조 후보가 아니다 (자기입증 차단)', () => {
-  const root = seedReceipts(makeRoot(), [
-    {
-      ts: '2026-07-25T10:00:00.000Z',
-      cmd: 'node scripts/verify-evidence.mjs --cycle docs/2026-07-25-x',
-      stdout: '⚠ uncited\n  B1  ref t.ts  인용 "B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내" 를 receipt에서 못 찾음\n',
-      stderr: '',
-    },
-  ]);
-  const c = checkCitation(ev({ at: '2026-07-25', output: ARCHIVE_B1 }), readReceipts(root));
-  assert.equal(c.status, 'uncited', '보고서 출력이 봉인됐다고 위조가 cited가 되면 안 된다');
-  assert.deepEqual(c.hits, []);
-});
-
-test('R4: 자기 출력을 빼도 실제 실행 receipt는 그대로 대조한다 (탐지력 유지)', () => {
-  const root = seedReceipts(makeRoot(), [
-    { ts: '2026-07-25T10:00:00.000Z', cmd: 'node scripts/verify-evidence.mjs', stdout: QUOTED, stderr: '' },
-    { ts: '2026-07-25T11:00:00.000Z', cmd: 'node --test test/*.test.mjs', stdout: QUOTED, stderr: '' },
-  ]);
-  assert.equal(checkCitation(ev({ at: '2026-07-25', output: ARCHIVE_B1 }), readReceipts(root)).status, 'cited');
 });
 
 // ── B12: 시크릿 마스킹 (secret-patterns.js 재사용, 신규 패턴 금지) ──
@@ -283,7 +179,7 @@ test('B12: appendReceipt는 cmd/stdout/stderr 3면 모두 마스킹해서 저장
 // (예: 'AKIA' + 4자) 정규식 {16}에 안 걸리고 원문 조각이 파일에 남는다.
 test('B12: 절단 경계에 걸친 시크릿도 원문이 남지 않는다 (마스킹 먼저, 절단 나중)', () => {
   const root = makeRoot();
-  const SIZE = 12288;
+  const SIZE = OVER_STDOUT; // 상한이 바뀌어도 절단이 반드시 일어나야 이 순서가 검증된다
   const DOT = '.'; // \b 경계를 살리려면 filler가 non-word여야 한다
 
   // ① 경계 위치를 실측한다(마커 길이에 상수를 하드코딩하지 않기 위해)
@@ -330,6 +226,18 @@ test('R5: README·RULES가 마스킹 범위를 과장하지 않는다', () => {
     assert.match(block, /9종/, `${f}: 마스킹 범위를 수치로 밝혀야 한다 — "${block}"`);
     assert.match(block, /평문/, `${f}: 가려지지 않는 것이 있음을 밝혀야 한다 — "${block}"`);
   }
+});
+
+// 봉인(이 파일)과 대조(citation.js)는 경계가 갈렸다. 재export하거나 옛 대조 코드가 남으면
+// "두 벌"이 되고, 아무도 import하지 않아 테스트가 전부 green인 채로 D15가 폐기한
+// 이름 블랙리스트(SELF_RE)가 되살아난다 — 실제로 한 번 되살아나서 이 테스트를 심는다.
+test('B12: 대조 로직은 citation.js에만 있다 (receipt.js에 두 벌을 두지 않는다)', () => {
+  assert.equal(receipt.checkCitation, undefined, 'receipt.js가 대조를 재export한다');
+  assert.equal(receipt.extractQuotes, undefined, 'receipt.js가 대조를 재export한다');
+
+  const src = fs.readFileSync(path.join(repoRoot, 'hooks', 'lib', 'receipt.js'), 'utf8');
+  assert.doesNotMatch(src, /verify-evidence/, 'D15가 폐기한 이름 블랙리스트가 receipt.js에 되살아났다');
+  assert.doesNotMatch(src, /function checkCitation/, '대조 함수가 봉인 모듈에 남아 있다');
 });
 
 // B12는 "기존 secret-patterns.js를 재사용하고 신규 패턴을 만들지 않는다"가 제약이다.
