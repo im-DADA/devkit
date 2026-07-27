@@ -1,15 +1,9 @@
 // verify-evidence의 출력 포매팅. 판정은 하지 않고 이미 나온 판정을 문자열/JSON으로만 바꾼다.
 // 분리 이유: DESIGN §3이 "verify-evidence.mjs가 200줄을 넘으면 여기로 뺀다"를 사전에 정해뒀다.
-import { createRequire } from 'node:module';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// 형태 방벽(citable·emit)과 그 상수는 emit.mjs가 정본이다 — 두 벌로 두면 방벽이 조용히 죽는다.
+import { SEP } from './emit.mjs';
 
-// 대조 규칙의 정본에서 가져온다. 두 벌로 두면 citation.js가 SEP·MIN_QUOTE를 바꿀 때
-// 아래 형태 규칙이 조용히 무력해진다(DESIGN §10-5).
-const require = createRequire(import.meta.url);
-const { normalize, MIN_QUOTE, SEP } = require(path.join(
-  path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'hooks', 'lib', 'citation.js',
-));
+export { emit } from './emit.mjs';
 
 /** 항목이 없으면 '(없음)'을 찍는다 — 빈 섹션은 "검사 안 함"과 구분되지 않는다 */
 function section(icon, title, lines) {
@@ -29,39 +23,6 @@ export const field = (v) => {
   const s = String(v).replace(/\s/g, ' '); // 문자 단위 치환 — 길이가 보존돼야 총 N자가 정직하다
   return s.length <= MAX_FIELD ? s : `${s.slice(0, MAX_FIELD)}…(총 ${s.length}자)`;
 };
-
-// ★ 불변식(이 프로세스의 stdout 전체): 어떤 줄도 인용 대조 후보가 될 수 없다.
-// 이 stdout은 bash-receipt가 봉인한다. 그래서 보고서가 자기입증 채널이 되는 조건은
-// 정확히 하나 — 이 출력에 "대조 후보가 되는 형태"의 줄이 생기는 것이다.
-//
-// ⚠ 반전(RULES §"뒤집힌 판단은 원래 기록 자리에"). 여기 있던 처방은 `detick`이었고
-//   근거는 "대조는 ✔로 시작하는 줄에서만 일어난다"(citation.js tickLines)였다.
-//   **그 근거가 소멸했다**: 대조가 마커 무관 전체 일치로 바뀌면서(이 사이클) ✔ 없는
-//   보고서 줄도 후보가 된다. 실제로 §8-0에서 e2e 재현됐다 — decoy behavior의 id·ref만으로
-//   unresolved 행 한 줄이 조립되고, 다른 behavior가 그 줄을 그대로 인용하자 1회 봉인 후
-//   2회차에 uncited → cited. `detick`은 그 벡터를 하나도 못 막는다. 그래서 제거한다.
-//
-// 새 처방은 규칙을 더 얹지 않고 **기존 불변식을 재사용**한다: 인용 조각은 normalize 후
-// SEP로 잘려 나오므로 **SEP를 품은 줄은 어떤 인용 조각과도 같아질 수 없다.** 길이 하한도
-// 같은 자리에서 쓴다. 열거가 아니라 형태라서 상수 줄·항목 행·조기 종료 출구·--json을
-// 한꺼번에 덮고, 새 섹션이 생겨도 안 깨진다.
-// 포기한 것: 이 도구는 앞으로 "짧고 SEP 없는 줄"을 **정상적으로도** 낼 수 없다.
-//   낼 이유도 없다 — 이 출력은 테스트 러너가 아니다.
-const citable = (line) => {
-  const s = normalize(line);
-  return s.length >= MIN_QUOTE && !s.includes(SEP);
-};
-
-/**
- * 이 프로세스의 **유일한 stdout 출구**. 줄 단위로 형태를 검사하고 위반 줄은 자동 교정한다.
- * 자동 교정은 백스톱이다 — 사람이 템플릿마다 세지 않게 하려는 것이지, 정상 템플릿이
- * 여기 기대라는 뜻이 아니다(정상 보고서에 접두가 붙으면 읽기 나빠진다).
- */
-export function emit(text) {
-  process.stdout.write(text.split('\n')
-    .map((line) => (citable(line) ? `devkit${SEP}${line}` : line))
-    .join('\n'));
-}
 
 const why = (r) => (r.escaped.length > 0
   ? `루트 밖 경로 ${r.escaped.map(field).join(', ')}`

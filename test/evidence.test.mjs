@@ -142,7 +142,7 @@ const HEAD_CASES = [
 ];
 
 for (const [label, ref, expected] of HEAD_CASES) {
-  test(`R5: 앞 경계 ${label} 뒤의 경로는 후보로 인정한다`, () => {
+  test(`R5: 앞 경계 "${label}" 뒤의 경로는 후보로 인정한다`, () => {
     const got = parseRefPaths(ref).map((p) => ({ path: p.path, line: p.line }));
     assert.deepEqual(got, expected, `경계 문자 ${label}가 앞 경계 집합에서 빠졌다: ${ref}`);
   });
@@ -230,7 +230,7 @@ test('R6: 슬래시 1개짜리 /토큰은 커맨드 식별자다 (unparsed — �
   assert.equal(gateEvidence({ behaviors: [{ id: 'B1', passes: true, evidence: ev }] }, root).ok, true);
 });
 
-test('R6: 루트 이탈(슬래시 2개 이상 절대경로 · .. 세그먼트)은 확장자가 없어도 거부한다', () => {
+test('R6: 루트 이탈(슬래시 2개 이상 절대경로, .. 세그먼트)은 확장자가 없어도 거부한다', () => {
   const root = makeRoot();
   for (const ref of ['/etc/passwd', '../../etc/passwd', '../secrets']) {
     const r = classifyRef(ref, root);
@@ -292,7 +292,7 @@ test('B3: 아카이빙된 사이클 문서는 archive 폴백으로 찾는다', (
 });
 
 // ── B4: 루트를 벗어나는 ref는 거부 ───────────────────────
-test('B4: ../ · 절대경로 · 경로 탈출은 unresolved + escaped', () => {
+test('B4: ../, 절대경로, 경로 탈출은 unresolved + escaped', () => {
   const root = makeRoot();
   for (const ref of ['../secrets/x.ts', '/etc/passwd', 'docs/../../x.md']) {
     const r = classifyRef(ref, root);

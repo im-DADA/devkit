@@ -184,7 +184,7 @@ test('B15: 같은 시드라도 블록 안(:3)을 겨냥하면 uncovered다 (dead
 // ── B16: target이 없으면 판정을 건너뛴다 (하위호환) ────────
 // 기존 사이클의 behaviors.json에는 target 필드가 아예 없다. 그걸 no-data(= 커버리지
 // 미수집)로 뭉치면 과거 사이클 전부가 경고로 보여 보고가 못 쓰게 된다. 둘은 다른 사건이다.
-test('B16: parseTarget — 라인 · 범위 · 파일 전체 · 해석 불가', () => {
+test('B16: parseTarget — 라인, 범위, 파일 전체, 해석 불가', () => {
   assert.deepEqual(parseTarget('hooks/lib/lcov.js:2'), { path: 'hooks/lib/lcov.js', from: 2, to: 2 });
   assert.deepEqual(parseTarget('hooks/lib/lcov.js:2-9'), { path: 'hooks/lib/lcov.js', from: 2, to: 9 });
   assert.deepEqual(parseTarget('hooks/lib/lcov.js'), { path: 'hooks/lib/lcov.js', from: 1, to: Infinity });

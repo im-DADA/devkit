@@ -65,7 +65,7 @@ const opts = parseArgs(process.argv.slice(2));
 const cwdRoot = findProjectRoot(process.cwd());
 const cycleDir = resolveCycleDir(opts, cwdRoot);
 
-// stdout은 emit 하나로만 나간다 — 형태 규칙(report-format.mjs)이 걸리는 유일한 출구다.
+// stdout은 emit 하나로만 나간다 — 형태 규칙(lib/emit.mjs)이 걸리는 유일한 출구다.
 // 이 안내 블록은 일부러 손으로 손보지 않았다: 자동 교정이 실제로 도는지가 여기서 드러난다.
 if (cycleDir === null) {
   emit(

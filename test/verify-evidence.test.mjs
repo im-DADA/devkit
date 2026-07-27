@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { formatHuman, toJson } from '../scripts/lib/report-format.mjs';
+import { formatHuman, toJson, emit } from '../scripts/lib/report-format.mjs';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(dir, '..');
@@ -265,7 +265,7 @@ test('V6: .devkit/lcov.info가 없으면 커버리지 층은 전부 no-data (경
 // ── V7: exit code는 어떤 상황에도 0 ──────────────────────
 // unresolved>0을 exit 1로 만들면 gap-detector의 Bash 호출이 "실패"로 보이고,
 // 나아가 보고 도구가 작업을 막는 역할 혼선이 생긴다. 차단은 pdca-gate 훅만 한다.
-test('V7: unresolved>0이어도 · 입력이 깨져도 · lcov를 못 읽어도 exit 0', () => {
+test('V7: unresolved>0이어도, 입력이 깨져도, lcov를 못 읽어도 exit 0', () => {
   const root = makeRoot();
   fs.mkdirSync(path.join(root, '.devkit'), { recursive: true });
   fs.writeFileSync(path.join(root, '.devkit', 'receipts.jsonl'), '{깨진 줄\n{"ts":"2026-07-25T00:00:00.000Z","stdout":"x"}\n');
@@ -949,4 +949,28 @@ test('V9: --json은 파싱 가능한 JSON 하나만 내고 counts가 사람용�
   const human = run(root, ['--cycle', 'docs/2026-07-25-json']);
   assert.match(human.stdout, /unresolved: 1/, human.stdout);
   assert.match(human.stdout, /dead-branch: 1/, human.stdout);
+});
+
+// ── emit 백스톱은 무조건이어야 한다 (1회차 리뷰 🟡1) ──────────
+// 접두 하나로는 부족했다: normalize의 소요시간 제거가 접두 SEP의 뒤 공백을 먹어
+// 교정 후에도 citable이 남는다. 백스톱이 조건부면 "선언한 범위 > 실제 경계"의
+// 또 다른 형태다 — 이 프로젝트가 네 번 밟은 패턴이라 테스트로 고정한다.
+test('emit: 어떤 줄을 넣어도 교정 결과는 대조 후보가 아니다 (백스톱 무조건)', () => {
+  const citable = (s) => {
+    const n = normalize(s);
+    return n.length >= MIN_QUOTE && !n.includes(SEP);
+  };
+  const cases = [
+    '  (1234ms)abc · (1234ms)abc', // 1회차 리뷰의 반례 — 접두만으로는 안 닫힌다
+    '(12345s)', '  (1.5s)(200ms)xxxxxxxx',
+    'evidence 검증 — docs/x/', '❌ unresolved', '정상적인 긴 줄입니다 여기',
+    '', '   ', '짧다',
+  ];
+  for (const c of cases) {
+    const w = process.stdout.write;
+    let buf = '';
+    process.stdout.write = (s) => { buf += s; return true; };
+    try { emit(c); } finally { process.stdout.write = w; }
+    assert.equal(citable(buf), false, `교정 후에도 대조 후보다: ${JSON.stringify(c)} → ${JSON.stringify(buf)}`);
+  }
 });
