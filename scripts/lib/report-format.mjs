@@ -1,9 +1,19 @@
 // verify-evidence의 출력 포매팅. 판정은 하지 않고 이미 나온 판정을 문자열/JSON으로만 바꾼다.
 // 분리 이유: DESIGN §3이 "verify-evidence.mjs가 200줄을 넘으면 여기로 뺀다"를 사전에 정해뒀다.
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 대조 규칙의 정본에서 가져온다. 두 벌로 두면 citation.js가 SEP·MIN_QUOTE를 바꿀 때
+// 아래 형태 규칙이 조용히 무력해진다(DESIGN §10-5).
+const require = createRequire(import.meta.url);
+const { normalize, MIN_QUOTE, SEP } = require(path.join(
+  path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'hooks', 'lib', 'citation.js',
+));
 
 /** 항목이 없으면 '(없음)'을 찍는다 — 빈 섹션은 "검사 안 함"과 구분되지 않는다 */
 function section(icon, title, lines) {
-  return [`${icon} ${title}`, ...(lines.length > 0 ? lines : ['  (없음)'])];
+  return [`${icon} ${title}${SEP}${lines.length}건`, ...(lines.length > 0 ? lines : ['  (없음)'])];
 }
 
 // 위조자 통제 필드(id·ref·missing·escaped·lineDrift·cmd·target)의 길이 상한.
@@ -20,25 +30,38 @@ export const field = (v) => {
   return s.length <= MAX_FIELD ? s : `${s.slice(0, MAX_FIELD)}…(총 ${s.length}자)`;
 };
 
-// ★ 불변식(출력 경로 전체): 이 보고서의 어떤 줄도 ✔/✓로 시작하지 않는다.
-// 이 stdout은 bash-receipt가 봉인하고, 대조는 '✔로 시작하는 줄'에서만 일어난다
-// (citation.js tickLines). 그래서 보고서가 자기입증 채널이 되는 조건은 정확히 하나 —
-// 이 출력에 그 형태의 줄이 생기는 것이다.
+// ★ 불변식(이 프로세스의 stdout 전체): 어떤 줄도 인용 대조 후보가 될 수 없다.
+// 이 stdout은 bash-receipt가 봉인한다. 그래서 보고서가 자기입증 채널이 되는 조건은
+// 정확히 하나 — 이 출력에 "대조 후보가 되는 형태"의 줄이 생기는 것이다.
 //
-// ⚠ 이 불변식을 **필드 함수에 걸었던 두 번의 시도는 둘 다 샜다**: preview는 quotes/hits만
-//   덮어 cmd로 샜고, field는 개행만 죽여 id로 샜다. 후자가 근거로 삼은
-//   "모든 필드는 줄 선두가 아니다"는 거짓이었다 — 각 행이 `  ${field(r.id)}  …` 형태라
-//   id가 줄의 첫 non-space 문자이고 대조식은 앞 공백을 허용한다(개행이 필요 없었다).
-//   그래서 세 번째 처방은 규칙을 더 얹지 않고 **조건을 좁힌다**: 어느 필드가 어느 자리에
-//   놓이는지를 세는 대신, 완성된 문자열을 줄 단위로 훑어 불변식을 직접 강제한다.
-//   채널이 늘어도, 새 섹션이 생겨도 안 깨진다.
-// 포기한 것: 보고서는 앞으로 ✔로 시작하는 줄을 **정상적으로도** 낼 수 없다. 지금 그런 줄은
-//   없고(섹션 머리글은 ❌/⚠/ℹ), 낼 이유도 없다 — 이 출력은 테스트 러너가 아니다.
-// 대조식보다 한 칸 넓게 잡는다(뒤따르는 공백을 요구하지 않는다) — 방어는 넓은 쪽이 안전하다.
-const TICK_AT_LINE_START = /^(\s*)[✔✓]/;
-const detick = (text) => text.split('\n')
-  .map((line) => line.replace(TICK_AT_LINE_START, '$1·'))
-  .join('\n');
+// ⚠ 반전(RULES §"뒤집힌 판단은 원래 기록 자리에"). 여기 있던 처방은 `detick`이었고
+//   근거는 "대조는 ✔로 시작하는 줄에서만 일어난다"(citation.js tickLines)였다.
+//   **그 근거가 소멸했다**: 대조가 마커 무관 전체 일치로 바뀌면서(이 사이클) ✔ 없는
+//   보고서 줄도 후보가 된다. 실제로 §8-0에서 e2e 재현됐다 — decoy behavior의 id·ref만으로
+//   unresolved 행 한 줄이 조립되고, 다른 behavior가 그 줄을 그대로 인용하자 1회 봉인 후
+//   2회차에 uncited → cited. `detick`은 그 벡터를 하나도 못 막는다. 그래서 제거한다.
+//
+// 새 처방은 규칙을 더 얹지 않고 **기존 불변식을 재사용**한다: 인용 조각은 normalize 후
+// SEP로 잘려 나오므로 **SEP를 품은 줄은 어떤 인용 조각과도 같아질 수 없다.** 길이 하한도
+// 같은 자리에서 쓴다. 열거가 아니라 형태라서 상수 줄·항목 행·조기 종료 출구·--json을
+// 한꺼번에 덮고, 새 섹션이 생겨도 안 깨진다.
+// 포기한 것: 이 도구는 앞으로 "짧고 SEP 없는 줄"을 **정상적으로도** 낼 수 없다.
+//   낼 이유도 없다 — 이 출력은 테스트 러너가 아니다.
+const citable = (line) => {
+  const s = normalize(line);
+  return s.length >= MIN_QUOTE && !s.includes(SEP);
+};
+
+/**
+ * 이 프로세스의 **유일한 stdout 출구**. 줄 단위로 형태를 검사하고 위반 줄은 자동 교정한다.
+ * 자동 교정은 백스톱이다 — 사람이 템플릿마다 세지 않게 하려는 것이지, 정상 템플릿이
+ * 여기 기대라는 뜻이 아니다(정상 보고서에 접두가 붙으면 읽기 나빠진다).
+ */
+export function emit(text) {
+  process.stdout.write(text.split('\n')
+    .map((line) => (citable(line) ? `devkit${SEP}${line}` : line))
+    .join('\n'));
+}
 
 const why = (r) => (r.escaped.length > 0
   ? `루트 밖 경로 ${r.escaped.map(field).join(', ')}`
@@ -64,8 +87,12 @@ function preview(q) {
   return out.includes(s) ? mark(s.length).slice(0, s.length - 1) : out;
 }
 
+// 조치를 한 조각 더 단다 — 이제 인용 단위가 "러너가 낸 줄 통째"라, 부분만 붙여넣으면
+// 정직한 실행도 uncited가 된다(DESIGN §4: 완화하지 않고 읽을 수 있게 만든다).
 const citeWhy = (r) => `인용 ${preview(r.cite.quotes[0])} 를 receipt에서 못 찾음`
-  + (r.cite.truncatedNearby ? ' (receipt가 잘려 있어 오탐 가능)' : '');
+  + (r.cite.truncatedNearby ? ' (receipt가 잘려 있어 오탐 가능)' : '')
+  // 그 줄 자체가 SEP를 품으면 인용은 조각나고 후보 줄은 안 잘려 영원히 안 맞는다 — 다른 줄을 골라야 한다
+  + `${SEP}러너가 낸 줄을 통째로 붙였는지 · 그 줄에 ' · '가 있진 않은지 확인`;
 
 // 한 상태 두 사유. cmd가 없으면 조치는 "실제 실행 명령을 적어라"이고, cmd는 있는데 매칭이
 // 0건이면 "그 명령을 그대로 돌리고 다시 검증하라"다. no-receipt의 면죄 문구를 물려주지 않는다.
@@ -97,10 +124,12 @@ const refView = (r) => (r.refResult === null
   });
 
 /** --json 출력용 객체 */
-// --json은 detick을 안 거친다 — JSON.stringify가 값 안의 개행을 \n으로 이스케이프하므로
-// 모든 줄이 공백+`"`/`{`/`[`로 시작한다. 형태상 ✔로 시작하는 줄이 나올 수 없다(B4가 잠근다).
+// --json은 **한 줄로** 찍는다(verify-evidence.mjs). 들여쓰면 각 줄이 `"id": "…",` 형태라
+// 위조자 통제 값이 그대로 한 줄이 되어 대조 후보가 된다. 한 줄이면 이 상수 필드가 SEP를
+// 실어 그 한 줄이 형태 규칙을 만족한다 — 유효 JSON을 유지하며 indent에 SEP를 넣을 수는 없다.
 export function toJson({ cycle, lcov, counts, rows }) {
   return {
+    note: `devkit${SEP}보고이지 차단이 아니다`,
     cycle,
     lcov,
     counts,
@@ -128,38 +157,40 @@ export function formatHuman({
   const {
     unresolved, uncited, noCmdMatch, noReceipt, deadBranch, uncovered, drifted, viaArchive,
   } = groups;
-  // detick은 조립이 끝난 뒤 한 번만 건다 — 중간 단계에 걸면 어느 조각이 줄 선두가 되는지를
-  // 다시 세야 하고, 그 셈이 틀렸던 것이 이 불변식이 두 번 샌 원인이다.
-  return detick([
-    `evidence 검증 — ${cycle}/`,
-    `unresolved: ${counts.unresolved}   (게이트 대상 — >0이면 REPORT.md 쓰기가 차단된다)`,
-    `uncited: ${counts.uncited} · no-cmd-match: ${counts.noCmdMatch} · no-receipt: ${counts.noReceipt}`
-    + ` · uncovered: ${counts.uncovered} · dead-branch: ${counts.deadBranch}   (보고 — 차단 아님)`,
+  // 행 구분자는 전부 SEP다 — 이중 공백이던 자리를 바꿨다. 사람에게는 읽는 구분자이고
+  // 형태 규칙에는 "이 줄은 인용 조각이 될 수 없다"는 증명이다(한 문자열이 두 일을 한다).
+  // 요약 4줄은 `devkit${SEP}` 접두로 같은 보장을 받는다.
+  const head = `devkit${SEP}`;
+  return [
+    `${head}evidence 검증 — ${cycle}/`,
+    `${head}unresolved: ${counts.unresolved}${SEP}게이트 대상 — >0이면 REPORT.md 쓰기가 차단된다`,
+    `${head}uncited: ${counts.uncited} · no-cmd-match: ${counts.noCmdMatch} · no-receipt: ${counts.noReceipt}`
+    + ` · uncovered: ${counts.uncovered} · dead-branch: ${counts.deadBranch}${SEP}보고 — 차단 아님`,
     counts.noData > 0
-      ? `커버리지 no-data: ${counts.noData}건 (${lcov} 기준)`
-      : `커버리지 출처: ${lcov}`,
+      ? `${head}커버리지 no-data: ${counts.noData}건${SEP}${lcov} 기준`
+      : `${head}커버리지 출처: ${lcov}`,
     '',
     ...section('❌', 'unresolved', unresolved.map(
-      (r) => `  ${field(r.id)}  ref "${field(r.ref)}"  ${why(r.refResult)}`,
+      (r) => `  ${field(r.id)}${SEP}ref "${field(r.ref)}"${SEP}${why(r.refResult)}`,
     )),
-    ...section('⚠', 'uncited', uncited.map((r) => `  ${field(r.id)}  ref ${field(r.ref)}  ${citeWhy(r)}`)),
+    ...section('⚠', 'uncited', uncited.map((r) => `  ${field(r.id)}${SEP}ref ${field(r.ref)}${SEP}${citeWhy(r)}`)),
     ...section('⚠', 'no-cmd-match', noCmdMatch.map(
-      (r) => `  ${field(r.id)}  ref ${field(r.ref)}  ${noCmdMatchWhy(r)}`,
+      (r) => `  ${field(r.id)}${SEP}ref ${field(r.ref)}${SEP}${noCmdMatchWhy(r)}`,
     )),
     ...section('⚠', 'no-receipt', noReceipt.map(
-      (r) => `  ${field(r.id)}  ref ${field(r.ref)}  ${noReceiptWhy(receipts)}`,
+      (r) => `  ${field(r.id)}${SEP}ref ${field(r.ref)}${SEP}${noReceiptWhy(receipts)}`,
     )),
     ...section('⚠', 'dead-branch', deadBranch.map(
-      (r) => `  ${field(r.id)}  target ${field(r.target)}  BRDA taken=0 @ line ${r.cov.deadBranches.map((d) => d.line).join(', ')}`,
+      (r) => `  ${field(r.id)}${SEP}target ${field(r.target)}${SEP}BRDA taken=0 @ line ${r.cov.deadBranches.map((d) => d.line).join(', ')}`,
     )),
     ...section('⚠', 'uncovered', uncovered.map(
-      (r) => `  ${field(r.id)}  target ${field(r.target)}  미실행 라인 ${r.cov.uncoveredLines.join(', ')}`,
+      (r) => `  ${field(r.id)}${SEP}target ${field(r.target)}${SEP}미실행 라인 ${r.cov.uncoveredLines.join(', ')}`,
     )),
     ...section('ℹ', 'lineDrift (게이트 무관)', drifted.map(
-      (r) => `  ${field(r.id)}  ${r.refResult.lineDrift.map(field).join(' · ')}`,
+      (r) => `  ${field(r.id)}${SEP}${r.refResult.lineDrift.map(field).join(SEP)}`,
     )),
     ...section('ℹ', 'archive 폴백으로 찾음 (게이트 무관)', viaArchive.map(
-      (v) => `  ${field(v.id)}  ${field(v.from)} → ${field(archiveDest(v.from))}`,
+      (v) => `  ${field(v.id)}${SEP}${field(v.from)} → ${field(archiveDest(v.from))}`,
     )),
-  ].join('\n')) + '\n';
+  ].join('\n') + '\n';
 }

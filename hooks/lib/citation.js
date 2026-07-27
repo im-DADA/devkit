@@ -4,12 +4,9 @@
 //
 // 이 층은 보고이지 차단이 아니다 — 어떤 입력에도 throw하지 않는다.
 
-const SEP = ' · '; // evidence.output의 실측 구분자
-const TICK_RE = /^[✔✓]\s+/;
-// 대조 대상 줄. 앞 공백은 허용한다 — node:test spec 리포터가 중첩 테스트를 들여쓴다.
-// ⚠ 이 허용 때문에 "들여쓴 표의 첫 칸"도 대조 후보가 된다. 그래서 검증 보고서 쪽은
-//   '어떤 줄도 ✔로 시작하지 않는다'를 출력 시점에 강제한다(report-format.mjs detick).
-const TICK_LINE_RE = /^\s*[✔✓]\s/;
+// evidence.output의 실측 구분자. **export한다** — 검증 도구의 출력 형태 규칙이 이 값에
+// 걸려 있고(report-format.mjs emit), 두 벌로 두면 한쪽만 바뀌는 순간 방벽이 조용히 죽는다.
+const SEP = ' · ';
 const MIN_QUOTE = 8;
 
 /** 소요시간 표기는 evidence와 receipt가 서로 다르다 — 그대로 두면 영원히 불일치 */
@@ -20,18 +17,24 @@ function normalize(text) {
 /**
  * 대조할 인용 조각을 뽑는다. kind:'test'만 대상 — manual/visual은 사람이 눈으로 본
  * 결과라 Bash receipt에 있을 이유가 없다. 이 한 줄이 오탐의 대부분을 없앤다.
- * ✔로 시작하는 조각만 후보 — '라이브: …'·'뮤테이션 …'은 서술이라 실행 로그에 없다.
+ *
+ * 마커(✔)로 조각을 거르지 않는다: 그러면 마커를 안 찍는 러너를 쓰는 프로젝트에서
+ * quotes=0(skipped)이 되어 이 층이 조용히 무검증이 된다. 서술형 조각('라이브: …')은
+ * 후보에서 빼는 게 아니라 **무해하게 안 맞을 뿐**이다(판정은 "하나라도 맞으면 cited").
+ *
+ * 줄 → 조각 순서다. 여러 줄을 붙여넣으면 줄마다 후보가 되고, 자르기는 정규화 **뒤에**
+ * 한다 — 그래야 "인용 조각은 SEP를 포함할 수 없다"가 참이 되고 report-format.mjs의
+ * 형태 규칙이 성립한다(`"a\t·\tb"`가 normalize 후 SEP를 품는 구멍을 막는다).
  */
 function extractQuotes(evidence) {
   if (!evidence || typeof evidence !== 'object') return [];
   if (evidence.kind !== 'test' || typeof evidence.output !== 'string') return [];
 
   const out = [];
-  for (const piece of evidence.output.split(SEP)) {
-    const frag = piece.trim();
-    if (!TICK_RE.test(frag)) continue;
-    const q = normalize(frag.replace(TICK_RE, ''));
-    if (q.length >= MIN_QUOTE) out.push(q);
+  for (const line of evidence.output.split('\n')) {
+    for (const frag of normalize(line).split(SEP)) {
+      if (frag.length >= MIN_QUOTE) out.push(frag);
+    }
   }
   return out;
 }
@@ -63,31 +66,38 @@ function matchesCmd(evTokens, receiptCmd) {
 }
 
 /**
- * 대조에 쓸 건초더미. 후보 receipt의 stdout/stderr 중 **✔로 시작하는 줄만** 남긴다.
- * extractQuotes가 이미 ✔로 시작하는 조각만 후보로 뽑으므로 대조 양쪽의 형태를 맞추는 것이고,
- * 규칙 추가가 아니라 인정 조건 축소다. cmd 매칭이 "무관한 receipt"를 뺐다면 이건
- * "관계있는 receipt의 무관한 줄"을 뺀다 — evidence.cmd를 정하는 것도 위조자이기 때문이다
- * (`echo "node --test … → ✔ …"` · `cat behaviors.json` · `git diff`는 전부 cmd를 맞춰 적을 수 있다).
+ * 대조에 쓸 후보. 후보 receipt의 stdout/stderr를 **정규화된 줄의 집합**으로 만든다.
+ * 마커를 보지 않는다 — 거르는 것은 문자가 아니라 형태다: "실행 로그의 한 줄은 통째로
+ * 그 줄이다". 대조가 부분 문자열 포함이 아니라 집합 멤버십이라 인정 조건이 좁아지고,
+ * cmd를 맞춰 적은 위조(`echo "… → ✔ …"` · `cat behaviors.json` · `git diff`)는
+ * 위조 문자열이 **줄 가운데 박혀 있어** 전부 안 맞는다. 러너가 무엇이든 성립한다.
  *
- * ⚠ 잔여 미탐 (DESIGN §1.5와 나란히 둔다 — 숨기지 않는다):
+ * ⚠ 잔여 미탐 (DESIGN §7과 나란히 둔다 — 숨기지 않는다. **테스트로 단언하지 않는다**:
+ *   단언하면 구멍이 계약으로 굳는다):
  *  1. 복합 명령(`node --test … && cat behaviors.json`)은 한 receipt 안에서 매칭과 오염이
  *     동시에 일어나 못 가른다.
- *  2. evidence.cmd를 receipt와 맞춰 적고 `✔`로 시작하는 줄을 **직접 출력**하면
- *     (`echo "✔ ZZZ: …"`) 여전히 통과한다. 그 경우 보고서에 그 cmd가 그대로 남아
- *     사람 눈에 띈다.
- * 둘 다 닫으려면 receipt 하나 안에서 "어느 조각의 출력인가"를 갈라야 하고 그건 셸 파서다.
+ *  2. (d) evidence.cmd를 receipt와 맞춰 적고 인용 줄을 **단독 줄로 직접 출력**하면
+ *     (`echo "ZZZ: …"`) 여전히 통과한다. 마커가 없어졌으므로 ✔조차 필요 없다 —
+ *     직전 사이클보다 비용이 낮아진 것을 인정한다. 그 경우 보고서에 그 cmd가 남는다.
+ *  3. "그 줄이 이 behavior의 증거인가"는 원래부터 안 본다. 정직한 실행의 *다른* 줄을
+ *     인용하는 위조는 tick 시절에도 전부 열려 있었다.
+ *  4. 32KB 절단 경계에서 잘린 줄은 반토막이라 전체 일치가 원리적으로 불가하다
+ *     (truncatedNearby가 보고에 나온다).
+ * 1·2를 닫으려면 receipt 하나 안에서 "어느 조각의 출력인가"를 갈라야 하고 그건 셸 파서다.
  */
-function tickLines(records) {
-  const out = [];
+function candidateLines(records) {
+  const lines = new Set();
   for (const r of records) {
     for (const line of `${(r && r.stdout) || ''}\n${(r && r.stderr) || ''}`.split('\n')) {
-      if (TICK_LINE_RE.test(line)) out.push(line);
+      if (line.length < MIN_QUOTE) continue; // normalize는 길이를 늘리지 않는다 — 안전한 사전 컷
+      const s = normalize(line);
+      if (s.length >= MIN_QUOTE) lines.add(s);
     }
   }
-  return normalize(out.join('\n'));
+  return lines;
 }
 
-// 같은 receipts view 안에서 evidence.cmd가 같으면 후보 집합도 hay도 똑같다. 이 레포의 실측은
+// 같은 receipts view 안에서 evidence.cmd가 같으면 후보 집합도 줄 집합도 똑같다. 이 레포의 실측은
 // 모든 evidence.cmd가 같은 문자열이고 모든 테스트 실행 receipt가 그 상위집합이라 후보가 하나도
 // 안 줄어든다 — behavior마다 8MB를 다시 훑으면 그대로 N배가 된다(REVIEW 🟡3).
 // 키는 receipts view 객체(WeakMap)라 view가 바뀌면 캐시도 같이 사라진다. 캐시가 도는 동안
@@ -103,7 +113,7 @@ function candidatesFor(rs, records, cmd, evTokens) {
   let entry = byCmd.get(cmd);
   if (entry === undefined) {
     const matched = records.filter((r) => matchesCmd(evTokens, r && r.cmd));
-    entry = { matched, hay: matched.length > 0 ? tickLines(matched) : '' };
+    entry = { matched, lines: matched.length > 0 ? candidateLines(matched) : new Set() };
     byCmd.set(cmd, entry);
   }
   return entry;
@@ -133,14 +143,14 @@ function checkCitation(evidence, receipts) {
   if (evTokens.length < 2) return { ...base, status: 'no-cmd-match' };
 
   const cmd = evidence.cmd;
-  // hay는 후보에서만, 그중에서도 ✔로 시작하는 줄에서만 만든다(tickLines).
-  // 전체 receipt를 훑으면 검증하려고 원문을 화면에 띄운 것만으로(`sed`·`cat`·보고서 자신)
-  // 위조가 cited로 뒤집힌다(D20 실측).
-  const { matched, hay } = candidatesFor(rs, records, cmd, evTokens);
+  // 줄 집합은 후보 receipt에서만 만든다. 전체 receipt를 훑으면 검증하려고 원문을 화면에
+  // 띄운 것만으로(`sed`·`cat`·보고서 자신) 위조가 cited로 뒤집힌다(D20 실측).
+  const { matched, lines } = candidatesFor(rs, records, cmd, evTokens);
   if (matched.length === 0) return { ...base, cmd, status: 'no-cmd-match' };
 
-  // 후보 중 하나라도 맞으면 cited — 전부 요구하면 여러 명령에 걸쳐 나온 출력에서 오탐
-  const hits = quotes.filter((q) => hay.includes(q));
+  // 후보 중 하나라도 맞으면 cited — 전부 요구하면 여러 명령에 걸쳐 나온 출력에서 오탐.
+  // 부분 문자열 포함이 아니라 **줄 전체 일치**다: 위조 문자열은 줄 가운데 박히므로 안 맞는다.
+  const hits = quotes.filter((q) => lines.has(q));
   return {
     quotes,
     hits,
@@ -153,6 +163,8 @@ function checkCitation(evidence, receipts) {
 }
 
 module.exports = {
+  SEP,
+  MIN_QUOTE,
   normalize,
   extractQuotes,
   tokenizeCmd,

@@ -8,7 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { formatHuman, toJson, field } from './lib/report-format.mjs';
+import {
+  formatHuman, toJson, field, emit,
+} from './lib/report-format.mjs';
 
 const require = createRequire(import.meta.url);
 const lib = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'lib');
@@ -63,8 +65,10 @@ const opts = parseArgs(process.argv.slice(2));
 const cwdRoot = findProjectRoot(process.cwd());
 const cycleDir = resolveCycleDir(opts, cwdRoot);
 
+// stdout은 emit 하나로만 나간다 — 형태 규칙(report-format.mjs)이 걸리는 유일한 출구다.
+// 이 안내 블록은 일부러 손으로 손보지 않았다: 자동 교정이 실제로 도는지가 여기서 드러난다.
 if (cycleDir === null) {
-  process.stdout.write(
+  emit(
     'evidence 검증 — 대상 사이클을 정하지 못했다.\n'
     + '  .devkit/pdca-state.json이 없거나 cycleId가 비어 있다.\n'
     + '  사이클 폴더를 직접 지정: node scripts/verify-evidence.mjs --cycle docs/{사이클폴더}\n',
@@ -78,13 +82,15 @@ if (cycleDir === null) {
 const root = findProjectRoot(cycleDir);
 
 // field()를 통과시킨다 — cycleId는 위조자 통제 필드고(pdca-state.json은 파일이다),
-// 아래 조기 종료 출구는 formatHuman을 안 거쳐 detick 방벽 밖이다. cycleId에 개행+✔를
-// 심으면 이 헤더가 그대로 대조 후보 줄을 낸다(벡터 A, 실측).
+// 아래 조기 종료 출구는 formatHuman을 안 거친다. cycleId에 개행을 심으면 이 헤더가
+// 그대로 대조 후보 줄을 낸다(벡터 A, 실측).
+// (2026-07-27: 원래 근거였던 `detick` 방벽은 제거됐다 — 지금 그 자리를 `emit`의 형태
+//  강제가 대신한다. field() 통과가 필요하다는 결론은 그대로다.)
 const rel = (p) => field(path.relative(root, p).split(path.sep).join('/'));
 const doc = readBehaviors(cycleDir);
 
 if (doc === null) {
-  process.stdout.write(
+  emit(
     `evidence 검증 — ${rel(cycleDir)}/\n`
     + '  behaviors.json이 없거나 읽을 수 없다 — 판정할 대상이 없다.\n'
     + '  behavior 목록은 /plan 단계에서 만든다.\n',
@@ -152,7 +158,9 @@ const view = {
 };
 
 if (opts.json) {
-  process.stdout.write(JSON.stringify(toJson(view), null, 2) + '\n');
+  // 무들여쓰기 — 들여쓰면 각 줄이 `"id": "…",` 형태라 위조자 통제 값이 그대로 한 줄이 되고
+  // 그 줄은 대조 후보가 된다. 한 줄이면 toJson의 상수 필드가 SEP를 실어 형태 규칙을 만족한다.
+  emit(JSON.stringify(toJson(view)) + '\n');
   process.exit(0);
 }
-process.stdout.write(formatHuman(view));
+emit(formatHuman(view));

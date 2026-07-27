@@ -7,11 +7,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { formatHuman, toJson } from '../scripts/lib/report-format.mjs';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(dir, '..');
 const CLI = path.join(repoRoot, 'scripts', 'verify-evidence.mjs');
+
+// 대조 규칙의 정본에서 그대로 가져온다 — 두 벌로 두면 상수가 바뀔 때 이 보장이 조용히 죽는다
+const require = createRequire(import.meta.url);
+const { normalize, MIN_QUOTE, SEP } = require(path.join(repoRoot, 'hooks', 'lib', 'citation.js'));
 
 const tmpDirs = [];
 function makeRoot() {
@@ -156,7 +161,8 @@ test('V5: uncited와 no-receipt를 구분해 "차단 아님"으로 보고한다'
   assert.match(r.stdout, /no-cmd-match: 0/, `주장한 명령을 실제로 돌렸으니 대조는 성립한다:\n${r.stdout}`);
   assert.match(r.stdout, /차단 아님/, `게이트 층과 구분해야 한다:\n${r.stdout}`);
   // 원문 전체가 아니라 진부분 접두사로 지목한다 — 원문을 실으면 이 stdout이 봉인돼 자기입증된다
-  assert.match(r.stdout, /B2 .*receipt에 없는 문구…\(총 15자\)/, `어느 인용이 안 맞는지 지목:\n${r.stdout}`);
+  // 인용 단위는 마커를 포함한 줄 통째다(citation.js는 마커를 벗기지 않는다) — 총 길이도 그 기준
+  assert.match(r.stdout, /B2 .*✔ receipt에 없는 문구…\(총 17자\)/, `어느 인용이 안 맞는지 지목:\n${r.stdout}`);
   assert.match(r.stdout, /B3/, `no-receipt 항목도 지목:\n${r.stdout}`);
   assert.doesNotMatch(r.stdout, /B1 /, `cited는 조용해야 한다(소음 방지):\n${r.stdout}`);
 });
@@ -342,6 +348,8 @@ test('R4: uncited 보고는 인용 원문 대신 앞 24자만 싣는다', () => 
     { ts: '2026-07-25T10:00:00.000Z', cmd: 'node --test', stdout: '✔ 전혀 관계없는 출력이다', stderr: '' },
   ]);
   const QUOTE = 'B9: 한 번도 실행된 적 없는 위조 주장이고 길이가 24자를 넘는다';
+  // 인용 단위는 마커를 포함한 줄 통째다 — 보고서가 감춰야 하는 원문도 그 단위다
+  const CITED = `✔ ${QUOTE}`;
   assert.ok(QUOTE.length > 24, '픽스처가 24자를 넘어야 의미가 있다');
   writeCycle(root, '2026-07-25-selfseal', [
     {
@@ -358,15 +366,15 @@ test('R4: uncited 보고는 인용 원문 대신 앞 24자만 싣는다', () => 
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(r.stdout, /uncited: 1/, `${r.stdout}`);
   assert.ok(
-    !r.stdout.includes(QUOTE),
+    !r.stdout.includes(CITED),
     `인용 원문이 보고서에 실렸다 — 봉인되면 다음 실행에서 cited로 뒤집힌다:\n${r.stdout}`,
   );
   assert.ok(
-    r.stdout.includes(QUOTE.slice(0, 24)),
+    r.stdout.includes(CITED.slice(0, 24)),
     `무엇을 못 찾았는지는 알아볼 수 있어야 한다:\n${r.stdout}`,
   );
   assert.match(
-    r.stdout, new RegExp(`총 ${QUOTE.length}자`),
+    r.stdout, new RegExp(`총 ${CITED.length}자`),
     `절단본과 원문을 구분하려면 총 길이를 밝혀야 한다:\n${r.stdout}`,
   );
 });
@@ -422,6 +430,10 @@ test('R4: 같은 명령을 3번 돌려도 위조는 uncited로 남는다 (봉인
 // 대조식(citation.js TICK_LINE_RE)은 앞 공백을 허용한다. 그래서 id를 '✔ …'로 시작하게
 // 두는 것만으로 보고서에 대조 후보 줄이 그대로 생긴다 — 사람용 8개 섹션 전부.
 // 게다가 이 벡터는 cmd·ref가 정직해 보여 사람 눈으로도 안 걸린다.
+//
+// ⚠ 2026-07-27 반전: `TICK_LINE_RE`는 없다. 마커 무관 전체 일치로 바뀌면서 **✔ 없이도**
+// 보고 행이 대조 후보가 되므로 이 벡터는 오히려 넓어졌고, 그래서 방벽도 마커가 아니라
+// 형태(' · ')로 옮겼다. id가 줄의 첫 non-space라는 관찰은 지금도 유효하다.
 test('R4: behavior id가 ✔로 시작해도 보고서가 그 위조를 입증하지 않는다 (id 채널)', () => {
   const root = makeRoot();
   fs.mkdirSync(path.join(root, 'src'));
@@ -454,9 +466,9 @@ test('R4: behavior id가 ✔로 시작해도 보고서가 그 위조를 입증�
     const r = run(root, ['--cycle', 'docs/2026-07-25-idleak']);
     seen.push((/uncited: (\d+)/.exec(r.stdout) || [])[1]);
     assert.match(r.stdout, /no-cmd-match: 0/, `대조가 실제로 일어난 상태여야 의미가 있다 (${i}회차):\n${r.stdout}`);
-    for (const l of r.stdout.split('\n')) {
-      if (/^\s*[✔✓]\s/.test(l)) ticks.push(`${i}회차 ${JSON.stringify(l)}`);
-    }
+    // 원인의 판정식도 계약을 따라간다: 구 기준은 '선두 ✔'였고 그 근거가 소멸했다.
+    // 이제 후보 조건은 형태다 — 길이 하한 이상 + SEP 부재(citableLinesOf).
+    for (const l of citableLinesOf(r.stdout)) ticks.push(`${i}회차 ${JSON.stringify(l)}`);
     // PostToolUse(Bash)가 이 실행을 봉인한다 — 실사용에서 자동으로 일어나는 일이다
     spawnSync(process.execPath, [path.join(repoRoot, 'hooks', 'bash-receipt.js')], {
       input: JSON.stringify({
@@ -574,15 +586,23 @@ test('B4: preview 불변식 — 주기적 문자열에서도 원문이 재구성
 // 대조는 이제 '✔로 시작하는 줄'에서만 일어나므로(citation.js tickLines), 보고서가
 // 자기입증 채널이 되는 조건은 정확히 하나 — 이 stdout에 ✔로 시작하는 줄이 생기는 것.
 // 위조자는 필드에 개행을 심어 그 줄을 만든다.
+//
+// ⚠ 위 두 문단은 2026-07-27에 뒤집혔다(원래 기록 자리에 남긴다). `tickLines`도
+// `TICK_LINE_RE`도 더 이상 존재하지 않는다 — 대조가 마커 무관 **한 줄 전체 일치**로
+// 바뀌면서 "✔로 시작하는 줄"이라는 조건 자체가 사라졌다. 지금 자기입증을 막는 것은
+// `emit`/`diag.warn`이 강제하는 **형태**(모든 줄이 ' · '를 품거나 8자 미만)다.
+// 이 테스트가 겨냥하는 위험(보고서 한 행이 봉인돼 다음 회차에 위조를 입증하는 것)은
+// 그대로라 테스트는 살아 있고, 단언만 형태 쪽으로 옮겨졌다.
 // ⚠ 원문 축약(preview)으로 이 필드들을 덮을 수는 없다: V4(ref)·V5(cmd)·V8(lineDrift)·
 //   V9(--json ref/missing)가 원문 그대로를 사람/기계 판독 계약으로 고정하고 있다.
 const LEAK = 'ZZZ-LEAK: 한 번도 실행된 적 없는 위조 인용이다';
 
 // 주입 형태는 둘이다. 1회차는 (a)만 상정하고 "개행을 죽이면 그 줄은 만들어질 수 없다"고
 // 닫았지만, 그 근거인 "모든 필드는 줄 선두가 아니다"가 거짓이었다 — (b)가 실제로 통했다.
+// ⚠ 이제 마커는 필요 없다. 대조가 마커 무관 전체 일치라 **평범한 긴 문자열**이 곧 후보다.
 const PAYLOADS = [
-  ['(a) 개행 주입', `무해해 보이는 값\n✔ ${LEAK}`], // 보고서 한복판에 ✔ 줄을 만든다
-  ['(b) 선두 tick', `✔ ${LEAK}`], // 줄 선두에 놓이는 필드면 개행이 필요 없다
+  ['(a) 개행 주입', `무해해 보이는 값\n${LEAK}`], // 보고서 한복판에 후보 줄을 만든다
+  ['(b) 선두 배치', LEAK], // 줄 선두에 놓이는 필드면 개행이 필요 없다
 ];
 
 /**
@@ -653,17 +673,29 @@ const leakChannels = (q) => [
   },
 ];
 
-/** citation.js의 대조 조건과 같은 형태 — 이 줄이 하나라도 있으면 봉인 후 대조 후보가 된다 */
-const TICK_LINE = /^\s*[✔✓]\s/;
-const tickLinesOf = (text) => text.split('\n').filter((l) => TICK_LINE.test(l));
+/**
+ * citation.js의 대조 조건과 같은 형태 — 이 줄이 하나라도 있으면 봉인 후 대조 후보가 된다.
+ * ⚠ 구 판정식은 `/^\s*[✔✓]\s/`(선두 tick)였다. 대조가 마커 무관 전체 일치로 바뀌면서
+ *   그 전제가 소멸했다 — 이제 후보 조건은 **길이 하한과 SEP 부재**다. 인용 조각은
+ *   normalize 후 SEP로 잘리므로 SEP를 품은 줄은 어떤 인용과도 같아질 수 없다.
+ */
+const citable = (line) => {
+  const s = normalize(line);
+  return s.length >= MIN_QUOTE && !s.includes(SEP);
+};
+const citableLinesOf = (text) => text.split('\n').filter(citable);
 
-test('B4: 보고 전문(사람용·--json)의 어떤 줄도 ✔로 시작하지 않는다 (출력 경로 전체)', () => {
+// 템플릿 위생 — 사람용 14개 행 템플릿이 스스로 형태 규칙을 지키는지 본다.
+// emit의 자동 교정은 백스톱이지 1차 방어가 아니다(정상 보고서에 'devkit · ' 접두가 붙으면
+// 사람이 읽기 나빠진다). 진짜 불변식은 프로세스 경계의 B11이 본다.
+test('B4: 사람용 보고 전문의 어떤 줄도 대조 후보가 될 수 없다 (템플릿 위생)', () => {
   const leaked = [];
   for (const [pname, q] of PAYLOADS) {
     for (const ch of leakChannels(q)) {
       const v = viewOf(ch.row, ch.group);
-      for (const l of tickLinesOf(formatHuman(v))) leaked.push(`사람용 ← ${pname} ${ch.name}: ${JSON.stringify(l)}`);
-      for (const l of tickLinesOf(JSON.stringify(toJson(v), null, 2))) leaked.push(`--json ← ${pname} ${ch.name}: ${JSON.stringify(l)}`);
+      for (const l of citableLinesOf(formatHuman(v))) leaked.push(`사람용 ← ${pname} ${ch.name}: ${JSON.stringify(l)}`);
+      // --json은 CLI가 한 줄로 낸다 — 들여쓰기 여부까지 포함한 실제 형태는 B11이 프로세스에서 본다
+      for (const l of citableLinesOf(JSON.stringify(toJson(v)))) leaked.push(`--json ← ${pname} ${ch.name}: ${JSON.stringify(l)}`);
     }
   }
   assert.deepEqual(leaked, [], `보고서가 대조 후보 형태의 줄을 냈다 — 봉인되면 다음 실행에서 위조가 cited로 뒤집힌다:\n${leaked.join('\n')}`);
@@ -676,64 +708,139 @@ test('B4: 보고 전문(사람용·--json)의 어떤 줄도 ✔로 시작하지 
 // 그래서 여기서는 CLI를 spawn해 **stdout + stderr 전문**을 본다. formatHuman을 안 거치는
 // 출구(사이클 미결정·behaviors.json 부재·파싱 실패)가 전부 이 단언 안에 들어온다 —
 // 방벽이 몇 개고 어디에 있는지를 사람이 아니라 이 테스트가 검사한다.
-const PROC_LEAK = `ZZZ-PROC: 한 번도 실행된 적 없는 위조 인용이다`;
+const PROC_LEAK = 'ZZZ-PROC: 한 번도 실행된 적 없는 위조 인용이다';
 
 /** CLI를 실제로 띄워 stdout+stderr에서 대조 후보 줄을 긁는다 */
-function procTickLines(root, args) {
+function procCitableLines(root, args) {
   const r = run(root, args);
   assert.equal(r.status, 0, `보고 도구는 항상 0이다:\n${r.stdout}\n${r.stderr}`);
   return [
-    ...tickLinesOf(r.stdout).map((l) => `stdout ${JSON.stringify(l)}`),
-    ...tickLinesOf(r.stderr).map((l) => `stderr ${JSON.stringify(l)}`),
+    ...citableLinesOf(r.stdout).map((l) => `stdout ${JSON.stringify(l)}`),
+    ...citableLinesOf(r.stderr).map((l) => `stderr ${JSON.stringify(l)}`),
   ];
 }
 
-test('R6: CLI 프로세스의 stdout+stderr 어떤 줄도 ✔로 시작하지 않는다 (정상 종료가 아닌 출구 포함)', () => {
+/** PostToolUse(Bash)가 하는 일 그대로 — 이 실행의 화면 출력을 봉인한다 */
+function seal(root, cmd, r) {
+  spawnSync(process.execPath, [path.join(repoRoot, 'hooks', 'bash-receipt.js')], {
+    input: JSON.stringify({
+      tool_input: { command: cmd },
+      tool_response: { stdout: r.stdout, stderr: r.stderr, interrupted: false },
+    }),
+    cwd: root,
+    encoding: 'utf8',
+  });
+}
+
+/** 8섹션을 전부 채우면서 위조자 통제 값이 모든 행 선두에 놓이는 사이클 */
+function writeHostileCycle(root, id, payload) {
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src', 'real.js'), 'module.exports = 1;\n');
+  fs.writeFileSync(path.join(root, 'src', 'short.js'), 'a\nb\nc\n');
+  fs.mkdirSync(path.join(root, '.devkit'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.devkit', 'lcov.info'), LCOV_FIXTURE);
+  fs.writeFileSync(path.join(root, 'src', 'discount.js'), 'x\n'.repeat(5));
+  const archived = path.join(root, 'docs', 'archive', '2026-07-25', 'old');
+  fs.mkdirSync(archived, { recursive: true });
+  fs.writeFileSync(path.join(archived, 'REVIEW.md'), '# 리뷰\n');
+  // uncited·no-cmd-match 섹션이 실제로 채워지려면 매칭되는 봉인이 있어야 한다
+  writeReceipts(root, [
+    { ts: '2026-07-26T00:00:00.000Z', cmd: `node --test test/x.test.mjs ${payload}`, stdout: '전혀 관계없는 출력이다\n', stderr: '' },
+  ]);
+  const ev = (over) => ({
+    kind: 'test', ref: 'src/real.js', output: payload, at: '2026-07-26', ...over,
+  });
+  return writeCycle(root, id, [
+    { id: `${payload} unresolved`, passes: true, evidence: ev({ ref: `없는파일.ts\n${payload}` }) },
+    { id: `${payload} escaped`, passes: true, evidence: ev({ ref: `../../etc/${payload}` }) },
+    { id: `${payload} uncited`, passes: true, evidence: ev({ cmd: `node --test test/x.test.mjs ${payload}` }) },
+    { id: `${payload} noCmdMatch`, passes: true, evidence: ev({ cmd: `node --test ${payload}\n${payload}` }) },
+    { id: `${payload} noReceipt`, passes: true, evidence: ev({ cmd: 'node --test test/x.test.mjs', at: '2020-01-01' }) },
+    { id: `${payload} drift`, passes: true, evidence: ev({ ref: 'src/short.js:99' }) },
+    { id: `${payload} archive`, passes: true, evidence: ev({ kind: 'manual', ref: 'docs/2026-07-25-old/REVIEW.md' }) },
+    { id: `${payload} deadBranch`, passes: true, target: 'src/discount.js:2', evidence: ev({}) },
+    { id: `${payload} uncovered`, passes: true, target: 'src/discount.js:3', evidence: ev({}) },
+  ]);
+}
+
+// ── B11: 검증 도구 자신의 출력이 위조를 입증하지 않는다 ────────────────
+// 형태와 결과를 **한 테스트에** 둔다. 형태만 보면 결과와의 연결이 논증이고, 결과만 보면
+// 우연히 막힌 상황(cmd 매칭이 어쩌다 안 걸림)과 구분되지 않는다.
+//
+// ⚠ 이 벡터는 §8-0에서 e2e로 **실제 재현됐다**: decoy behavior의 id·ref만으로 보고서
+//   unresolved 행 한 줄(`  DECOY  ref "src/ghost.js"  파일 없음 src/ghost.js`)이 조립되고,
+//   다른 behavior가 그 줄을 evidence.output으로 적으면 1회 봉인 후 2회차에 uncited → cited.
+//   마커가 없어졌으므로 tick 없이 성립한다 — 그래서 방벽도 마커가 아니라 형태에 건다.
+test('B11: CLI 출력의 어떤 줄도 대조 후보가 될 수 없고(형태), 3회 봉인해도 위조가 뒤집히지 않는다(결과)', () => {
   const leaked = [];
 
-  // (1) 사이클 미결정 — formatHuman을 안 거치는 출구. 보간값이 없어야 정상이다.
-  leaked.push(...procTickLines(makeRoot(), []).map((l) => `미결정 ← ${l}`));
+  // ── 형태 ──
+  // (1) 사이클 미결정 — formatHuman을 안 거치는 출구
+  leaked.push(...procCitableLines(makeRoot(), []).map((l) => `미결정 ← ${l}`));
 
-  // (2) behaviors.json 부재 + cycleId에 개행+✔ (벡터 A) — 헤더가 cycleId를 그대로 보간한다.
-  //     state 파일은 훅을 안 거치고도 쓸 수 있으므로 이 경로는 실사용에서 도달 가능하다.
+  // (2) behaviors.json 부재 + cycleId에 개행+페이로드 — 헤더가 cycleId를 그대로 보간한다
   const rootA = makeRoot();
-  writeState(rootA, `2026-07-25-a\n✔ ${PROC_LEAK}`);
-  leaked.push(...procTickLines(rootA, []).map((l) => `벡터A(behaviors 부재) ← ${l}`));
+  writeState(rootA, `2026-07-25-a\n${PROC_LEAK}`);
+  leaked.push(...procCitableLines(rootA, []).map((l) => `벡터A(behaviors 부재) ← ${l}`));
 
-  // (3) behaviors.json 파싱 실패 + 파일에 개행+✔ (벡터 B) — V8의 SyntaxError 메시지가
-  //     입력 스니펫을 **개행째로** 담아 stderr로 나간다. 위조 의도가 없어도 발생한다:
-  //     테스트 출력을 붙여넣다 JSON을 깨뜨리면 그 ✔ 줄이 그대로 봉인된다.
+  // (3) behaviors.json 파싱 실패 — SyntaxError가 입력 스니펫을 **개행째로** 담아 stderr로 나간다.
+  //     위조 의도가 없어도 발생한다: 테스트 출력을 붙여넣다 JSON을 깨뜨리면 그 줄이 봉인된다.
   const rootB = makeRoot();
   const cycleB = path.join(rootB, 'docs', '2026-07-25-b');
   fs.mkdirSync(cycleB, { recursive: true });
-  fs.writeFileSync(path.join(cycleB, 'behaviors.json'), `[1,\n✔ ${PROC_LEAK}`);
-  leaked.push(...procTickLines(rootB, ['--cycle', 'docs/2026-07-25-b']).map((l) => `벡터B(파싱 실패) ← ${l}`));
+  fs.writeFileSync(path.join(cycleB, 'behaviors.json'), `[1,\n${PROC_LEAK}`);
+  leaked.push(...procCitableLines(rootB, ['--cycle', 'docs/2026-07-25-b']).map((l) => `벡터B(파싱 실패) ← ${l}`));
 
-  // (4) 정상 경로 — 위조 id·cmd·ref가 전부 보고서로 흘러나가는 상태
-  const rootC = makeRoot();
-  fs.mkdirSync(path.join(rootC, 'src'));
-  fs.writeFileSync(path.join(rootC, 'src', 'real.js'), 'module.exports = 1;\n');
-  writeCycle(rootC, '2026-07-25-proc', [
-    {
-      id: `✔ ${PROC_LEAK}`,
-      passes: true,
-      evidence: {
-        kind: 'test',
-        ref: `없는파일.ts\n✔ ${PROC_LEAK}`,
-        cmd: `node --test\n✔ ${PROC_LEAK}`,
-        output: `✔ ${PROC_LEAK}`,
-        at: '2026-07-25',
-      },
-    },
-  ]);
-  for (const args of [['--cycle', 'docs/2026-07-25-proc'], ['--cycle', 'docs/2026-07-25-proc', '--json']]) {
-    leaked.push(...procTickLines(rootC, args).map((l) => `정상경로 ${args.includes('--json') ? '--json' : '사람용'} ← ${l}`));
+  // (4) 적대 페이로드 × 8섹션 — id·ref·cmd·lineDrift·viaArchive가 전부 행 선두에 놓인다
+  for (const [pname, payload] of PAYLOADS) {
+    const rootC = makeRoot();
+    writeHostileCycle(rootC, '2026-07-26-proc', payload);
+    for (const args of [['--cycle', 'docs/2026-07-26-proc'], ['--cycle', 'docs/2026-07-26-proc', '--json']]) {
+      const label = args.includes('--json') ? '--json' : '사람용';
+      leaked.push(...procCitableLines(rootC, args).map((l) => `${pname} ${label} ← ${l}`));
+    }
   }
 
   assert.deepEqual(
     leaked, [],
     '프로세스 출력에 대조 후보 형태의 줄이 있다 — 이 stdout/stderr는 bash-receipt가 봉인하므로\n'
     + `다음 실행에서 위조가 cited로 뒤집힌다:\n${leaked.join('\n')}`,
+  );
+
+  // ── 결과 ── §1.3 cross-row 조립 벡터로 3회 봉인 루프
+  const root = makeRoot();
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, 'src', 'real.js'), 'module.exports = 1;\n');
+  const CYCLE = '2026-07-26-crossrow';
+  const CMD = `node scripts/verify-evidence.mjs --cycle docs/${CYCLE}`;
+  // decoy의 id·ref만으로 보고서 unresolved 행 한 줄이 조립된다 — 고정 텍스트까지 베껴 적는다
+  const ASSEMBLED = 'DECOY ref "src/ghost.js" 파일 없음 src/ghost.js';
+  writeReceipts(root, [
+    // 매칭 후보가 이미 있어야 1회차가 uncited다(없으면 no-cmd-match로 도망간다)
+    { ts: '2026-07-26T00:00:00.000Z', cmd: CMD, stdout: '전혀 관계없는 출력이다\n', stderr: '' },
+  ]);
+  writeCycle(root, CYCLE, [
+    { id: 'DECOY', passes: true, evidence: { kind: 'manual', ref: 'src/ghost.js', output: '사람이 눈으로 확인했다', at: '2026-07-26' } },
+    {
+      id: 'FORGED',
+      passes: true,
+      evidence: {
+        kind: 'test', ref: 'src/real.js', cmd: CMD, output: ASSEMBLED, at: '2026-07-26',
+      },
+    },
+  ]);
+
+  const seen = [];
+  for (let i = 0; i < 3; i += 1) {
+    const r = run(root, ['--cycle', `docs/${CYCLE}`]);
+    seen.push((/uncited: (\d+)/.exec(r.stdout) || [])[1]);
+    assert.match(r.stdout, /no-cmd-match: 0/, `대조가 실제로 일어난 상태여야 의미가 있다 (${i}회차):\n${r.stdout}`);
+    seal(root, CMD, r);
+  }
+  assert.deepEqual(
+    seen, ['1', '1', '1'],
+    `cross-row 조립으로 자기입증이 성립했다 — uncited ${seen.join(' → ')}\n`
+    + '보고서 한 행이 위조자 통제 값만으로 조립되고, 그 행이 봉인돼 다음 회차에 인용을 입증했다',
   );
 });
 

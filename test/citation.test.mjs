@@ -11,7 +11,9 @@ import path from 'node:path';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(dir, '..');
 const require = createRequire(import.meta.url);
-const { checkCitation, extractQuotes } = require(path.join(repoRoot, 'hooks', 'lib', 'citation.js'));
+const {
+  checkCitation, extractQuotes, normalize, MIN_QUOTE, SEP,
+} = require(path.join(repoRoot, 'hooks', 'lib', 'citation.js'));
 // 봉인 쪽은 정본에서 그대로 가져다 쓴다 — 재export하지 않는다(두 벌 금지)
 const { appendReceipt, readReceipts, FILE } = require(path.join(repoRoot, 'hooks', 'lib', 'receipt.js'));
 
@@ -54,16 +56,18 @@ test('B1: git diff·cat 출력에 인용이 실려도 cited가 되지 않는다 
   assert.equal(c.matched, 0);
 });
 
-// ── B1: 대조는 '✔로 시작하는 줄'에서만 한다 ────────────────
+// ── B3/B4/B5: 대조는 receipt의 '한 줄 전체'와만 성립한다 ────
 // REVIEW 🔴1. cmd 매칭은 "무관한 receipt"를 뺄 뿐, evidence.cmd를 정하는 것도 위조자다.
-// 위조자가 cmd를 맞춰 적으면(echo·cat·git diff) 그 stdout이 hay가 되어 자기입증이 부활한다.
-// extractQuotes가 이미 '✔로 시작하는 조각'만 후보로 뽑으므로, 대조 양쪽의 형태를 맞춘다 —
-// 규칙 추가가 아니라 인정 조건 축소다.
+// 위조자가 cmd를 맞춰 적으면(echo·cat·git diff) 그 stdout이 대조 대상이 되어 자기입증이 부활한다.
+// ⚠ 구 처방은 "'✔로 시작하는 줄'만 건초더미"였고 그 전제가 이 사이클에서 소멸했다.
+//   지금 셋을 막는 것은 마커가 아니라 **형태**다: 세 벡터 모두 위조 문자열이 **줄 가운데**
+//   박혀 있고(`node --test … → ✔ ZZZ` · `"output": "…",` · `+ "output": …`), 전체 일치는
+//   앞뒤에 뭐가 붙는 순간 깨진다. 러너가 무엇이든, 마커가 있든 없든 성립한다.
 const R1_QUOTE = 'ZZZ: 한 번도 실행된 적 없는 위조 인용이다';
 
-test('B1: ✔로 시작하지 않는 줄에 인용이 실려 있으면 cited가 아니다 (echo·cat·git diff)', () => {
+test('B3/B4/B5: 위조 문자열이 줄 가운데 박혀 있으면 cited가 아니다 (echo·cat·git diff)', () => {
   // 위조자가 cmd를 receipt와 맞춰 적은 3벡터. 셋 다 매칭(matched:1)까지는 성립한다 —
-  // 막히는 자리는 후보 선정이 아니라 hay다.
+  // 막히는 자리는 후보 선정이 아니라 줄 대조다.
   const vectors = [
     ['(a) echo', 'node --test test/x.test.mjs',
       `echo "node --test test/x.test.mjs → ✔ ${R1_QUOTE}"`,
@@ -84,11 +88,11 @@ test('B1: ✔로 시작하지 않는 줄에 인용이 실려 있으면 cited가 
   assert.deepEqual(
     got,
     ['(a) echo uncited', '(b) cat behaviors.json uncited', '(c) git diff uncited'],
-    '줄 시작이 ✔가 아니면 실행 로그가 아니다 — hay에 들어가면 D15가 부활한다',
+    '앞뒤에 다른 내용이 붙은 줄은 실행 로그가 아니다 — 인정하면 D15가 부활한다',
   );
 });
 
-test('B1: 진짜 테스트 출력은 그대로 cited다 (탐지력 회귀 가드)', () => {
+test('B3/B4/B5: 진짜 테스트 출력은 그대로 cited다 (탐지력 회귀 가드)', () => {
   const c = checkCitation(
     ev({ cmd: 'node --test test/x.test.mjs', output: `✔ ${R1_QUOTE}` }),
     view([rec(
@@ -96,13 +100,15 @@ test('B1: 진짜 테스트 출력은 그대로 cited다 (탐지력 회귀 가드
       `✔ B1: 진짜 테스트 (1.05ms)\n✔ ${R1_QUOTE} (2.10ms)\n# pass 2\n`,
     )]),
   );
-  assert.equal(c.status, 'cited', '✔로 시작하는 줄은 좁히기 전과 똑같이 인정돼야 한다');
-  assert.deepEqual(c.hits, [R1_QUOTE]);
+  assert.equal(c.status, 'cited', '실행 로그의 그 줄 통째는 좁히기 전과 똑같이 인정돼야 한다');
+  // 마커를 벗기지 않는다 — 인용 단위는 `✔ …` 통째인 줄이고 receipt 줄도 normalize 후 같다
+  assert.deepEqual(c.hits, [`✔ ${R1_QUOTE}`]);
 });
 
-// ⚠ 남는 벡터(d): receipt stdout에 `✔ …`를 **단독 줄**로 출력하면(예: `echo "✔ ZZZ: …"`)
-// 여전히 cited가 된다. 닫으려면 receipt 하나 안에서 "어느 조각의 출력인가"를 갈라야 하고
-// 그건 셸 파서다(DESIGN §1.5와 같은 이유). citation.js 주석에 잔여 미탐으로 명시했다.
+// ⚠ 남는 벡터(d): 인용 줄을 **단독 줄**로 직접 출력하면(예: `echo "ZZZ: …"`) 여전히 cited다.
+// 마커가 없어졌으므로 이제 ✔조차 필요 없다 — 직전 사이클보다 비용이 낮아진 것을 인정한다.
+// 닫으려면 receipt 하나 안에서 "어느 조각의 출력인가"를 갈라야 하고 그건 셸 파서다.
+// **테스트로 단언하지 않는다** — 단언하면 구멍이 계약으로 굳는다. citation.js 주석이 정본.
 
 // ── B2: 실제 실행은 항상 주장의 확장이다 (탐지력 유지) ────
 // 실측 receipt.cmd는 evidence.cmd와 글자 단위로 같은 적이 거의 없다 — `rm -f … &&` 접두,
@@ -239,13 +245,20 @@ test('B5: 매칭은 됐는데 인용을 못 찾으면 uncited다 (진짜 불일�
 // ── B10: 인용 조각 대조 (보고이지 차단이 아니다) ──────────
 // 실측 output(v0.11.0 아카이브 B1). ' · '로 나뉜 3조각 중 실행 로그는 첫 조각뿐이고
 // '라이브: …'·'뮤테이션 M1 …'은 서술이라 receipt에 문자열로 존재할 수 없다.
-// 후보에 넣으면 100% uncited가 나와 보고가 소음이 된다.
 const ARCHIVE_B1 = "✔ B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내 · 라이브: 실제 사이클 폴더 REPORT.md Write → exit=2, stderr 'REVIEW.md → /review' · 뮤테이션 M1(STAGE_REQUIREMENTS에서 REVIEW.md 제거) → 이 테스트 실패";
 
-test('B10: 후보는 ✔ 조각만 — 서술(라이브·뮤테이션)은 인용이 아니다', () => {
+// ⚠ 계약이 바뀐 자리(DESIGN §9). 구 계약은 "후보는 ✔ 조각만"이었고 그 전제가 이 사이클의
+// 결함이다 — 마커로 조각을 거르면 pytest·go test는 quotes=0(skipped)이 되어 조용히 무검증이다.
+// 신규 계약: **쓸 수 있는 조각은 전부 후보**다. 서술형은 후보에서 빼는 게 아니라 무해하게
+// 안 맞을 뿐이고(판정은 "하나라도 맞으면 cited"), 거르는 일은 이제 receipt 쪽 전체 일치가 한다.
+test('B10: 조각은 마커로 거르지 않는다 — 서술형도 후보이고 무해하게 안 맞을 뿐이다', () => {
   assert.deepEqual(
     extractQuotes(ev({ output: ARCHIVE_B1 })),
-    ['B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내'],
+    [
+      '✔ B1: REVIEW.md 없이 REPORT.md를 쓰면 차단 + 생성 커맨드 안내',
+      "라이브: 실제 사이클 폴더 REPORT.md Write → exit=2, stderr 'REVIEW.md → /review'",
+      '뮤테이션 M1(STAGE_REQUIREMENTS에서 REVIEW.md 제거) → 이 테스트 실패',
+    ],
   );
   // ✔ 조각이 2개인 실측 형식(아카이브 B3)
   assert.equal(extractQuotes(ev({ output: '✔ B3: 없는 것만 정확히 지목한다 · ✔ gatePrerequisite: REVIEW.md만 없으면 그것만 지목' })).length, 2);
@@ -277,7 +290,7 @@ test('B10: 인용을 못 찾으면 uncited로 보고한다 — throw하지 않�
   assert.doesNotThrow(() => { c = checkCitation(ev({ output: ARCHIVE_B1 }), readReceipts(root)); });
   assert.equal(c.status, 'uncited');
   assert.deepEqual(c.hits, []);
-  assert.equal(c.quotes.length, 1, '무엇을 못 찾았는지 알려줘야 판단이 된다');
+  assert.equal(c.quotes.length, 3, '무엇을 못 찾았는지 알려줘야 판단이 된다 (조각 전부가 후보다)');
 });
 
 test('B10: 소요시간 표기 차이는 불일치가 아니다', () => {
@@ -312,7 +325,7 @@ test('B11: receipts 파일 자체가 없으면 no-receipt (uncited가 아니다)
   const c = checkCitation(ev({ output: ARCHIVE_B1 }), rs);
   assert.equal(c.status, 'no-receipt');
   assert.deepEqual(c.hits, []);
-  assert.equal(c.quotes.length, 1, '무엇을 대조하려 했는지는 남겨야 한다');
+  assert.equal(c.quotes.length, 3, '무엇을 대조하려 했는지는 남겨야 한다 (조각 전부가 후보다)');
 });
 
 // ts를 통제해야 firstDate 경계를 볼 수 있다 — appendReceipt는 now를 쓴다
@@ -398,4 +411,158 @@ test('R4: 자기 출력을 빼도 실제 실행 receipt는 그대로 대조한�
     { ts: '2026-07-25T11:00:00.000Z', cmd: 'node --test test/*.test.mjs', stdout: QUOTED, stderr: '' },
   ]);
   assert.equal(checkCitation(ev({ at: '2026-07-25', output: ARCHIVE_B1 }), readReceipts(root)).status, 'cited');
+});
+
+// ── B8: 마커가 없다는 이유로 침묵하지 않는다 (이 사이클의 존재 이유) ──
+// pytest·go test·cargo는 ✔를 안 찍는다. 그 사이클에서 이 층은 오탐을 내는 게 아니라
+// **아무것도 검증하지 않으면서 보고서에는 문제없어 보였다**(quotes=0 → skipped).
+const B8_PYTEST = 'test_discount.py::test_over_limit PASSED [ 50%]';
+
+test('B8: 마커 없는 러너 출력도 대조된다 — 안 맞으면 skipped가 아니라 uncited로 보고된다', () => {
+  const c = checkCitation(
+    ev({ cmd: 'python3 -m pytest -v', output: B8_PYTEST }),
+    view([rec('python3 -m pytest -v tests/', 'test_discount.py::test_under_limit PASSED [ 50%]\n')]),
+  );
+
+  assert.notEqual(c.status, 'skipped', '마커가 없다는 이유로 침묵하면 이 층이 통째로 죽는다');
+  assert.equal(c.status, 'uncited', '주장한 명령은 돌았고 그 출력에 이 줄이 없다 — 진짜 불일치다');
+  assert.equal(c.matched, 1, '후보로는 잡혀야 이 테스트가 의미가 있다');
+  assert.deepEqual(c.hits, []);
+  assert.deepEqual(c.quotes, [B8_PYTEST], '무엇을 못 찾았는지 알려줘야 판단이 된다');
+});
+
+// ── B1: 정직한 pytest evidence가 cited다 ─────────────────
+// 인정 근거는 러너 이름이 아니라 형태다 — "실행 로그의 한 줄은 통째로 그 줄이다".
+test('B1: 정직한 pytest evidence는 cited다 — 코드에 러너 목록이 없다', () => {
+  const c = checkCitation(
+    ev({ cmd: 'python3 -m pytest -v tests/', output: B8_PYTEST }),
+    view([rec(
+      'python3 -m pytest -v tests/',
+      'tests/test_discount.py::test_under_limit PASSED [ 25%]\n'
+      + `${B8_PYTEST}\n`
+      + '===== 2 passed in 0.03s =====\n',
+    )]),
+  );
+
+  assert.equal(c.status, 'cited', '마커가 없다는 이유로 정직한 실행을 못 알아보면 안 된다');
+  assert.deepEqual(c.hits, [B8_PYTEST]);
+  assert.equal(c.matched, 1);
+
+  // 러너 화이트리스트는 PLAN이 기각한 방향(a)이다 — 되살아나면 여기서 잡는다
+  const src = fs.readFileSync(path.join(repoRoot, 'hooks', 'lib', 'citation.js'), 'utf8');
+  assert.doesNotMatch(src, /pytest|go test|cargo|rspec|jest|vitest/, '러너 목록이 코드에 들어왔다');
+});
+
+// ── B2: go test — 회차 간 소요시간 표기 차이까지 흡수한다 ──
+// evidence는 사람이 1회차 출력에서 옮겨 적고 receipt는 다른 회차다. 소요시간을 그대로 두면
+// 전체 일치가 영원히 깨진다 — normalize가 흡수하는 것은 그 표기 오차 하나뿐이다.
+test('B2: go test evidence는 소요시간 표기가 달라도 cited다 (같은 줄, 다른 회차)', () => {
+  const c = checkCitation(
+    ev({ cmd: 'go test ./...', output: '--- PASS: TestOverLimit (0.12s)' }),
+    view([rec('go test ./... -run TestOverLimit', '=== RUN TestOverLimit\n--- PASS: TestOverLimit (0.00s)\nPASS\n')]),
+  );
+
+  assert.equal(c.status, 'cited', '회차가 다르면 소요시간이 다르다 — 그것 때문에 깨지면 안 된다');
+  assert.deepEqual(c.hits, ['--- PASS: TestOverLimit']);
+  assert.equal(c.matched, 1);
+});
+
+// ── B7: 조각이 섞여 있어도 하나만 맞으면 cited ────────────
+// 실측: 아카이브 49건 중 24건이 혼합 스타일이다(`✔ 실행줄 · 라이브: … · 뮤테이션 M1 …`).
+// 섞이는 축은 둘 — ' · '(서술 혼합)와 개행(러너 출력 여러 줄 붙여넣기). 양쪽 다 조각으로
+// 쪼개지고, 서술 조각은 후보에서 빼는 게 아니라 무해하게 안 맞을 뿐이다.
+test('B7: 서술 조각·여러 줄이 섞여도 실행 출력 한 조각이 맞으면 cited다', () => {
+  const RUN = 'test_discount.py::test_over_limit PASSED [ 50%]';
+  const rs = view([rec('python3 -m pytest -v', `${RUN}\n===== 1 passed in 0.03s =====\n`)]);
+
+  // ① ' · ' 혼합 — 조각 3개 중 실행 로그는 하나
+  const mixed = checkCitation(ev({
+    cmd: 'python3 -m pytest -v',
+    output: `${RUN} · 라이브: python3 실재 확인 · 뮤테이션 M1(lines.has → includes) → 이 테스트 실패`,
+  }), rs);
+  assert.equal(mixed.quotes.length, 3, '서술 조각도 후보다 — 거르는 일은 receipt 쪽 전체 일치가 한다');
+  assert.deepEqual(mixed.hits, [RUN]);
+  assert.equal(mixed.status, 'cited');
+
+  // ② 개행 혼합 — 러너 출력 두 줄을 그대로 붙여넣었다(현행은 한 덩어리라 영원히 안 맞았다)
+  const pasted = checkCitation(ev({
+    cmd: 'python3 -m pytest -v',
+    output: `${RUN}\n===== 1 passed in 0.03s =====`,
+  }), rs);
+  assert.equal(pasted.quotes.length, 2, '줄 단위 붙여넣기는 줄마다 후보가 된다');
+  assert.equal(pasted.status, 'cited');
+});
+
+// ── B6: 아카이브 evidence의 판정이 불변이다 (회귀 0) ──────
+// RED이 원리적으로 불가능하다(구 로직에서도 cited였다). 판별력은 뮤테이션으로 확인한다 —
+// **M3(소요시간 흡수 제거)** 하나뿐이다. M1(전체 일치 → 부분 포함)은 인정 조건을 넓히는
+// 방향이라 cited를 cited로 남긴다 — 처음엔 M1도 잡는다고 적었으나 Gap에서 반증됐다.
+// 전수 대조(실제 receipt·날짜 게이트를 신·구 대칭 억제): 대조가 일어난 44건 중 41건 불변,
+// **3건이 cited→uncited**(review-gate-permissions B5·B6·B8 — 전부 러너 줄을 잘라 적은
+// 부분 인용. DESIGN §4가 완화하지 않기로 한 트레이드오프의 실사례다).
+// 여기 고정하는 것은 그중 대표 픽스처다 — 실측 원문 그대로(archive/2026-07-26/…/B3).
+const ARCHIVE_B3 = '✔ B3: 인용 원문을 화면에 출력한 receipt가 있어도 위조는 uncited로 남는다 (D20) (0.3365ms)';
+
+// ⚠ at을 날짜 리터럴로 박지 않는다. rec()의 ts는 벽시계(TODAY)라 리터럴을 쓰면 그 날 하루만
+//   통과하고 다음 날 no-receipt로 뒤집힌다 — 실제로 UTC 자정을 넘기며 재현했다(판정 순서 3번).
+test('B6: 아카이브 evidence(실측 원문)는 신규 로직에서도 cited다', () => {
+  const c = checkCitation(
+    ev({ cmd: 'node --test test/*.test.mjs', output: ARCHIVE_B3 }),
+    view([rec(
+      'node --test test/*.test.mjs',
+      // 회차가 다르므로 소요시간 표기가 다르다. 그 차이만 흡수된다.
+      '✔ B3: 인용 원문을 화면에 출력한 receipt가 있어도 위조는 uncited로 남는다 (D20) (1.204ms)\n# pass 257\n',
+    )]),
+  );
+  assert.equal(c.status, 'cited', '아카이브 판정이 바뀌면 그 자체가 회귀다');
+  assert.deepEqual(c.hits, ['✔ B3: 인용 원문을 화면에 출력한 receipt가 있어도 위조는 uncited로 남는다 (D20)']);
+});
+
+// ── MIN_QUOTE 하한 — 짧은 조각은 대조에 쓸 수 없다 ────────
+// 보고서의 `  (없음)`(5자)·프롬프트 조각 같은 짧은 줄이 후보가 되면 우연 일치가 시작된다.
+// 상수는 정본에서 import한다 — 두 벌로 두면 값이 바뀔 때 경계가 조용히 어긋난다.
+test('경계: MIN_QUOTE 미만 조각은 인용 후보도 대조 후보도 아니다', () => {
+  const short = 'a'.repeat(MIN_QUOTE - 1);
+  const exact = 'b'.repeat(MIN_QUOTE);
+
+  assert.deepEqual(extractQuotes(ev({ output: short })), [], `${MIN_QUOTE}자 미만은 후보가 아니다`);
+  assert.deepEqual(extractQuotes(ev({ output: exact })), [exact], `${MIN_QUOTE}자는 후보다`);
+  assert.deepEqual(
+    extractQuotes(ev({ output: `${short}${SEP}${exact}` })), [exact],
+    '조각별로 하한을 본다 — 짧은 조각만 떨어진다',
+  );
+
+  // receipt 쪽도 같은 하한이다. 짧은 줄이 집합에 들어가면 evidence의 짧은 조각과 우연히 맞는다
+  const rs = view([rec('node --test test/x.test.mjs', `${short}\n${exact}\n`)]);
+  assert.equal(checkCitation(ev({ cmd: 'node --test test/x.test.mjs', output: exact }), rs).status, 'cited');
+  assert.equal(
+    checkCitation(ev({ cmd: 'node --test test/x.test.mjs', output: short }), rs).status, 'skipped',
+    '쓸 수 있는 조각이 하나도 없으면 skipped다 — 신규 skipped의 정의',
+  );
+});
+
+// ── B10: 어떤 입력에도 throw하지 않는다 (보고이지 차단이 아니다) ──
+// 전체 일치로 바뀌면서 자료구조가 문자열 → Set이 됐다. 적대 입력이 그 경로에서 죽으면
+// 보고 층이 통째로 멈추고, 이 도구는 게이트가 아니라 보고 도구다.
+test('B10: 적대 입력(비객체·숫자·거대 문자열·10만 줄·깨진 receipt)에도 throw하지 않는다', () => {
+  const hostile = [
+    null, 42, 'nope', [], { kind: 'test', output: 42 }, { kind: 'test', output: null },
+    { kind: 'test', output: 'x'.repeat(1_000_000), cmd: 'node --test test/x.test.mjs' },
+    { kind: 'test', output: `${'긴 줄이 아주 많다\n'.repeat(100_000)}`, cmd: 'node --test test/x.test.mjs' },
+  ];
+  const broken = {
+    present: true,
+    firstDate: '2026-07-25',
+    records: [
+      null, 42, 'nope', [],
+      { ts: '2026-07-26T00:00:00.000Z', cmd: null, stdout: null, stderr: undefined },
+      { ts: '2026-07-26T00:00:00.000Z', cmd: 'node --test test/x.test.mjs', stdout: 42, stderr: [] },
+    ],
+  };
+
+  for (const e of hostile) {
+    for (const rs of [broken, null, undefined, 42, { records: 'nope', present: true }]) {
+      assert.doesNotThrow(() => checkCitation(e, rs), `죽었다: ${JSON.stringify(e).slice(0, 60)}`);
+    }
+  }
 });
