@@ -88,11 +88,15 @@ const refView = (r) => (r.refResult === null
 // --json은 **한 줄로** 찍는다(verify-evidence.mjs). 들여쓰면 각 줄이 `"id": "…",` 형태라
 // 위조자 통제 값이 그대로 한 줄이 되어 대조 후보가 된다. 한 줄이면 이 상수 필드가 SEP를
 // 실어 그 한 줄이 형태 규칙을 만족한다 — 유효 JSON을 유지하며 indent에 SEP를 넣을 수는 없다.
-export function toJson({ cycle, lcov, counts, rows }) {
+export function toJson({
+  cycle, lcov, lcovPresent, counts, rows,
+}) {
   return {
     note: `devkit${SEP}보고이지 차단이 아니다`,
     cycle,
     lcov,
+    // 최상위다 — gap-detector가 사람용 문구를 파싱하지 않고 기계 판독으로 옮길 수 있어야 한다
+    lcovPresent,
     counts,
     // --json도 같은 stdout이다 — 사람용에 건 상한/개행 무력화를 여기서 풀면 안 된다
     behaviors: rows.map((r) => ({
@@ -111,9 +115,22 @@ export function toJson({ cycle, lcov, counts, rows }) {
   };
 }
 
+// lcov 부재는 behavior 단위가 아니라 **실행 단위 사실**이라 "몇 건"이 무의미하다 — 새 카운트도
+// no-data 합치기도 아니고 헤더 표기다(DESIGN §3.2). counts 불변·⚠ 섹션 없음·exit 0 불변이
+// 게이트 아님을 형태로 보장한다. 늘어나는 건 줄 하나가 아니라 그 줄의 뒷부분이다.
+// `=== false`인 이유: 부재는 명시적으로 알려질 때만 말한다(호출자가 안 넘기면 침묵이 기본값).
+function covLine(lcov, counts, lcovPresent) {
+  const base = counts.noData > 0
+    ? `커버리지 no-data: ${counts.noData}건${SEP}${lcov} 기준`
+    : `커버리지 출처: ${lcov}`;
+  return lcovPresent === false
+    ? `${base}${SEP}없음 — 이번 판정에 커버리지가 반영되지 않았다`
+    : base;
+}
+
 /** 사람용 보고 문자열 */
 export function formatHuman({
-  cycle, lcov, counts, groups, receipts,
+  cycle, lcov, lcovPresent, counts, groups, receipts,
 }) {
   const {
     unresolved, uncited, noCmdMatch, noReceipt, deadBranch, uncovered, drifted, viaArchive,
@@ -127,9 +144,7 @@ export function formatHuman({
     `${head}unresolved: ${counts.unresolved}${SEP}게이트 대상 — >0이면 REPORT.md 쓰기가 차단된다`,
     `${head}uncited: ${counts.uncited} · no-cmd-match: ${counts.noCmdMatch} · no-receipt: ${counts.noReceipt}`
     + ` · uncovered: ${counts.uncovered} · dead-branch: ${counts.deadBranch}${SEP}보고 — 차단 아님`,
-    counts.noData > 0
-      ? `${head}커버리지 no-data: ${counts.noData}건${SEP}${lcov} 기준`
-      : `${head}커버리지 출처: ${lcov}`,
+    `${head}${covLine(lcov, counts, lcovPresent)}`,
     '',
     ...section('❌', 'unresolved', unresolved.map(
       (r) => `  ${field(r.id)}${SEP}ref "${field(r.ref)}"${SEP}${why(r.refResult)}`,

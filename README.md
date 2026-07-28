@@ -2,6 +2,10 @@
 
 Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커맨드·에이전트·훅으로 묶어둔 것.
 
+## 요구사항
+
+**Node 20+.** 훅과 검증 스크립트가 전부 node로 돈다 — 프로젝트의 테스트 러너와 무관하다. Python·Go·Rust 전용 프로젝트에서도 필요하다(테스트는 pytest·go test·cargo로 돌리되, evidence 검증 층은 node가 돌린다). node가 없으면 그 층 전체가 안 돈다.
+
 ## 구성
 
 | 종류 | 이름 | 용도 |
@@ -45,6 +49,7 @@ Claude Code 플러그인. 개인 개발 워크플로우와 팀 컨벤션을 커�
 | Template | `templates/ci.yml` | PR에서 typecheck/lint/test/시크릿/`pnpm audit` **머지 게이트** |
 | Template | `templates/pre-commit` | 세션 밖(사람 커밋) 시크릿·lint 방어 (`.githooks/`) |
 | Script | `scripts/verify-integrity.mjs` | 훅 공급망 변조 조기 탐지 (`node scripts/verify-integrity.mjs`) |
+| Script | `scripts/verify-evidence.mjs` | evidence 적합성 3층 보고 (ref 실존·인용 대조·커버리지). `/gap`이 부른다 — **플러그인 안에 있으므로 `${CLAUDE_PLUGIN_ROOT}` 경로로 호출** |
 | Doc | `RULES.md` | 팀 개발 규칙 원문 (규칙 단일 소스) |
 | Doc | `CHANGELOG.md` | 버전 이력 |
 

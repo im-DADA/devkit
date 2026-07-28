@@ -1,5 +1,6 @@
 // evidence 적합성 보고 — ref 실존 · receipt 인용 · 커버리지 3층을 조합해 출력한다.
-// 실행: node scripts/verify-evidence.mjs [--cycle <dir>] [--lcov <path>] [--json]
+// 실행: node "${CLAUDE_PLUGIN_ROOT}/scripts/verify-evidence.mjs" [--cycle <dir>] [--lcov <path>] [--json]
+//   (플러그인 안에 있는 스크립트다 — 프로젝트 상대경로로 부르면 MODULE_NOT_FOUND)
 //
 // ★ exit code는 어떤 상황에도 0이다. 이건 보고 도구다 — 차단은 pdca-gate 훅만 한다.
 //   unresolved>0을 exit 1로 만들면 gap-detector의 Bash 호출이 실패로 보이고,
@@ -13,7 +14,12 @@ import {
 } from './lib/report-format.mjs';
 
 const require = createRequire(import.meta.url);
-const lib = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'lib');
+// 이 도구가 안내하는 명령은 **자기 자신의 실제 경로**여야 한다. 상대경로를 찍으면 남의
+// 프로젝트에서 복붙한 순간 MODULE_NOT_FOUND다 — 도구가 낸 안내가 도구를 죽인다.
+// ⚠ 여기에 `${CLAUDE_PLUGIN_ROOT}` 리터럴을 쓰면 안 된다. 이 문자열을 받는 것은 프롬프트
+//   렌더러가 아니라 Bash이고 그 환경에 그 변수는 없다 — 치환은 렌더 시점에만 일어난다.
+const SELF = fileURLToPath(import.meta.url);
+const lib = path.join(path.dirname(SELF), '..', 'hooks', 'lib');
 const { findProjectRoot } = require(path.join(lib, 'project-root.js'));
 const { readState } = require(path.join(lib, 'pdca-state.js'));
 const { readBehaviors, effectivePasses } = require(path.join(lib, 'behaviors.js'));
@@ -27,13 +33,17 @@ const { warn } = require(path.join(lib, 'diag.js'));
 // --lcov 배선이 한 군데 빠져도 커버리지 층이 조용히 죽지 않게 한다.
 const DEFAULT_LCOV = path.join('.devkit', 'lcov.info');
 
-/** lcov 부재는 정상 경로다(커버리지를 안 돌린 사이클). 그 외 에러는 원문을 남기고 degrade */
+/**
+ * lcov 부재는 정상 경로다(커버리지를 안 돌린 사이클). 그 외 에러는 원문을 남기고 degrade.
+ * ★ present를 같이 낸다 — 예전엔 빈 문자열로 뭉개서 "커버리지가 돌아 전부 covered"와
+ *   "아예 안 돌렸다"의 출력이 완전히 같았다(PLAN 실측 ④). 조용한 degrade를 보고 표면으로 올린다.
+ */
 function readLcov(p) {
   try {
-    return fs.readFileSync(p, 'utf8');
+    return { text: fs.readFileSync(p, 'utf8'), present: true };
   } catch (e) {
     if (e.code !== 'ENOENT') warn(`lcov 읽기 실패 (${p}): ${e.message}`);
-    return '';
+    return { text: '', present: false };
   }
 }
 
@@ -71,7 +81,7 @@ if (cycleDir === null) {
   emit(
     'evidence 검증 — 대상 사이클을 정하지 못했다.\n'
     + '  .devkit/pdca-state.json이 없거나 cycleId가 비어 있다.\n'
-    + '  사이클 폴더를 직접 지정: node scripts/verify-evidence.mjs --cycle docs/{사이클폴더}\n',
+    + `  사이클 폴더를 직접 지정: node "${SELF}" --cycle docs/{사이클폴더}\n`,
   );
   process.exit(0);
 }
@@ -100,7 +110,8 @@ if (doc === null) {
 
 const receipts = readReceipts(root);
 const lcovPath = path.resolve(root, opts.lcov ?? DEFAULT_LCOV);
-const cov = parseLcov(readLcov(lcovPath), root);
+const lcovFile = readLcov(lcovPath);
+const cov = parseLcov(lcovFile.text, root);
 
 // ref 층의 분모는 게이트(gateEvidence)와 정확히 같다 — passes:true + evidence 유효.
 // 분모가 다르면 "unresolved 0이라는데 왜 막히나"가 생긴다(DESIGN 설계원칙 6).
@@ -149,6 +160,7 @@ const counts = {
 const view = {
   cycle: rel(cycleDir),
   lcov: rel(lcovPath),
+  lcovPresent: lcovFile.present,
   counts,
   rows,
   receipts,

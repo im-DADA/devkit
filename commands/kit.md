@@ -130,6 +130,7 @@ allowed-tools:
   ci.yml              PR typecheck/lint/test 머지 게이트
   AGENTS.md           공통규칙 인라인 (Cursor/Codex 호환)
 
+요구: Node 20+ (훅·검증 스크립트가 전부 node — 프로젝트 러너와 무관하게 필요)
 규칙: RULES.md (규칙 단일 소스, 세션 시작 시 요약 리마인드)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```

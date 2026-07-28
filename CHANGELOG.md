@@ -2,6 +2,40 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.15.0] - 2026-07-27
+
+devkit이 **자기 레포 밖에서 돌지 않던 것**을 고친다. 3사이클(0.12~0.14)에 걸쳐 만든 evidence 검증 층(L3a)의 실행 지시가 전부 프로젝트 상대경로라, 남의 프로젝트에 설치하면 `MODULE_NOT_FOUND`였다. 결함로그 D22, D10 부분 해소. 새 의존성 0.
+
+### Added
+- `test/invocation-path.test.mjs` — 문서에서 검증 명령을 추출 → `${CLAUDE_PLUGIN_ROOT}` 치환 → **devkit 밖 임시 프로젝트에서 실행**. 자기 레포에서는 두 경로의 결과가 같아 이 결함이 관측되지 않는다.
+- `/gap`·gap-detector에 **러너별 lcov 생성 표**(node:test·vitest·pytest·go·cargo). 실측하지 않은 행은 `미실측`으로 표시하고 테스트가 그 구분을 강제한다.
+- `README`에 `## 요구사항`(Node 20+ — 비-Node 프로젝트에도 검증 층은 node로 돈다).
+
+### Changed
+- 검증 스크립트 실행 지시 **6곳**을 `node "${CLAUDE_PLUGIN_ROOT}/scripts/verify-evidence.mjs"`로 통일. 열거는 세 번 다 빗나갔고(4→5→6) 6번째는 전수 스캔 테스트가 잡았다.
+- 도구가 스스로 내는 런타임 안내가 `fileURLToPath`로 **자기 실제 경로**를 찍는다. 전에는 상대경로를 알려줘 복붙하면 죽었다.
+- 에이전트의 규칙 접근을 **플러그인 파일 Read에서 뺐다**(7개 전수) — 본문 리터럴(1차) + 프로젝트 `AGENTS.md`(2차). 치환은 되지만 프로젝트 밖 Read는 승인 프롬프트를 부른다(D10).
+
+### Fixed
+- **lcov가 없으면 보고에 드러난다.** 전에는 `uncovered 0 · dead-branch 0`으로 나와 "커버리지가 돌아서 깨끗한 것"과 구분 불가였다(`--json`에 `lcovPresent`).
+
+## [0.14.0] - 2026-07-27
+
+인용 대조를 **마커 무관 + receipt 한 줄 전체 일치**로 전환. pytest·go test·cargo·rspec에서 조용히 `skipped`(무검증)이던 것이 `cited`/`uncited`로 보고된다. 결함로그 D21. 새 의존성 0.
+
+- `citation.js`에서 `TICK_RE`·`TICK_LINE_RE` 제거, `tickLines`→`candidateLines`(Set), `includes`→`has`. **코드에 러너 목록이 없다.**
+- `detick`의 전제가 무너져(보고서 줄이 전부 대조 후보가 된다) **기존 불변식을 재사용**하는 형태 규칙으로 교체 — `extractQuotes`가 `' · '`로 자르므로 인용 조각은 그걸 품을 수 없다. `emit`/`diag.warn`이 모든 출력 줄에 그 형태를 강제한다.
+- 알려진 신규 오탐: 러너 줄 자체가 공백으로 띄운 `·`를 품으면 통째로 붙여도 `uncited`다(정리의 뒷면). 코드로 완화하면 방벽이 죽어 문서로 처리했다.
+
+## [0.13.0] - 2026-07-26
+
+receipt 인용 대조를 **cmd 일치 방식**으로 전환 — `evidence.cmd`와 실행 명령이 맞는 receipt에서만 대조한다. 결함로그 D15·D18·D20의 **우발적 오염** 경로 해소. 새 의존성 0.
+
+- `hooks/lib/citation.js` 분리(토큰 부분집합 `evidence ⊆ receipt`), 이름 블랙리스트 `SELF_RE` 제거.
+- `no-cmd-match` 상태 추가 — 매칭 0건을 `uncited`에 뭉개지 않는다(조치가 다르다).
+- `MAX_STDOUT` 8K→32K · `MAX_FILE` 2M→8M(비율 256 고정). 실행 출력 17,036자가 절단 없이 보존된다(D18).
+- 의도적 위조는 안 닫혔다 — `cmd`를 맞춰 적고 인용 줄을 직접 출력하면 통과한다(설계 수용, docblock 명시).
+
 ## [0.12.0] - 2026-07-25
 
 evidence 적합성 검증 L3a — `unproven==0`이 보장하는 범위를 **"증거가 있나"에서 "그 증거가 실재하나"로** 넓힌다. 결함로그 D11-b 해소, D12 부분 해소. 새 의존성 0.

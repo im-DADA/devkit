@@ -1,6 +1,6 @@
 // 진단 출력(stderr)의 단일 출구.
 //
-// 왜 함수 하나로 모으나: stderr도 stdout과 **같은 채널**이다. `node scripts/verify-evidence.mjs`
+// 왜 함수 하나로 모으나: stderr도 stdout과 **같은 채널**이다. `node "${CLAUDE_PLUGIN_ROOT}/scripts/verify-evidence.mjs"`
 // 처럼 Bash로 돌린 명령은 stdout·stderr가 통째로 bash-receipt에 봉인되고, 봉인된 줄은
 // 인용 대조의 후보가 된다. 즉 진단 한 줄이 여러 줄로 흩어지면 그중 하나가 다음 실행에서
 // 위조를 입증하는 후보가 된다.

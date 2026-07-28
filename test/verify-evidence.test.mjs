@@ -262,6 +262,104 @@ test('V6: .devkit/lcov.info가 없으면 커버리지 층은 전부 no-data (경
   assert.match(r.stdout, /no-data/, `커버리지를 못 봤다는 사실 자체는 밝혀야 한다:\n${r.stdout}`);
 });
 
+// ── B6: lcov 부재가 보고에 드러난다 ───────────────────────
+// 실측(PLAN ④): target이 없는 사이클에서는 no-data조차 0건이라, 커버리지를 안 돌린 실행과
+// 전부 covered인 실행의 출력이 **완전히 같았다**. 파일이 없다는 사실이 어느 카운트에도
+// 안 실린다 — 조용한 degrade다. 처방은 새 카운트가 아니라 헤더 표기다(DESIGN §3.2).
+const NO_TARGET = [{
+  id: 'B1',
+  passes: true,
+  evidence: { kind: 'test', ref: 'src/discount.js', output: '✔ 할인 계산을 검증했다', at: '2026-07-25' },
+}];
+
+function noTargetRoot(id) {
+  const root = makeRoot();
+  fs.mkdirSync(path.join(root, 'src'));
+  fs.writeFileSync(path.join(root, 'src', 'discount.js'), 'x\n'.repeat(5));
+  writeCycle(root, id, NO_TARGET);
+  return root;
+}
+
+const ABSENT_RE = /커버리지가 반영되지 않았다/;
+
+test('B6-1: lcov가 없으면 헤더가 부재를 밝힌다 (target이 없어 no-data 0건일 때도)', () => {
+  const root = noTargetRoot('2026-07-27-b6a');
+
+  const r = run(root, ['--cycle', 'docs/2026-07-27-b6a']);
+
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.match(r.stdout, /커버리지 no-data: 0건|no-data: 0|커버리지 출처/, `헤더가 없다:\n${r.stdout}`);
+  assert.doesNotMatch(r.stdout, /no-data: [1-9]/, `이 픽스처는 no-data 0건이어야 의미가 있다:\n${r.stdout}`);
+  assert.match(r.stdout, ABSENT_RE, `lcov 부재가 출력 어디에도 없다:\n${r.stdout}`);
+});
+
+// B6-1과 반드시 쌍이다 — 한쪽만 두면 "항상 경고"가 계약으로 굳는다.
+test('B6-2: lcov가 있으면 부재 표기가 나오지 않는다 (오탐 없음)', () => {
+  const root = noTargetRoot('2026-07-27-b6b');
+  fs.mkdirSync(path.join(root, '.devkit'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.devkit', 'lcov.info'), LCOV_FIXTURE);
+
+  const r = run(root, ['--cycle', 'docs/2026-07-27-b6b']);
+
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.doesNotMatch(r.stdout, ABSENT_RE, `lcov가 있는데 부재라고 한다:\n${r.stdout}`);
+});
+
+// 게이트 승격 방지를 계약으로 못 박는다 — 늘어나는 건 줄 하나가 아니라 그 줄의 뒷부분이다.
+test('B6-3: 부재 표기는 counts를 바꾸지 않고 새 경고 섹션도 만들지 않는다', () => {
+  const absent = noTargetRoot('2026-07-27-b6c');
+  const present = noTargetRoot('2026-07-27-b6c');
+  fs.mkdirSync(path.join(present, '.devkit'), { recursive: true });
+  fs.writeFileSync(path.join(present, '.devkit', 'lcov.info'), LCOV_FIXTURE);
+
+  const a = run(absent, ['--cycle', 'docs/2026-07-27-b6c', '--json']);
+  const p = run(present, ['--cycle', 'docs/2026-07-27-b6c', '--json']);
+  assert.equal(a.status, 0, `${a.stdout}\n${a.stderr}`);
+  assert.deepEqual(
+    JSON.parse(a.stdout).counts,
+    JSON.parse(p.stdout).counts,
+    'lcov 부재가 카운트를 움직였다 — 보고가 아니라 게이트로 승격됐다',
+  );
+
+  const warnLines = (s) => s.split('\n').filter((l) => l.startsWith('⚠')).length;
+  const ha = run(absent, ['--cycle', 'docs/2026-07-27-b6c']);
+  const hp = run(present, ['--cycle', 'docs/2026-07-27-b6c']);
+  assert.equal(ha.status, 0, `${ha.stdout}\n${ha.stderr}`);
+  assert.equal(warnLines(ha.stdout), warnLines(hp.stdout), `경고 섹션이 늘었다:\n${ha.stdout}`);
+});
+
+// gap-detector가 기계 판독으로 옮길 수 있어야 한다 — 사람용 문구를 파싱하게 두지 않는다.
+test('B6-4: --json 최상위에 lcovPresent가 있다', () => {
+  const absent = noTargetRoot('2026-07-27-b6d');
+  const present = noTargetRoot('2026-07-27-b6d');
+  fs.mkdirSync(path.join(present, '.devkit'), { recursive: true });
+  fs.writeFileSync(path.join(present, '.devkit', 'lcov.info'), LCOV_FIXTURE);
+
+  const a = JSON.parse(run(absent, ['--cycle', 'docs/2026-07-27-b6d', '--json']).stdout);
+  const p = JSON.parse(run(present, ['--cycle', 'docs/2026-07-27-b6d', '--json']).stdout);
+
+  assert.equal(a.lcovPresent, false, '부재인데 lcovPresent가 false가 아니다');
+  assert.equal(p.lcovPresent, true, '있는데 lcovPresent가 true가 아니다');
+});
+
+// 이 stdout은 봉인된다 — 새 문구가 대조 후보가 되면 보고서가 자기입증 채널이 된다.
+// ⚠ 첫 단언만으로는 판별력이 없다(실측): 요약 줄은 `devkit${SEP}` 접두를 받고 그 위에
+//   emit의 무조건 백스톱까지 있어, 표기에서 SEP를 빼도 프로세스 경계에선 초록이 유지된다.
+//   그래서 **표기 자신도 형태를 만족하는지**를 따로 본다 — 이 줄이 접두 없는 자리로 옮겨져도
+//   후보가 되지 않아야 한다(DESIGN §3.2가 "본문에 SEP 하나 더"를 설계로 명시한 이유).
+test('B6-5: 부재 표기 줄은 대조 후보가 아니다', () => {
+  const root = noTargetRoot('2026-07-27-b6e');
+
+  const r = run(root, ['--cycle', 'docs/2026-07-27-b6e']);
+
+  const line = r.stdout.split('\n').find((l) => ABSENT_RE.test(l));
+  assert.ok(line, `부재 표기 줄이 없다:\n${r.stdout}`);
+  assert.equal(citable(line), false, `부재 표기 줄이 대조 후보다: ${line}`);
+
+  const marker = line.slice(line.indexOf(SEP) + SEP.length);
+  assert.equal(citable(marker), false, `접두를 떼면 대조 후보가 된다 — 표기 자신에 SEP가 없다: ${marker}`);
+});
+
 // ── V7: exit code는 어떤 상황에도 0 ──────────────────────
 // unresolved>0을 exit 1로 만들면 gap-detector의 Bash 호출이 "실패"로 보이고,
 // 나아가 보고 도구가 작업을 막는 역할 혼선이 생긴다. 차단은 pdca-gate 훅만 한다.

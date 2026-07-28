@@ -27,17 +27,30 @@ tools: Read, Bash, Grep, Glob
      --test-reporter=lcov --test-reporter-destination=.devkit/lcov.info \
      test/*.test.mjs
    ```
+   러너가 다르면 **그 러너의 lcov를 `.devkit/lcov.info`로 떨군다.** 안 떨구면 커버리지 층은 안 돈다 — 이제 그 사실이 보고 헤더에 나온다("커버리지가 반영되지 않았다").
+
+   | 러너 | `.devkit/lcov.info`를 어떻게 만드나 |
+   |---|---|
+   | **node:test** | `node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=.devkit/lcov.info test/*.test.mjs` — 위 명령 한 번으로 같이 나온다 |
+   | **vitest** | `@vitest/coverage-v8`이 필요하다. lcov 리포터로 뽑아 `.devkit/lcov.info`에 둔다. **플래그 미실측** |
+   | **pytest** | `pytest-cov`가 필요하다. lcov 리포터로 뽑아 `.devkit/lcov.info`에 둔다. **플래그 미실측** |
+   | **go test** | `-coverprofile`은 lcov 포맷이 아니다 — 변환 도구를 거쳐 `.devkit/lcov.info`에 둔다. **도구·명령 미실측** |
+   | **cargo** | `cargo-llvm-cov`가 필요하다. lcov로 뽑아 `.devkit/lcov.info`에 둔다. **플래그 미실측** |
+
+   ⚠ **미실측** 표시는 "이 조합을 devkit이 직접 돌려본 적이 없다"는 뜻이다. 추측한 플래그를 지어내 돌리지 말고, 그 러너 문서를 확인하고 쓴다.
 5. **evidence 적합성을 검증한다 (필수).** 반드시 위 테스트 실행 **다음에** 돌린다 — 순서가 반대면 이번 실행이 receipt에 안 잡혀 전부 `no-cmd-match`로 나온다.
    ⚠ 테스트 명령에 `| grep`·`| tail`·`> /dev/null`을 붙이지 마라. 파이프로 출력을 줄이면 그 실행의 테스트명이 receipt에 안 남아 인용 대조가 통째로 깨진다.
    ```
-   node scripts/verify-evidence.mjs
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/verify-evidence.mjs"
    ```
+   ⚠ 상대경로로 부르지 마라 — 이 스크립트는 **플러그인 안**에 있고 프로젝트 안에는 없다.
    해석 지침:
    - `unresolved` — **evidence의 `ref`가 가리키는 파일이 없다.** 위조이거나 경로가 틀렸다. 해당 항목에 ✅를 주지 말고 지목하라. 이건 게이트라 남아 있으면 REPORT.md 쓰기가 차단된다.
    - `dead-branch` — **`target` 코드의 분기가 한 번도 실행되지 않았다.** 테스트가 통과해도 그 behavior를 검증하지 못한 것이니 ⚠️ 이상으로 판정하고 근거로 인용하라.
    - `no-receipt` — 대조할 실행 기록이 애초에 없다(봉인 이전 사이클). **그것만으로 ❌를 주지 마라.** 위조가 아니라 기록이 없는 것이고 소급 조치가 불가능하다.
    - `no-cmd-match` — **주장한 명령의 실행 기록이 없다.** 위조일 수도, `cmd` 표기가 실제 실행과 다를 수도 있다. **그 명령을 그대로 돌리고 다시 검증하라.** `no-receipt`의 면죄 문구를 여기에 물려주지 마라 — 봉인 이후인데 그 명령만 기록에 없다는 뜻이다.
    - `uncited` — 그 명령은 실제로 돌렸는데 그 출력에 인용이 없다. **진짜 불일치다.** 인용을 실제 출력으로 고치거나 해당 항목을 지목하라.
+     - ⚠ **인용한 줄 자체에 공백으로 띄운 `·`가 있으면 인용을 아무리 고쳐도 계속 `uncited`다.** 인용은 ` · `로 조각나는데 대조 후보 줄은 안 잘려 같아질 조각이 원리적으로 없다. 그때 조치는 인용이 아니라 **테스트 이름을 고치는 것**이다(쉼표·슬래시로 바꾸거나 `"·"`처럼 붙여 쓴다).
    - `uncovered` / `no-data` — 커버리지 미수집이거나 `target`이 없는 경우. 정보로만 쓴다.
 
    > 왜 필수인가: 외부 피드백 없는 자기 검증은 개선이 없거나 오히려 악화된다는 것이

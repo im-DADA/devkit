@@ -113,7 +113,7 @@ docs/
 - **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 0건). **Match Rate는 참고 신호일 뿐 게이트가 아니다** — 자기 설계를 자기가 채점하면 점수가 인플레된다.
 - `ref`는 **검증하는 쪽**(테스트 파일), `target`은 **검증받는 쪽**(구현 코드 위치)이다. `target`은 선택이고 없으면 커버리지 판정을 건너뛴다.
 
-#### evidence 적합성 3층 (L3a — `node scripts/verify-evidence.mjs`)
+#### evidence 적합성 3층 (L3a)
 
 `unproven==0`은 "증거 없는 통과 주장이 없다"까지만 보장하고 "주장된 통과가 진짜다"를 보장하지 않는다. 그래서 세 가지를 더 본다.
 
@@ -125,6 +125,7 @@ docs/
 | `no-receipt` | 봉인이 시작되기 전 evidence인가(소급 불가) | 보고 |
 | `dead-branch`·`uncovered` | `target` 코드가 실행되기는 하나 | 보고 |
 
+- **이 층은 플러그인 안에서 돈다** — `node "${CLAUDE_PLUGIN_ROOT}/scripts/verify-evidence.mjs"`. 프로젝트 상대경로로 부르면 스크립트가 프로젝트 안에 없어 `MODULE_NOT_FOUND`다. 그리고 **이 층의 커버리지 입력은 lcov 파일 하나다** — 없으면 판정하지 않고 그 사실을 보고 헤더에 밝힌다(러너별 생성 방법은 `/gap`·gap-detector 문서의 표).
 - **게이트는 `unresolved` 하나뿐이다.** 나머지는 오탐 여지가 있어 보고만 한다 — 오탐으로 정직한 사이클을 막는 것이 놓치는 것보다 나쁘다.
 - `target`은 **분기 조건 라인**을 가리켜야 도달 불가 분기(`dead-branch`)가 잡힌다. 블록 안쪽을 가리키면 `uncovered`만 나온다.
 - ⚠ Node는 경로에 `test/` 세그먼트가 있는 파일을 커버리지에서 제외한다. `target`이 `test/` 아래면 항상 `no-data`다.

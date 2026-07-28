@@ -272,11 +272,91 @@ test('/kit 도움말이 review 필수화와 PDCA 게이트를 담는다', () => 
   assert.match(help, /PreToolUse[\s\S]{0,200}PDCA 게이트/, '훅 목록에 PDCA 게이트 없음');
 });
 
+// ── B8: node 런타임 의존성이 명시된다 ────────────────────────────
+// 훅도 검증 스크립트도 전부 node다. Python·Go 전용 프로젝트에도 필요한데(테스트는 그 러너로,
+// evidence 검증 층은 node) 어디에도 안 적혀 있었다 — 안 깔린 환경에선 층 전체가 안 돈다.
+test('B8: README가 Node 런타임 요구를 명시한다', () => {
+  const src = read('README.md');
+  assert.match(src, /##\s*요구사항/, 'README에 요구사항 절이 없다');
+  const need = src.slice(src.indexOf('## 요구사항'), src.indexOf('##', src.indexOf('## 요구사항') + 3));
+  assert.match(need, /Node\s*20\+?/i, '요구사항 절에 Node 버전이 없다');
+  assert.match(need, /러너|python|go|pytest/i, '비-Node 프로젝트에도 필요하다는 사실이 없다');
+  assert.match(src, /scripts\/verify-evidence\.mjs/, '구성 표에 verify-evidence.mjs가 빠져 있다');
+});
+
+test('B8: /kit 도움말이 Node 런타임 요구를 명시한다', () => {
+  const help = read('commands/kit.md');
+  const body = help.slice(help.indexOf('## 인자 없음'));
+  assert.match(body, /Node\s*20\+?/i, '/kit 도움말에 Node 버전 요구가 없다');
+});
+
+// ── B7: 러너별 lcov 표 (두 벌 + 드리프트 방지) ──────────────────
+// 두 벌인 이유: gap.md는 사용자가, gap-detector.md는 **명령을 고르는 주체**가 읽는다.
+// 한쪽에만 두면 다른 쪽이 못 쓴다(D8). 구조로 한 벌 만드는 방법(커맨드가 Task 프롬프트에
+// 명령을 실어 넘기기)은 /gap의 위임 구조를 손대는 변경이라 별도 사이클로 미뤘다 — 그동안의
+// 드리프트를 이 테스트가 막는다.
+// 전제: 이 두 문서에서 `| **`로 시작하는 표 행은 러너 표뿐이다(다른 표가 생기면 여기서 깨진다).
+// 들여쓰기는 무시한다 — 두 문서에서 표가 들어가는 목록 깊이가 다를 수 있고, 계약은 행의 내용이다.
+const runnerRows = (src) => src.split('\n').filter((l) => /^\s*\|\s*\*\*/.test(l)).map((l) => l.trim());
+
+test('B7: 러너별 lcov 표가 /gap과 gap-detector에서 같은 행 집합이다', () => {
+  const cmd = runnerRows(read('commands/gap.md'));
+  const agent = runnerRows(read('agents/gap-detector.md'));
+
+  assert.ok(cmd.length >= 4, `러너 표 행이 ${cmd.length}건이다 — 표가 없거나 비었다`);
+  assert.deepEqual(cmd, agent, '두 문서의 러너 표가 갈렸다 — 한쪽만 고치면 다른 쪽이 못 쓴다');
+  for (const row of cmd) {
+    assert.match(row, /\.devkit\/lcov\.info/, `행이 공통 계약(산출 경로)을 안 밝힌다:\n  ${row}`);
+  }
+});
+
+// ⚠ 실측 안 한 명령을 리터럴로 박지 않는다 — 틀린 명령을 박는 건 안 적는 것보다 나쁘다.
+// 실측한 것만 명령 전문이고, 나머지는 도구 이름과 산출 경로까지만 적고 그 사실을 표시한다.
+test('B7: 실측하지 않은 러너 행은 미실측임을 밝힌다', () => {
+  const rows = runnerRows(read('commands/gap.md'));
+  const measured = rows.filter((r) => !/미실측/.test(r));
+  assert.ok(measured.length >= 1, '실측한 러너가 한 건도 없다');
+  for (const r of measured) {
+    // 러너 무관 조건이다. node:test의 플래그를 '명령 전문'의 정의로 박으면, 다음 사람이 vitest를
+    // **실측해서 참인 명령을 적는 순간** RED가 난다 — 정직한 행동이 벌받고 남는 선택지가
+    // '미실측 영구 유지' 아니면 '가짜 node 플래그 삽입'뿐이 된다(REVIEW 2회차 🟡3, 실측 확인).
+    assert.match(r, /`[^`]*\.devkit\/lcov\.info[^`]*`/, `실측 행인데 명령 전문이 없다:\n  ${r}`);
+  }
+});
+
 // ── Q3: 플러그인 경로 RULES.md Read 지시 제거 (D10 권한 마찰) ────
-// permissions.allow에서 ${CLAUDE_PLUGIN_ROOT} 확장은 미확인이고, 절대경로는 사용자마다 달라
-// 팀 배포가 불가능하다. "읽어라"는 지시는 실행되지 않는다(D8) — 안 읽게 만들고 요약을 본문에 박는다.
-test('Q3: 에이전트가 플러그인 경로 RULES.md를 Read하지 않는다', () => {
-  for (const a of DOC_AGENTS) {
+// 근거 셋 중 둘은 죽었다: `${CLAUDE_PLUGIN_ROOT}` 확장은 공식 문서(plugins-reference)와 라이브
+// 실측으로 **된다**고 확인됐고, "절대경로라 팀 배포 불가"는 변수를 쓰면 해소된다. 남은 둘이
+// 결론을 그대로 지탱한다 — **D10**(프로젝트 밖 파일 Read마다 승인 프롬프트가 뜬다)과
+// **D8**("참조하라"는 지시는 실행되지 않는다. 리터럴로 박아야 한다).
+// 그래서 Bash 실행(치환되고 권한 마찰 없음)은 플러그인 경로로 통일하고, 파일 Read는 반대로
+// 본문 리터럴 1차 + 프로젝트 AGENTS.md 2차로 통일한다. 같은 변수인데 방향이 반대인 이유다.
+// 근거가 죽었는데 결론만 남은 주석은 다음 사람을 잘못된 전제로 이끈다 — 그 자체가 회귀 위험이라
+// 주석도 계약으로 본다. 주석은 실행되지 않아 보통은 RED를 못 내므로, 소스를 읽어서 단언한다.
+test('Q3: 근거 주석이 살아 있는 근거만 든다', () => {
+  const src = read('test/agent-contract.test.mjs');
+  const start = src.indexOf('// ── Q3:');
+  assert.ok(start > 0, 'Q3 근거 주석 블록이 없다');
+  const block = src.slice(start, src.indexOf('test(', start));
+
+  for (const re of [/D10/, /D8/]) {
+    assert.match(block, re, `Q3 근거 주석에 살아 있는 근거 ${re}가 없다`);
+  }
+  assert.doesNotMatch(
+    block,
+    /확장은? ?미확인|미확인이고/,
+    'Q3 근거 주석이 죽은 근거를 든다 — ${CLAUDE_PLUGIN_ROOT} 확장은 공식 문서와 라이브 실측으로 확인됐다',
+  );
+});
+
+// 전수다. 4개만 검사하는 동안 나머지 3개(tdd-driver·test-writer·feature-builder)가
+// 플러그인 경로를 그대로 쓰고 있었다 — 같은 근거가 7개 전부에 적용되는데 분모가 좁았다.
+const ALL_AGENTS = fs.readdirSync(path.join(root, 'agents'))
+  .filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''));
+
+test('Q3: 에이전트가 플러그인 경로 RULES.md를 Read하지 않는다 (agents/ 전수)', () => {
+  assert.ok(ALL_AGENTS.length >= 7, `agents/ 스캔이 비었다: ${ALL_AGENTS.length}개`);
+  for (const a of ALL_AGENTS) {
     assert.doesNotMatch(
       read(`agents/${a}.md`),
       /CLAUDE_PLUGIN_ROOT\}?\/RULES\.md/,
@@ -285,13 +365,20 @@ test('Q3: 에이전트가 플러그인 경로 RULES.md를 Read하지 않는다',
   }
 });
 
+// 금지(위)는 7개 전수이지만 대체 경로는 6개다 — report-writer는 규칙 접근이 애초에 없다
+// (REPORT 작성에 팀 코드 규칙이 필요 없다는 판단). 분모를 다르게 두는 이유를 여기 남긴다.
+const RULE_AGENTS = ALL_AGENTS.filter((a) => a !== 'report-writer');
+
 test('Q3: 규칙이 필요한 에이전트는 AGENTS.md 대체 경로를 갖는다', () => {
-  for (const a of ['architect', 'code-reviewer', 'gap-detector']) {
+  assert.equal(RULE_AGENTS.length, ALL_AGENTS.length - 1, 'report-writer 제외 분모가 어긋났다');
+  for (const a of RULE_AGENTS) {
     assert.match(read(`agents/${a}.md`), /AGENTS\.md/, `${a}: AGENTS.md 대체 경로 없음`);
   }
 });
 
-// 드리프트 대비: 본문에 박은 요약이 지워지면 여기서 깨진다(DESIGN §8 완화 (b)).
+// 1차 방어는 AGENTS.md가 아니라 **본문 리터럴**이다. "참조하라"는 지시는 실행되지 않고(D8),
+// /kit init을 안 돌린 프로젝트엔 AGENTS.md 자체가 없다 — 그때 남는 건 이 요약뿐이다.
+// 이 테스트가 §1.4의 "1차 = 본문 리터럴"을 지키는 유일한 장치다.
 test('Q3: 본문 리터럴 요약이 유지된다', () => {
   const architect = read('agents/architect.md');
   for (const re of [/features\//, /shared\//, /\.tsx/, /200줄/]) {
@@ -300,5 +387,28 @@ test('Q3: 본문 리터럴 요약이 유지된다', () => {
   const reviewer = read('agents/code-reviewer.md');
   for (const re of [/네이밍/, /any/, /swallow/]) {
     assert.match(reviewer, re, `code-reviewer: 규칙 요약 누락 ${re}`);
+  }
+  // tdd-driver·test-writer는 이미 갖고 있었다(계약 카탈로그 / 대상×방식 표) — 회귀만 막는다.
+  const tdd = read('agents/tdd-driver.md');
+  for (const re of [/멱등성/, /경계값/, /UI[·\s]*(마크업)?.*TDD 대상이 아니/]) {
+    assert.match(tdd, re, `tdd-driver: 계약 카탈로그 요약 누락 ${re}`);
+  }
+  assert.match(read('agents/test-writer.md'), /유닛 X|유닛 테스트가 없는 게 정상|시각 검증/, 'test-writer: 대상별 방식 표 누락');
+  // feature-builder만 비어 있었다 — 정본은 RULES.md라며 구조·네이밍을 명시적으로 안 적었다.
+  const builder = read('agents/feature-builder.md');
+  for (const re of [/features\//, /shared\//, /hooks\//, /kebab-case/, /use[A-Z]|`use` ?접두/, /200줄/]) {
+    assert.match(builder, re, `feature-builder: 구조·네이밍 리터럴 누락 ${re}`);
+  }
+});
+
+// ── 테스트를 쓰는 에이전트는 evidence 층을 깨는 규칙을 본문에 갖는다 (REVIEW 1회차 🔴) ──
+// 플러그인 RULES.md Read를 뺀 대가로 두 규칙이 도달 불가가 됐다: AGENTS.md의 "## 공통 규칙"은
+// RULES의 SUMMARY 블록 그대로인데 둘 다 거기 없고, devkit 레포 자신엔 AGENTS.md가 아예 없다.
+// 앞의 규칙은 어기면 그 테스트 줄이 evidence 인용으로 못 쓰여 uncited가 된다 — 직전 사이클의 결함이다.
+test('B4: 테스트를 쓰는 에이전트는 인용 가능성·관측점 규칙을 본문에 갖는다', () => {
+  for (const a of ['tdd-driver', 'test-writer']) {
+    const src = read(`agents/${a}.md`);
+    assert.match(src, /양옆을 공백으로 띄우지 마라/, `${a}: 테스트 이름 인용 가능성 규칙 누락`);
+    assert.match(src, /바깥 관측점/, `${a}: 관측점 규칙 누락`);
   }
 });

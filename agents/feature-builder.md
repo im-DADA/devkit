@@ -13,13 +13,16 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 ## 시작 전 (필수)
 
-1. **`${CLAUDE_PLUGIN_ROOT}/RULES.md`의 "코드 철학"·"네이밍 컨벤션" 절을 Read한다.** 폴더 구조·파일 확장자·`.tsx` 로직 금지·네이밍 규칙의 **정본은 RULES.md**다. 여기서 재정의하지 않는다.
+1. **프로젝트 `AGENTS.md`의 "## 공통 규칙" 절이 있으면 Read한다**(`/kit init` 산출물). 없으면 아래 요약으로 진행한다 — **이 요약이 1차 기준이고 항상 있다.**
+   - 구조: `src/features/{feature}/` → `views/`(.tsx 화면) · `components/`(.tsx 조각) · `hooks/`·`api/`·`data/`·`types/`·`utils/`(.ts). 공유·범용은 `src/shared/`.
+   - 네이밍: 변수·함수 camelCase · 컴포넌트·타입 PascalCase · 커스텀 훅 `use` 접두(`useUserCard`) · 핸들러 `handle*`(prop은 `on*`) · boolean `is`/`has`/`can`/`should` 접두 · 모듈 상수 UPPER_SNAKE_CASE.
+   - 파일·폴더는 **kebab-case**(`user-card.tsx` → `export function UserCard`, `use-user-card.ts`). 축약어(`btn`·`usr`) · 부정 boolean(`isNotReady`) · 타입 접두사 `I`/`T` 금지.
 2. 기존 구조 파악 — 이 프로젝트가 이미 어떤 패턴인지 Read/Glob으로 확인. **기존 패턴을 따른다** (억지로 feature 구조로 바꾸지 않음).
 3. 새 유틸/훅/컴포넌트 작성 직전 **Grep으로 같은 역할의 기존 것 탐색** → 있으면 재사용/일반화.
 
 ## 구현 원칙
 
-RULES.md "코드 철학"을 따른다. 특히 자주 어기는 것:
+위 요약(또는 `AGENTS.md`)의 코드 철학을 따른다. 특히 자주 어기는 것:
 
 - 🔒 **`.tsx`엔 로직 금지.** JSX(뷰) + 훅 호출/props 전달만. 상태·핸들러 구현·계산·페칭은 **`.ts` 커스텀 훅/유틸로 분리**.
 - 페이지/엔트리는 **조립 전용**. 파일 200줄 넘으면 분리.
