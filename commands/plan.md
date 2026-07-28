@@ -56,7 +56,8 @@ allowed-tools:
    - **track**: Quick
    ```
    DESIGN.md가 없는 것이 정상이고, `/gap`·gap-detector는 있는 것만 읽는다.
-   - **승격은 단방향이다.** 구현 중 설계 결정이 드러나면 언제든 **Quick → Full**로 올린다(track 줄을 고치고 DESIGN을 쓴다). 올린 사실은 PROGRESS.md에 한 줄. **Full → Quick 강등은 금지** — 설계가 어려워지자 트랙을 낮춰 회피하는 경로가 된다.
+   - **승격은 단방향이다.** 구현 중 설계 결정이 드러나면 언제든 **Quick → Full**로 올린다(track 줄을 고치고 DESIGN을 쓴다). 올린 사실은 PROGRESS.md에 한 줄. **PLAN 승인 후 Full → Quick 강등은 금지** — 설계가 어려워지자 트랙을 낮춰 회피하는 경로가 된다. 트랙은 PLAN 승인과 함께 확정되므로 **승인 전 정정은 강등이 아니다**(사유를 PROGRESS.md에).
+   - ⚠ **Quick으로 갈 거면 PLAN에서 다 정해라.** "이건 DESIGN에서 정한다"고 남기면 **아무도 안 정하고 기본값으로 굳는다** — 못 정하겠으면 그게 Full이라는 신호다.
    - ⚠ Quick이어도 `behaviors.json` · `/gap`(unproven==0) · `/review` · REPORT.md는 **전부 그대로 필수**다. 훅 게이트는 트랙을 읽지 않는다.
 10. 승인 후 **구현(Do)** — Full은 DESIGN 승인, Quick은 PLAN 승인이 그 승인이다. 상태 `stage:"do"`, `status:"in-progress"`. behavior가 통과할 때마다 `behaviors.json`의 `passes`·`evidence`를 갱신한다.
 11. 구현 완료되면 **`/gap` 필수** — PLAN·DESIGN 대비 대조. **통과 기준은 `unproven == 0`**(증거 없는 통과 주장이 없음)이지 Match Rate 숫자가 아니다. 미달이면 `/iterate` 보완 루프.
