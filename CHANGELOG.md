@@ -2,6 +2,29 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.16.0] - 2026-07-28
+
+**Quick/Full 트랙** — 한 줄 수정에도 PLAN→DESIGN 2단 승인을 요구하던 마찰을 없앤다. Quick은 **DESIGN.md와 두 번째 승인만** 생략하고 `behaviors.json`·`/gap`·`/review`·REPORT는 전부 필수로 남는다. 결함로그 D4 해소, D23 신설. 새 의존성 0.
+
+### Added
+- `hooks/lib/track.js` — `readTrack(planText)` 순수함수. PLAN 상단 10줄의 `- **track**: Quick|Full`을 읽고, 못 읽으면 `null`(추측하지 않는다). fs 미사용, 어떤 입력에도 throw 없음.
+- `RULES.md` §PDCA에 트랙 표 + `commands/plan.md` 1·4·9·10단계 + `pdca-detect` KICKOFF 분기.
+- `test/track.test.mjs`(17건) — 그중 **B4는 입력을 조립하지 않는다**. `commands/plan.md`의 코드펜스에서 템플릿 줄을 뽑아 파서에 먹인다(추출은 구조로, 판정은 `readTrack`으로 — 파서로 고른 입력을 그 파서가 파면 무검사다).
+
+### Changed
+- **트랙 판정은 열거가 아니라 불변식 하나다.** `track: Quick`은 미해결 `[NEEDS CLARIFICATION]`이 0건일 때만 유효하고, 1건이라도 남으면 **읽는 시점에** Full로 강등된다(파일은 고치지 않는다 — 고치면 모델이 되돌려 무한 왕복이다). "파일 3~5개" 같은 열거는 차원마다 독립적으로 틀린다.
+- 마커 해결 표기는 **제거** 하나로 고정. `[RESOLVED]`·취소선을 인정하면 그게 허용목록이 되어 다음 표기에서 샌다.
+- `RULES.md` "같은 문서의 예시" 규칙에서 **대상 열거를 걷어냈다** — 판정을 "복사되는가 / 항상 보이는가" 두 축으로.
+
+### Fixed
+- **SUMMARY 블록이 새 규칙을 배포 시점에 껐다**(D23). 트랙 표를 §PDCA 본문에만 넣었는데, 매 세션 주입되는 SUMMARY는 `멈춤점은 PLAN·DESIGN 승인 2곳`을 그대로 말하고 있었다 — 항상 보이는 층이 이긴다. 리뷰 🔴로 잡았고 `test/track.test.mjs`가 정합성을 단언으로 고정한다.
+
+### 안 닫힌 것
+- **Quick 경로는 이 사이클에서 한 번도 실행되지 않았다.** 검증은 형태까지다(훅·커맨드 변경은 세션 재시작 후 반영 — D17). 실사용 Quick 완주 1건이 다음 사이클로 이관됐다.
+- **Full → Quick 강등 금지는 검사되지 않는다** — 훅이 track을 읽지 않기로 한 대가로 원리적으로 강제 불가. 트랙을 게이트 입력으로 만들면 사람이 손으로 쓴 한 줄이 검증 층을 끄는 경로가 열린다.
+- `track.js`는 **호출자 0인 모듈**이다(의도된 설계, 회귀 테스트가 미배선을 적극 단언).
+- `/flow`는 아직 Full 전용 — `commands/flow.md`의 "DESIGN 없이 Build 금지"가 Quick과 충돌한다.
+
 ## [0.15.0] - 2026-07-27
 
 devkit이 **자기 레포 밖에서 돌지 않던 것**을 고친다. 3사이클(0.12~0.14)에 걸쳐 만든 evidence 검증 층(L3a)의 실행 지시가 전부 프로젝트 상대경로라, 남의 프로젝트에 설치하면 `MODULE_NOT_FOUND`였다. 결함로그 D22, D10 부분 해소. 새 의존성 0.

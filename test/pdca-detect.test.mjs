@@ -80,6 +80,26 @@ test('KICKOFF는 review를 필수 단계로 안내한다', () => {
   assert.match(stdout, /차단|거부/, '없으면 REPORT가 막힌다는 사실을 알려야 함');
 });
 
+// Quick 트랙이 생략하는 것은 DESIGN.md와 두 번째 승인뿐이다. 그 경계를 KICKOFF가 같은
+// 안내 안에서 못박지 않으면, 자동발동 경로가 "Quick이니 검증도 가볍게"로 읽힌다.
+test('KICKOFF는 트랙을 안내하고 Quick도 behaviors.json이 필수임을 명시한다', () => {
+  const cwd = makeRoot();
+  const { stdout } = run({ prompt: FEATURE_PROMPT, cwd });
+  assert.match(stdout, /track/, '트랙 선언 지시가 있어야 함');
+  assert.match(stdout, /Quick/, 'Quick 트랙을 알려야 함');
+  assert.match(stdout, /Full/, 'Full 트랙을 알려야 함');
+  // 같은 줄에서 필수 산출물을 못박아야 한다 — 다른 절에 흩어져 있으면 트랙과 안 묶인다
+  // 훅은 JSON.stringify로 단일 라인을 뱉으므로 개행이 리터럴 `\n`이다 — 이걸 실제 개행('\n')으로
+  // "고치면" 조각이 1개가 되어 아래 find가 stdout 전체를 돌려주고 "같은 문장" 단언이 헛돈다.
+  const lines = stdout.split('\\n');
+  assert.ok(lines.length > 1, '주입 컨텍스트가 줄 단위로 쪼개져야 함(헛돎 방지)');
+  const line = lines.find((l) => /Quick도/.test(l));
+  assert.ok(line, 'Quick의 필수 산출물을 못박는 문장이 있어야 함');
+  for (const must of ['behaviors\\.json', '/gap', '/review', 'REPORT\\.md']) {
+    assert.match(line, new RegExp(must), `Quick에서도 필수임을 같은 문장에서 밝혀야 함: ${must}`);
+  }
+});
+
 test('질문 프롬프트 → 주입 없음(빈 stdout)', () => {
   const cwd = makeRoot();
   const { code, stdout } = run({ prompt: '결제 기능은 어떻게 만들어?', cwd });
