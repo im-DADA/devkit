@@ -61,6 +61,29 @@ function countDiffLines(a, b) {
 
 const unknown = (reason) => ({ state: 'unknown', diffLines: 0, reason });
 
+// `@AGENTS.md` / `@./AGENTS.md`. 코드펜스·인라인코드는 걷어낸 뒤 본다 — `CLAUDE.md`가
+// 그 문자열을 **설명하려고** 적었을 수 있고, 그걸 실제 import로 보면 규칙이 컨텍스트에
+// 없는데 있다고 착각한다(D25 자기트리거 계열). 과하게 걷어내면 주입 쪽으로 실패하므로 안전하다.
+const AGENTS_IMPORT = /(^|[\s(])@\.?\/?AGENTS\.md\b/m;
+
+/**
+ * 이 `CLAUDE.md`가 `AGENTS.md`를 컨텍스트로 끌어오는가.
+ *
+ * 실측(헤드리스 세션, 파일 도구 차단): **Claude Code는 `AGENTS.md`를 자동 로드하지 않는다.**
+ * `CLAUDE.md`의 `@AGENTS.md` import가 있을 때만 로드된다. 그래서 이 판정이 곧
+ * "팀 규칙이 이미 컨텍스트에 있는가"다 — 틀리면 규칙이 통째로 사라진다.
+ * @param {string} claudeMd
+ * @returns {boolean}
+ */
+function importsAgentsMd(claudeMd) {
+  if (typeof claudeMd !== 'string') return false;
+  const stripped = claudeMd
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/~~~[\s\S]*?~~~/g, '')
+    .replace(/`[^`\n]*`/g, '');
+  return AGENTS_IMPORT.test(stripped);
+}
+
 /**
  * @param {string} canonical 플러그인 RULES.md의 SUMMARY 블록 원문
  * @param {string} agentsMd  소비자 AGENTS.md 전문
@@ -102,4 +125,4 @@ function compareRules(canonical, agentsMd) {
   return { state: 'stale', diffLines, reason: `${diffLines}줄 다르다` };
 }
 
-module.exports = { compareRules, normalize, START, END };
+module.exports = { compareRules, importsAgentsMd, normalize, START, END };

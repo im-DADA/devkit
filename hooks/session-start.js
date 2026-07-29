@@ -10,7 +10,7 @@ const { findProjectRoot } = require('./lib/project-root');
 const { readState, isActive } = require('./lib/pdca-state');
 const { tail } = require('./lib/progress');
 const { readBehaviors, summarize } = require('./lib/behaviors');
-const { compareRules } = require('./lib/rules-sync');
+const { compareRules, importsAgentsMd } = require('./lib/rules-sync');
 
 const FALLBACK = `## devkit 팀 규칙 리마인드
 상세 규칙은 플러그인 RULES.md 참조 (/kit).`;
@@ -99,13 +99,33 @@ function resumeBlock() {
  * 정확히 2줄이고, stale이 아니면 완전히 침묵한다. 배너·이모지 나열은 무시 학습을 만든다.
  * 억제 타이머는 두지 않는다 — 타이머는 상태 파일이 필요하고 그 상태 파일이 또 낡는다.
  */
-function driftBlock(summary) {
-  let agentsMd;
+/** 프로젝트 루트의 파일을 읽되, 없으면 null. 세션 시작을 막는 이유가 될 수 없다. */
+function readFromRoot(name) {
   try {
-    agentsMd = fs.readFileSync(path.join(findProjectRoot(process.cwd()), 'AGENTS.md'), 'utf8');
+    return fs.readFileSync(path.join(findProjectRoot(process.cwd()), name), 'utf8');
   } catch {
-    return ''; // AGENTS.md 없음 = 정상. 세션 시작을 막는 이유가 될 수 없다
+    return null;
   }
+}
+
+/**
+ * SUMMARY 주입을 생략해도 되는가 — 이미 컨텍스트에 있을 때만.
+ *
+ * `/kit init`이 SUMMARY를 AGENTS.md에 인라인하고, CLAUDE.md의 `@AGENTS.md` import가
+ * 그걸 컨텍스트로 끌어온다(실측 확인). 그 경우 훅이 또 넣으면 **같은 1,407자가 두 번**
+ * 들어간다 — Anthropic이 지목한 "같은 지시를 여러 곳에 복제" 안티패턴 그대로다.
+ *
+ * ⚠ 비대칭이 극단적이다. 미탐(중복 잔존)은 토큰 낭비지만, **오탐은 팀 규칙 전멸**이다.
+ * 그래서 세 조건을 전부 만족할 때만 생략하고, 하나라도 확인 안 되면 주입한다.
+ */
+function summaryAlreadyInContext(summary, agentsMd) {
+  if (typeof agentsMd !== 'string') return false;                 // ① AGENTS.md 없음
+  if (compareRules(summary, agentsMd).state !== 'current') return false; // ② 사본이 정본과 다름
+  return importsAgentsMd(readFromRoot('CLAUDE.md'));              // ③ 실제로 로드되는가
+}
+
+function driftBlock(summary, agentsMd) {
+  if (typeof agentsMd !== 'string') return '';
   const r = compareRules(summary, agentsMd);
   // 마커 도입 이전에 만들어진 사본. 내용은 비교하지 않는다(어디까지가 사본인지 모른다) —
   // 대신 탐지를 켜는 방법을 알린다. 이 분기가 없으면 기존 사용자 전원이 탐지 밖에 남는다.
@@ -144,14 +164,19 @@ try {
   summaryIsCanonical = false;
 }
 
-// 훅이 세션 시작을 막으면 안 된다 — 드리프트 판정이 터져도 리마인드는 나가야 한다.
+// 훅이 세션 시작을 막으면 안 된다 — 판정이 터져도 리마인드는 나가야 한다.
+// 그래서 실패 시 skip=false(=주입)로 degrade한다: 규칙을 잃지 않는 쪽.
 let drift = '';
+let skipSummary = false;
 if (summaryIsCanonical) {
   try {
-    drift = driftBlock(summary);
+    const agentsMd = readFromRoot('AGENTS.md');
+    drift = driftBlock(summary, agentsMd);
+    skipSummary = summaryAlreadyInContext(summary, agentsMd);
   } catch (e) {
     process.stderr.write(`[devkit] session-start: 규칙 동기화 검사 실패 — ${e.message}\n`);
   }
 }
 
-process.stdout.write(summary + drift + resumeBlock() + '\n');
+// 재개 블록은 생략 대상이 아니다 — 그 정보는 AGENTS.md에 없다.
+process.stdout.write((skipSummary ? '' : summary) + drift + resumeBlock() + '\n');

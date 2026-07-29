@@ -240,3 +240,82 @@ test('훅은 어떤 경우에도 세션 시작을 막지 않는다(리마인드�
     assert.match(out, /devkit 팀 규칙 리마인드/, `리마인드가 사라졌다: ${String(md).slice(0, 30)}`);
   }
 });
+
+// ── 중복 주입 제거 ────────────────────────────────────────
+// 실측(헤드리스 세션, 파일 도구 차단): Claude Code는 AGENTS.md를 자동 로드하지 않는다.
+// CLAUDE.md의 @AGENTS.md import가 있을 때만 로드된다. 그래서 /kit init을 돌린
+// 프로젝트에서는 SUMMARY가 훅과 AGENTS.md 두 경로로 **두 번** 들어간다.
+//
+// ⚠ 비대칭이 극단적이다. 미탐(중복 잔존)은 토큰 낭비지만, 오탐(안 넣었는데 실은
+// 없음)은 팀 규칙 전멸이다. 그래서 "생략되면 안 되는" 케이스를 더 많이 깐다.
+
+const IMPORT_MD = '# CLAUDE.md\n\n이 레포 지침은 @AGENTS.md 를 따른다.\n';
+
+/** 프로젝트를 만들되 CLAUDE.md 유무·내용을 지정한다 */
+function makeProjectWith(agentsMd, claudeMd) {
+  const root = makeProject(agentsMd);
+  if (claudeMd !== null) fs.writeFileSync(path.join(root, 'CLAUDE.md'), claudeMd);
+  return root;
+}
+const hasSummary = (out) => /devkit 팀 규칙 리마인드/.test(out);
+
+test('B1: current + CLAUDE.md의 @AGENTS.md import면 SUMMARY를 생략한다', () => {
+  const out = runHook(makeProjectWith(wrap(canonicalSummary()), IMPORT_MD));
+  assert.equal(hasSummary(out), false, `중복인데 또 넣었다:\n${out.slice(0, 200)}`);
+});
+
+test('B2: CLAUDE.md가 없으면 주입한다 — AGENTS.md는 자동 로드되지 않는다(실측 A)', () => {
+  const out = runHook(makeProjectWith(wrap(canonicalSummary()), null));
+  assert.ok(hasSummary(out), 'AGENTS.md만 있는데 생략했다 = 규칙 전멸');
+});
+
+test('B3: @AGENTS.md import가 없는 CLAUDE.md면 주입한다', () => {
+  const out = runHook(makeProjectWith(wrap(canonicalSummary()), '# CLAUDE.md\n\n우리 규칙은 여기 직접 쓴다.\n'));
+  assert.ok(hasSummary(out), 'import가 없는데 생략했다 = 규칙 전멸');
+});
+
+test('B4: stale·unmarked·custom·unknown이면 전부 주입한다', () => {
+  const cases = {
+    stale: wrap(canonicalSummary() + '\n- 사본에만 있는 줄'),
+    unmarked: '# AGENTS.md\n\n## 공통 규칙\n\n- 마커 없는 옛 파일\n',
+    custom: wrap('- 우리 팀만의 규칙', 'custom'),
+    unknown: '# AGENTS.md\n\n## Setup\n- 남의 파일\n',
+  };
+  for (const [label, md] of Object.entries(cases)) {
+    assert.ok(hasSummary(runHook(makeProjectWith(md, IMPORT_MD))), `${label}인데 생략했다`);
+  }
+});
+
+test('B5: 코드펜스 안의 @AGENTS.md는 import로 치지 않는다', () => {
+  const documented = '# CLAUDE.md\n\n설정 예시:\n\n```markdown\n이 레포 지침은 @AGENTS.md 를 따른다.\n```\n\n아직 적용 안 함.\n';
+  const out = runHook(makeProjectWith(wrap(canonicalSummary()), documented));
+  assert.ok(hasSummary(out), '설명하려고 적은 문자열을 실제 import로 봤다(D25 계열)');
+});
+
+test('B6: importsAgentsMd는 어떤 입력에도 throw하지 않는다', () => {
+  const { importsAgentsMd } = createRequire(import.meta.url)(libPath);
+  for (const bad of [null, undefined, '', 123, {}, '```\n@AGENTS.md\n```', '@AGENTS.md']) {
+    let r;
+    assert.doesNotThrow(() => { r = importsAgentsMd(bad); });
+    assert.equal(typeof r, 'boolean');
+  }
+  assert.equal(importsAgentsMd(IMPORT_MD), true);
+  assert.equal(importsAgentsMd('@./AGENTS.md 를 따른다'), true);
+});
+
+test('B7: SUMMARY를 생략해도 진행 중 사이클 재개 블록은 나온다', () => {
+  const root = makeProjectWith(wrap(canonicalSummary()), IMPORT_MD);
+  fs.mkdirSync(path.join(root, '.devkit'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.devkit', 'pdca-state.json'),
+    JSON.stringify({ version: 1, cycleId: '2026-07-29-x', stage: 'do', status: 'in-progress' }));
+  const out = runHook(root);
+  assert.equal(hasSummary(out), false, '생략 조건인데 SUMMARY가 나왔다');
+  assert.match(out, /진행 중 PDCA 사이클/, '재개 블록까지 사라졌다 — 중복 대상이 아니다');
+});
+
+test('B8: CLAUDE.md가 깨져 있어도 세션 시작을 막지 않는다', () => {
+  for (const cm of ['', '\0\0\0', 'x'.repeat(50000)]) {
+    const out = runHook(makeProjectWith(wrap(canonicalSummary()), cm));
+    assert.ok(out.length > 0, '출력이 비었다');
+  }
+});
