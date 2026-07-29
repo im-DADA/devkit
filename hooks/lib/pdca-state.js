@@ -25,6 +25,14 @@ const CYCLE_ARTIFACT =
   /(?:^|\/)docs\/(\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*)\/(GAP|REPORT)\.md$/;
 const STATE_FILE = /(?:^|\/)\.devkit\/pdca-state\.json$/;
 
+// 사이클 폴더 안의 **모든** 파일(하위 폴더 포함). 진행 중 형태와 아카이브 이동 후 형태 둘 다.
+// 위 CYCLE_ARTIFACT와 달리 파일명을 열거하지 않는다 — 여기서 묻는 건 "무엇을 쓰나"가 아니라
+// "쓰려는 것이 PDCA 문서인가"라서 폴더 진입 자체가 판정 범위다.
+// slug는 `[^/]+` — CYCLE_ID가 유니코드를 허용하므로(`2026-07-24-devkit-재설계`) 여기서도 좁히지 않는다.
+const CYCLE_FOLDER_FILE =
+  /(?:^|\/)docs\/(?:archive\/\d{4}-\d{2}-\d{2}\/[^/]+|\d{4}-\d{2}-\d{2}-[^/]+)\/(.+)$/;
+const DOC_EXT = /\.(?:md|json)$/i;
+
 // cycleId는 `path.join(root, 'docs', cycleId)`의 **경로 조각 한 개**다. 검증이
 // "빈 문자열이 아닌 string"뿐이라 개행·`..`·절대경로가 전부 통과했다:
 //   - 개행 → verify-evidence의 조기 종료 헤더가 그대로 보간해 대조 후보 줄을 만든다(벡터 A)
@@ -52,6 +60,44 @@ function matchCycleArtifact(filePath) {
   const m = CYCLE_ARTIFACT.exec(toPosix(filePath));
   if (!m) return null;
   return { stage: m[2] === 'GAP' ? 'gap' : 'report' };
+}
+
+/**
+ * 사이클 폴더에 PDCA 문서(.md/.json)가 아닌 파일을 쓰려는가.
+ *
+ * 왜 훅인가: 같은 규칙을 안내로 두 번 넣었는데 둘 다 그 상황에 닿지 못했다(실측, 2026-07-29).
+ *   - RULES.md 본문 폴더 규약 → 세션에 주입되는 건 `SUMMARY:START~END` 블록뿐이다(D23과 같은 형태)
+ *   - pdca-detect의 KICKOFF → 시안·목업은 TRIVIAL_RE로 배제돼 KICKOFF 자체가 안 뜬다
+ *     (`"로그인 화면 시안 만들어줘"` → too-short, 긴 형태 → trivial)
+ * 경고를 넣은 자리와 그 경고가 필요한 상황이 배타적이라, 경로를 보는 층에서 닫는다.
+ *
+ * fs를 보지 않는다 — 경로만으로 판정하므로 폴더 존재 여부 오탐이 없다.
+ * @param {string} filePath 절대/상대 경로(Windows 구분자 허용)
+ * @returns {{ok:true} | {ok:false, name:string, reason:string}}
+ */
+function gateCycleFolderFile(filePath) {
+  if (typeof filePath !== 'string') return { ok: true };
+  const m = CYCLE_FOLDER_FILE.exec(toPosix(filePath));
+  if (!m) return { ok: true }; // 사이클 폴더 밖 — 과잉차단이 미차단보다 비싸다
+  const name = m[1];
+  if (DOC_EXT.test(name)) return { ok: true };
+  return {
+    ok: false,
+    name,
+    // ⚠ 대안 없는 금지는 교착이다. "어디에 두라"가 빠지면 같은 자리에 재시도만 반복된다.
+    reason: [
+      `사이클 폴더에는 PDCA 문서(.md/.json)만 둔다 — 막힌 파일: ${name}`,
+      '시안·목업 HTML·스크린샷·PNG·데이터 파일은 여기 두면 안 된다.',
+      '`docs/`는 보통 gitignore라 git에 안 남고, 완료 후 archive/로 옮겨지면 더 묻힌다.',
+      '',
+      '→ 프로젝트의 실제 위치에 쓰고, 문서에서는 경로로 참조하라:',
+      '  - 시안·목업 HTML  → `design/` 또는 `mockups/`',
+      '  - 이미지·스크린샷 → `public/` 또는 `assets/`',
+      '  - 테스트 픽스처·데이터 → 그 코드 옆(`test/fixtures/` 등)',
+      '  - 그 외 → 실제로 소비하는 코드 옆',
+      '그 경로로 다시 Write한 다음, PLAN.md·REPORT.md에서 상대경로로 링크한다.',
+    ].join('\n'),
+  };
 }
 
 /**
@@ -216,6 +262,7 @@ module.exports = {
   writeState,
   isActive,
   gatePrerequisite,
+  gateCycleFolderFile,
   matchCycleArtifact,
   isStateFile,
   validateStateWrite,

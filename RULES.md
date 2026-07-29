@@ -12,8 +12,9 @@
 - 🟡 확인 필요: 새 의존성 추가, force/reset --hard/브랜치 삭제, 커밋·푸시·PR, 외부 게시.
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
 - 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REVIEW→REPORT를 남긴다. PLAN 첫머리 `- **track**: Quick|Full` 1줄로 트랙을 정한다 — **멈춤점은 Full 2곳(PLAN·DESIGN), Quick 1곳(PLAN만, DESIGN 생략)**. Quick도 behaviors.json·Gap·Review·REPORT는 전부 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
+- 📁 사이클 폴더엔 **`.md`/`.json`만** — 시안·목업 HTML·스크린샷·PNG·데이터는 `design/`·`public/`·코드 옆에 두고 문서에선 **경로로 참조**한다(`docs/`는 보통 gitignore + 아카이빙되면 묻힌다). 훅이 차단한다.
 - ✅ 검증 무결성: `behaviors.json`이 Gap의 분모. **`passes:true`는 evidence(실행 흔적)가 있어야 유효** — 없으면 자동 강등된다. 통과 기준은 `unproven==0`이지 Match Rate 숫자가 아니다. 상세는 RULES "PDCA 사이클".
-- Feature 구조: ui=.tsx(뷰만) / hooks·api·utils·types=.ts.
+- Feature 구조: `features/{f}/`에 components(.tsx) · hooks·api·data·types·utils(.ts). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만(page에 붙이면 metadata를 잃는다).
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
 - 네이밍(린터가 못 잡는 것만): 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 파일·폴더 kebab-case. 축약어/부정boolean 금지.
 - 라이브러리·프레임워크가 있다고 가정하지 말 것 — 쓰기 전 package.json으로 확인.
@@ -193,11 +194,16 @@ docs/
 
 ## 코드 철학
 
-- 파일 200줄 넘으면 분리 검토. 페이지/엔트리는 **조립 전용**, 로직은 훅/서비스로.
+- 파일 200줄 넘으면 분리 검토. 로직은 훅/서비스로 빼고 `.tsx`는 렌더만.
+- **Next.js App Router: `page.tsx`를 껍데기로 두지 마라. `views/` 층은 두지 않는다.** 레이아웃 마크업·조립·`metadata`·서버 fetch·세션 체크·`redirect()`/`notFound()`를 page가 직접 한다. App Router에서 **화면 파일은 `page.tsx`가 이미 그 자리**다 — `views/`는 라우트가 마크업을 못 드는 환경(Vite·CRA·RN)에서 온 층이라 여기선 중복이고, 화면 전체를 `<XxxView />`로 위임하면 page가 metadata만 든 빈 파일이 된다.
+  - **`"use client"`는 상태가 실제로 필요한 조각(폼·토글 등)에만.** 화면 꼭대기에 붙이면 `metadata`(서버 전용 export)를 못 쓰고 서버 기능을 통째로 잃는다. `views/`를 두면 경계가 꼭대기로 올라가는 압력이 생기는데, 그게 이 층을 없애는 더 큰 이유다.
+  - 폼처럼 화면 하나가 통째로 한 덩어리 상태면 client 경계가 `<form>` 하나로 커진다 — 그래도 page는 `<main>`·컨테이너·헤딩·진행바 같은 **서버 마크업을 들고** client 컴포넌트 하나를 부른다. 그건 껍데기가 아니다.
+  - 여러 라우트가 같은 화면을 쓰거나 인터셉트 라우트로 재사용해도 **`components/`의 큰 조각 하나**면 된다. 층 이름을 따로 만들 이유가 아니다.
+  - 🔎 **"엔트리가 껍데기다"는 대개 위층이 아니라 아래층의 증상이다.** 화면 파일이 200줄을 넘겼으면 조립이 아니라 **구현**이라 위층에 남길 게 없어 보이는 것이다. 판단 순서: 위층이 비었나? → **먼저 아래층 줄 수를 봐라.** 폼은 섹션 단위로 쪼갠다(`signup-account-section.tsx` · `signup-profile-section.tsx`).
 - **Feature-based 구조** (엄격):
-  - `src/features/{feature}/` → `views/`(.tsx 화면 — 라우트/스텝에 1:1, 조립 전용) · `components/`(.tsx feature 전용 재사용 조각) · `hooks/`(.ts 상태·로직·핸들러) · `api/`(.ts 외부호출) · `data/`(.ts) · `types/`(.ts) · `utils/`(.ts 순수함수).
+  - `src/features/{feature}/` → `components/`(.tsx feature 전용 조각) · `hooks/`(.ts 상태·로직·핸들러) · `api/`(.ts 외부호출) · `data/`(.ts 정적 데이터·상수) · `types/`(.ts) · `utils/`(.ts 순수함수). **`views/`는 두지 않는다** — 화면 조립은 `app/**/page.tsx`가 한다(위 App Router 항목).
   - `src/shared/` → 여러 feature가 공유하거나 도메인 무관 범용: `ui/`(Button·Input 등) · `hooks/` · `utils/`.
-  - **views vs components**: 화면 전체는 `views/`(`*Screen`/`*View`), 재사용 조각은 `components/`. `pages/`(Next 예약어)·`screens/`(모바일) 대신 `views/`.
+  - **page vs components**: 화면 조립·레이아웃은 `app/**/page.tsx`, 분리한 조각은 `features/*/components/`. 화면 하나를 통째로 담는 `views/`·`screens/`·`containers/` 층은 만들지 않는다.
   - **shared vs feature**: 특정 feature 전용이면 `features/*/`, 공유·범용이면 `shared/`. 개발 중 공통이 되면 `features/*/` → `shared/`로 승격(두 번째 feature가 쓰는 순간이 신호), 반대면 강등. 애매하면 YAGNI로 feature에 두고 실제 재사용될 때 옮긴다.
 - 🔒 **`.tsx`에는 로직 금지.** `.tsx`는 JSX + 훅 호출/props 전달만. 계산·핸들러 구현·데이터 페칭·사이드이펙트는 `.ts`(커스텀 훅/유틸/api)로 분리. (`❌ const handleSave = async () => await fetch(...)` → `✅ const { onSave } = useUserCard(id)`)
 - 파일 확장자 규칙: **JSX 있으면 `.tsx`, 없으면 `.ts`.** 커스텀 훅은 JSX가 없으니 항상 `.ts`.

@@ -14,7 +14,8 @@ tools: Read, Grep, Glob
 ## 시작 전
 
 1. **프로젝트 `AGENTS.md`의 "## 공통 규칙" 절을 Read한다**(`/kit init`이 팀 규칙을 인라인해 둔 사본). 없으면 아래 요약으로 진행한다:
-   - 구조: `src/features/{feature}/` → `views/`(.tsx 화면) · `components/`(.tsx 조각) · `hooks/`·`api/`·`data/`·`types/`·`utils/`(.ts). 공유·범용은 `src/shared/`.
+   - 구조: `src/features/{feature}/` → `components/`(.tsx 조각) · `hooks/`·`api/`·`data/`·`types/`·`utils/`(.ts). 공유·범용은 `src/shared/`.
+   - Next App Router면 **화면 조립은 `app/**/page.tsx`가 직접** 한다 — `views/` 층을 설계에 넣지 마라. `metadata`·서버 fetch·`redirect()`도 page. `"use client"`는 폼·토글 같은 조각에만 붙인다(page에 붙으면 `metadata`를 잃는다).
    - 🔒 `.tsx`에는 로직 금지 — 상태·핸들러·계산·페칭은 `.ts`(커스텀 훅/유틸/api)로 분리.
    - 파일 200줄 넘으면 분리. 기존 프로젝트는 기존 구조 존중(억지 마이그레이션 금지).
    - TDD로 고정할 것: 순수함수·명확한 계약(멱등성·경계값·테넌트 격리·대소문자 우회·이중 처리·금액 계산). **UI·마크업은 TDD 대상이 아니다**(시각 검증).

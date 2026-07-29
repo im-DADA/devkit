@@ -290,3 +290,80 @@ test('B7: 실존하는 ref면 REPORT.md 통과 — 선행산출물 게이트 회
 
   assert.equal(writeArtifact(cycleDir, 'REPORT.md').code, 0);
 });
+
+// ── 사이클 폴더 파일 종류 게이트 ────────────────────────────
+// 시안·목업·스크린샷이 사이클 폴더에 계속 들어갔다. RULES 본문(세션에 주입되는 건 SUMMARY뿐)과
+// KICKOFF(시안 작업은 TRIVIAL_RE로 배제돼 애초에 안 뜬다) 둘 다 그 상황에 닿지 못했다 —
+// 실측으로 확인된 배타성이라 안내가 아니라 훅이 닫는다.
+
+/** 프로젝트 루트 기준 상대경로로 Write 시도 */
+function writeAt(root, rel) {
+  return run({
+    tool_name: 'Write',
+    cwd: root,
+    tool_input: { file_path: path.join(root, rel), content: 'x' },
+  });
+}
+
+test('B1: 사이클 폴더에 .md/.json이 아닌 파일을 쓰면 차단한다', () => {
+  const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
+  for (const name of ['login-mockup.html', 'screenshot.png', 'data.csv', 'Makefile', 'PLAN.md.bak']) {
+    const { code, stderr } = writeArtifact(cycleDir, name);
+    assert.equal(code, 2, `차단해야 함: ${name}\n${stderr}`);
+    assert.match(stderr, new RegExp(name.replace('.', '\\.')), '무엇이 막혔는지 지목해야 한다');
+  }
+});
+
+test('B2: 정상 산출물(.md/.json)은 막지 않는다 — 대소문자 무관', () => {
+  const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
+  for (const name of ['PLAN.md', 'DESIGN.md', 'behaviors.json', 'PROGRESS.md', 'REVIEW.md', 'notes.MD']) {
+    assert.equal(writeArtifact(cycleDir, name).code, 0, `통과해야 함: ${name}`);
+  }
+});
+
+test('B3: 차단 메시지는 "그럼 어디에 두라"를 준다 — 대안 없는 금지는 교착이다', () => {
+  const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
+  const { stderr } = writeArtifact(cycleDir, 'hero.png');
+  assert.match(stderr, /design\//, '시안·목업의 대안 위치를 제시해야 한다');
+  assert.match(stderr, /public\/|assets\//, '이미지의 대안 위치를 제시해야 한다');
+  assert.match(stderr, /경로로 참조|경로로 링크/, '문서에서 어떻게 잇는지까지 알려줘야 한다');
+});
+
+test('B4: 사이클 폴더의 하위 폴더도 차단한다 — mockups/ 를 파서 우회할 수 없다', () => {
+  const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
+  assert.equal(writeArtifact(cycleDir, 'mockups/login.html').code, 2);
+  assert.equal(writeArtifact(cycleDir, 'assets/img/hero.png').code, 2);
+  assert.equal(writeArtifact(cycleDir, 'sub/NOTES.md').code, 0, '하위 폴더의 .md는 통과');
+});
+
+test('B5: archive로 옮겨진 사이클 폴더도 동일하게 차단한다', () => {
+  const cycleDir = makeCycleDir([], 'archive/2026-07-29/cycle-folder-guard');
+  assert.equal(writeArtifact(cycleDir, 'shot.png').code, 2);
+  assert.equal(writeArtifact(cycleDir, 'REPORT.md').code, 0);
+});
+
+test('B6: 사이클 폴더 밖은 건드리지 않는다 — 과잉차단이 더 나쁘다', () => {
+  const root = makeRoot();
+  const outside = [
+    'docs/HANDOFF.md',
+    'docs/리서치-2026-07-24.md',
+    'docs/diagram.png',          // docs/ 최상위는 사이클 폴더가 아니다
+    'docs/archive/note.png',     // archive 최상위도 사이클 폴더가 아니다
+    'public/logo.png',
+    'src/components/login/login-form.tsx',
+    'design/2026-07-29-login/mockup.html', // docs/ 밖이면 날짜 폴더여도 무관
+  ];
+  for (const rel of outside) {
+    assert.equal(writeAt(root, rel).code, 0, `통과해야 함: ${rel}`);
+  }
+});
+
+test('B1: Edit로도 막힌다 — 도구를 바꿔 우회할 수 없다', () => {
+  const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
+  const r = run({
+    tool_name: 'Edit',
+    cwd: path.resolve(cycleDir, '..', '..'),
+    tool_input: { file_path: path.join(cycleDir, 'mockup.html'), old_string: 'a', new_string: 'b' },
+  });
+  assert.equal(r.code, 2);
+});

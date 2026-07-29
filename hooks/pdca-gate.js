@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { record } = require('./lib/audit');
 const {
-  matchCycleArtifact, isStateFile, gatePrerequisite, validateStateWrite,
+  matchCycleArtifact, isStateFile, gatePrerequisite, gateCycleFolderFile, validateStateWrite,
 } = require('./lib/pdca-state');
 const { readBehaviors } = require('./lib/behaviors');
 const { gateEvidence } = require('./lib/evidence');
@@ -25,6 +25,10 @@ function main() {
   if (!file || typeof file !== 'string') return; // ① fail-open
   const isAbs = path.isAbsolute(file);
   const abs = isAbs ? file : path.resolve(input.cwd || process.cwd(), file);
+
+  // 경로만 보는 판정이라 fs 접근이 없다 — 가장 싸고 넓으므로 먼저 본다.
+  const kind = gateCycleFolderFile(abs);
+  if (!kind.ok) deny(kind.reason, file, `kind:${path.extname(kind.name) || 'noext'}`);
 
   const hit = matchCycleArtifact(abs);
   if (hit) {

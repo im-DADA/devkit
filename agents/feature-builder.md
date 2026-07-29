@@ -14,7 +14,8 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 ## 시작 전 (필수)
 
 1. **프로젝트 `AGENTS.md`의 "## 공통 규칙" 절이 있으면 Read한다**(`/kit init` 산출물). 없으면 아래 요약으로 진행한다 — **이 요약이 1차 기준이고 항상 있다.**
-   - 구조: `src/features/{feature}/` → `views/`(.tsx 화면) · `components/`(.tsx 조각) · `hooks/`·`api/`·`data/`·`types/`·`utils/`(.ts). 공유·범용은 `src/shared/`.
+   - 구조: `src/features/{feature}/` → `components/`(.tsx 조각) · `hooks/`·`api/`·`data/`·`types/`·`utils/`(.ts). 공유·범용은 `src/shared/`.
+   - Next App Router면 **화면 조립은 `app/**/page.tsx`가 직접** 한다 — `views/` 층을 만들지 마라. `metadata`·서버 fetch·`redirect()`도 page. `"use client"`는 폼·토글 같은 조각에만 붙인다(page에 붙으면 `metadata`를 잃는다). 화면이 길면 섹션 컴포넌트로 쪼갠다.
    - 네이밍: 변수·함수 camelCase · 컴포넌트·타입 PascalCase · 커스텀 훅 `use` 접두(`useUserCard`) · 핸들러 `handle*`(prop은 `on*`) · boolean `is`/`has`/`can`/`should` 접두 · 모듈 상수 UPPER_SNAKE_CASE.
    - 파일·폴더는 **kebab-case**(`user-card.tsx` → `export function UserCard`, `use-user-card.ts`). 축약어(`btn`·`usr`) · 부정 boolean(`isNotReady`) · 타입 접두사 `I`/`T` 금지.
 2. 기존 구조 파악 — 이 프로젝트가 이미 어떤 패턴인지 Read/Glob으로 확인. **기존 패턴을 따른다** (억지로 feature 구조로 바꾸지 않음).

@@ -1,6 +1,6 @@
 ---
 name: convention-check
-description: 코드가 팀 컨벤션을 따르는지 점검한다 — feature 구조(views/components/hooks/api), .tsx 로직 분리, 바퀴 재발명, 훅·핸들러·boolean 네이밍처럼 **린터가 못 잡는 항목**이 중심이다. 커밋·PR 직전이나, 사용자가 "컨벤션 맞아?", "규칙대로 짰나?", "구조 이거 맞아?", "리뷰 전에 한번 봐줘"라고 할 때 사용.
+description: 코드가 팀 컨벤션을 따르는지 점검한다 — feature 구조(components/hooks/api), .tsx 로직 분리, 바퀴 재발명, 훅·핸들러·boolean 네이밍처럼 **린터가 못 잡는 항목**이 중심이다. 커밋·PR 직전이나, 사용자가 "컨벤션 맞아?", "규칙대로 짰나?", "구조 이거 맞아?", "리뷰 전에 한번 봐줘"라고 할 때 사용.
 argument-hint: "[파일 또는 디렉토리 경로]"
 user-invocable: true
 allowed-tools:
@@ -24,7 +24,8 @@ allowed-tools:
 2. **에러 swallow** — 빈 `catch {}` 또는 `catch (e) {}`에서 재throw/전파 없음 → 위반
 3. **console.log 잔존** — Grep `console.log` (테스트/의도적 로거 제외)
 4. **파일 200줄 초과** — `wc -l`로 확인 → 분리 검토 대상
-5. **feature 구조 이탈** — 신규 코드가 로직을 페이지/엔트리에 직접 넣었는지
+5. **feature 구조 이탈** — 신규 코드가 로직(상태·핸들러·페칭)을 `.tsx`에 직접 넣었는지. Next App Router면 **`views/`·`screens/`·`containers/` 층이 새로 생겼는지도 본다** — 화면 조립은 `app/**/page.tsx`가 직접 해야 하고, `page.tsx`가 `<XxxView />` 한 줄만 렌더하면 위반이다(기존 프로젝트가 이미 그 구조면 존중).
+   - 함께 볼 것: `"use client"`가 `page.tsx`에 붙었는지 → 붙으면 `metadata`(서버 전용 export)를 못 쓴다. 경계는 폼·토글 조각에 긋는다.
 6. **바퀴 재발명** — 새로 만든 유틸/훅과 유사한 기존 것이 있는지 Grep으로 대조
 7. **.tsx 로직 혼입** — `.tsx` 파일 Grep `useState(`·`useEffect(`·`useReducer(`·`useMemo(`·`useCallback(`·`fetch(`·`axios` + 멀티라인 이벤트 핸들러 → 발견 시 커스텀 훅(`.ts`)으로 분리 제안. `.tsx`는 JSX+훅 호출만 허용.
 8. **확장자** — 로직만 있고 JSX 없는 파일이 `.tsx`면 `.ts`로, JSX 있는데 `.ts`면 `.tsx`로
