@@ -6,8 +6,10 @@
 const QUESTION_RE =
   /뭐(야|지|니|하는)|어떻게\s*(해|하지|되|하나|만들)|왜\s|설명(해|좀)|알려줘|찾아줘|보여줘|확인해|\?\s*$|^(what|why|how|explain|show|find)\b/i;
 
+// 시안·목업은 "로그인 화면"처럼 SCOPE_NOUN을 품고 있어 점수가 오르지만, 산출물을 그리는
+// 작업이지 시스템을 짓는 작업이 아니다 — behaviors.json·gap·review를 걸 대상이 아니다.
 const TRIVIAL_RE =
-  /오타|한\s?줄|이름만|색(상)?만|여기만|방금|되돌려|롤백|지워|삭제해|주석|포맷|바꿔줘\s*$/;
+  /오타|한\s?줄|이름만|색(상)?만|여기만|방금|되돌려|롤백|지워|삭제해|주석|포맷|시안|목업|mockup|와이어프레임|바꿔줘\s*$/i;
 
 const META_RE = /devkit|훅|hook|RULES\.md|커맨드|에이전트|플러그인|사이클\s*(조회|목록)/i;
 
@@ -22,13 +24,10 @@ const MAX_LENGTH = 4000;
 const SCORE_THRESHOLD = 3;
 const LONG_PROMPT = 120;
 
-/** 요구 항목 수 — 줄바꿈·불릿·문장부호·접속사로 쪼갠 뒤 5자 이상인 조각 */
-function countClauses(prompt) {
-  return prompt
-    .split(/\n|^\s*[-*·]|그리고|[,.]/m)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 5).length;
-}
+// ⚠ `countClauses`(절 개수 가점)를 제거했다. "요구 항목 수"를 잰다고 했지만 실제로는
+// **구두점을 셌다** — `"README 만들어줘. 설치법이랑 사용법, 예제까지"`처럼 쉼표로 나열만 해도
+// 절이 늘어 파일 하나짜리 작업이 임계를 넘었다(실사용 오탐). 요구 항목 수는 **작업 규모가 아니다.**
+// 제거 후 실측: 기존 발동 케이스 4건은 전부 3점 유지, 문서·엑셀·유틸 생성 4건은 전부 2점으로 내려간다.
 
 /**
  * 이 프롬프트가 PDCA 사이클을 시작할 만한 기능 요청인가?
@@ -52,7 +51,6 @@ function shouldTriggerPdca(prompt) {
   // ── 포함 스코어 ──
   let score = 2; // 동사 매치는 여기 도달 시점에 확정
   if (SCOPE_NOUN_RE.test(trimmed)) score += 1;
-  if (countClauses(trimmed) >= 3) score += 1;
   if (trimmed.length >= LONG_PROMPT) score += 1;
 
   if (score < SCORE_THRESHOLD) return { trigger: false, reason: 'low-score', score };
@@ -61,7 +59,6 @@ function shouldTriggerPdca(prompt) {
 
 module.exports = {
   shouldTriggerPdca,
-  countClauses,
   QUESTION_RE,
   TRIVIAL_RE,
   META_RE,

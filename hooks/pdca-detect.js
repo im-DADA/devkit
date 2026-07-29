@@ -45,9 +45,14 @@ function resumeContext(state) {
 // 산출물 형식을 여기에 직접 박는다. "RULES.md 참조"로 넘기면 읽지 않고 창작한다
 // (실전 검증에서 behaviors.json 누락 + 상태 스키마 창작으로 확인됨).
 const KICKOFF = [
-  '[devkit PDCA] 이 요청은 여러 파일에 걸친 기능 작업으로 보인다. 바로 구현하지 말 것.',
+  '[devkit PDCA] 이 감지는 프롬프트의 표현만 보므로 자주 틀린다. 먼저 네가 판단하라 —',
+  '이 요청이 (a) 파일 3개 이상을 만지거나 (b) 되돌리기 어렵거나 (c) 구조 결정이 필요한가?',
+  '셋 다 아니면 이 안내를 무시하고 바로 진행하라. 그게 정상이고 흔한 경우다 —',
+  '문서 하나 만들기, 함수 하나 고치기, 스크립트 한 번 돌리기에 사이클을 열지 마라.',
+  '해당하면 아래를 따른다. 바로 구현하지 말 것:',
   '① docs/{YYYY-MM-DD}-{slug}/ 생성 (slug는 영문 kebab-case 2~4단어) 후 PLAN.md 작성 —',
-  '   목표 · 단계별 작업 · 건드릴 파일 · behavior 목록 · 리스크 · 검증 방법 · 범위 밖.',
+   '   목표 · 단계별 작업 · 건드릴 파일 · behavior 목록 · 리스크 · 검증 방법 · 범위 밖.',
+  '   ⚠ 사이클 폴더에는 PDCA 문서(.md/.json)만 둔다. 시안·목업 HTML·PNG·데이터 파일은 넣지 말고 프로젝트 실제 위치에 두고 경로로 참조하라.',
   '   PLAN 첫머리에 트랙 1줄: `- **track**: Quick`(답할 설계 질문이 없다 → DESIGN 생략, 멈춤점 1곳)',
   '   또는 `- **track**: Full`(기본). ⚠ Quick도 behaviors.json · /gap · /review · REPORT.md는 전부 필수다 — 빠지는 것은 DESIGN.md와 두 번째 승인뿐이다.',
   '② 같은 폴더에 behaviors.json 생성 (필수). PLAN의 behavior를 전부 passes:false로 넣어 Gap의 분모를 고정한다:',
@@ -61,7 +66,6 @@ const KICKOFF = [
   '⑥ Full이면 승인 후 architect로 DESIGN.md → 다시 승인 대기. Quick이면 이 단계를 건너뛴다 ⑦ 구현(behavior 통과 시마다 behaviors.json 갱신)',
   '⑧ 구현 후 /gap 필수 — 통과 기준은 unproven==0(증거 없는 통과 주장 0건)이지 Match Rate 숫자가 아니다. 미달이면 /iterate.',
   '⑨ Gap 통과 후 /review 필수 — 결과를 docs/{cycle}/REVIEW.md로 남긴다. 이게 없으면 ⑩ REPORT.md 쓰기가 훅에 차단된다.',
-  '사소한 작업이라 판단되면 이 안내를 무시하고 바로 진행해도 된다.',
 ].join('\n');
 
 function main() {

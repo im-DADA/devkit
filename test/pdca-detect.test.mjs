@@ -3,6 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,6 +11,9 @@ import path from 'node:path';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const hook = path.join(dir, '..', 'hooks', 'pdca-detect.js');
+const { shouldTriggerPdca } = createRequire(import.meta.url)(
+  path.join(dir, '..', 'hooks', 'lib', 'pdca-patterns.js'),
+);
 
 const tmpDirs = [];
 function makeRoot() {
@@ -98,6 +102,76 @@ test('KICKOFF는 트랙을 안내하고 Quick도 behaviors.json이 필수임을 
   for (const must of ['behaviors\\.json', '/gap', '/review', 'REPORT\\.md']) {
     assert.match(line, new RegExp(must), `Quick에서도 필수임을 같은 문장에서 밝혀야 함: ${must}`);
   }
+});
+
+// ── 탈출구 (실사용 결함: 사소한 작업에도 전체 사이클이 돌았다) ──────────
+// ⚠ 아래 ESCAPE-B1~B4는 **문서 문자열 존재 단언**이다. "이 문구가 AI 행동을 실제로 바꾼다"를
+// 주장하지 않는다 — 그건 테스트로 고정 불가능하고, 단언하려 들면 위조다. 실효는 실사용 관측 몫.
+
+/** 주입된 컨텍스트를 줄 배열로. 훅은 JSON 한 줄로 뱉으므로 개행이 리터럴 `\n`이다 */
+function kickoffLines(stdout) {
+  const lines = stdout.split('\\n');
+  assert.ok(lines.length > 5, '주입 컨텍스트가 줄 단위로 쪼개져야 함(헛돎 방지)');
+  return lines;
+}
+
+test('ESCAPE-B1: 머리말이 감지의 불확실성을 인정하고 판단을 넘긴다 (문구)', () => {
+  const cwd = makeRoot();
+  const lines = kickoffLines(run({ prompt: FEATURE_PROMPT, cwd }).stdout);
+  const head = lines.slice(0, 2).join(' ');
+
+  // ⚠ `/판단|판정/`만 보면 "판정 결과 이 요청은 대규모 작업이다"라는 **완전한 단정문**도
+  // 통과한다(GAP 뮤테이션으로 실증). 단정을 막는 것은 어휘가 아니라 **불확실성 인정**이다 —
+  // 감지가 틀릴 수 있음을 밝혀야 판정이 권위가 아니라 신호로 읽힌다.
+  assert.match(head, /틀린|틀릴/, `감지가 틀릴 수 있음을 밝혀야 함: ${head}`);
+  assert.match(head, /판단하라|판단할/, `판단을 읽는 쪽에 넘겨야 함: ${head}`);
+  assert.match(head, /\?/, `판단 기준이 질문 형태여야 함: ${head}`);
+  assert.doesNotMatch(
+    head, /여러 파일에 걸친 기능 작업으로 보인다/,
+    '옛 단정문 회귀 — 읽는 쪽은 판정이 이미 끝난 것으로 받아들인다',
+  );
+});
+
+test('ESCAPE-B2: 탈출 조건이 번호 지시보다 앞에 있다 (문구 순서)', () => {
+  const cwd = makeRoot();
+  const lines = kickoffLines(run({ prompt: FEATURE_PROMPT, cwd }).stdout);
+  const escapeAt = lines.findIndex((l) => /무시하고 바로 진행/.test(l));
+  const firstStepAt = lines.findIndex((l) => /^①/.test(l.trim()));
+  assert.ok(escapeAt >= 0, '탈출 안내를 찾지 못했다');
+  assert.ok(firstStepAt >= 0, '① 지시를 찾지 못했다');
+  // 구체적 지시 9개 뒤에 붙은 추상적 허가는 진다(RULES: 충돌하면 예시가 이긴다)
+  assert.ok(
+    escapeAt < firstStepAt,
+    `탈출 조건이 지시보다 뒤에 있다 (탈출 ${escapeAt}행, ① ${firstStepAt}행)`,
+  );
+});
+
+test('ESCAPE-B3: 탈출 기준이 RULES의 세 조건과 같은 말을 한다 (문구)', () => {
+  const cwd = makeRoot();
+  const text = kickoffLines(run({ prompt: FEATURE_PROMPT, cwd }).stdout).join(' ');
+  // 새 기준을 발명하면 RULES와 어긋난다(D23 재발) — 세 조건을 그대로 가져온다
+  assert.match(text, /파일\s*3개/, '파일 3개 기준이 있어야 함');
+  assert.match(text, /되돌리기/, '되돌리기 어려움 기준이 있어야 함');
+  assert.match(text, /구조\s*결정/, '구조 결정 기준이 있어야 함');
+});
+
+test('ESCAPE-B4: 탈출이 정상 경로로 읽히는 표현을 포함한다 (문구)', () => {
+  const cwd = makeRoot();
+  const text = kickoffLines(run({ prompt: FEATURE_PROMPT, cwd }).stdout).join(' ');
+  // 탈출이 위반·예외처럼 읽히면 아무도 안 쓴다
+  assert.match(text, /정상|흔한/, '탈출이 정상 경로임을 밝혀야 함');
+});
+
+test('ESCAPE-B6: 탈출구 변경이 발동 판정을 건드리지 않는다', () => {
+  // 이 사이클은 "발동 후 행동"만 바꾼다. 발동 빈도(오탐·미탐)는 다음 사이클 몫이라,
+  // 여기서 판정까지 손대면 두 변경의 효과가 섞여 실사용 관측이 무의미해진다.
+  const cwd = makeRoot();
+  assert.equal(shouldTriggerPdca(FEATURE_PROMPT).trigger, true, '기능 요청은 여전히 발동');
+  assert.equal(shouldTriggerPdca('결제 기능은 어떻게 만들어?').trigger, false, '질문은 여전히 미발동');
+  assert.equal(shouldTriggerPdca('오타 하나 고쳐줘').trigger, false, '사소한 요청은 여전히 미발동');
+  // 훅 경로로도 같은 결론이 나오는지(주입 유무)
+  assert.equal(run({ prompt: '결제 기능은 어떻게 만들어?', cwd }).stdout.trim(), '');
+  assert.notEqual(run({ prompt: FEATURE_PROMPT, cwd }).stdout.trim(), '');
 });
 
 test('질문 프롬프트 → 주입 없음(빈 stdout)', () => {
