@@ -10,6 +10,7 @@ const { findProjectRoot } = require('./lib/project-root');
 const { readState, isActive } = require('./lib/pdca-state');
 const { tail } = require('./lib/progress');
 const { readBehaviors, summarize } = require('./lib/behaviors');
+const { compareRules } = require('./lib/rules-sync');
 
 const FALLBACK = `## devkit 팀 규칙 리마인드
 상세 규칙은 플러그인 RULES.md 참조 (/kit).`;
@@ -87,6 +88,42 @@ function resumeBlock() {
   return lines.join('\n');
 }
 
+/**
+ * 소비자 프로젝트의 AGENTS.md 사본이 정본과 다른지 알린다.
+ *
+ * `/kit init`이 SUMMARY 블록을 AGENTS.md에 인라인 복사하는데 재동기화 경로가 없어서,
+ * devkit이 규칙을 바꿔도 이미 init한 프로젝트엔 도달하지 않는다. 에이전트는 AGENTS.md를
+ * **우선** 읽으므로 낡은 사본이 정본을 이긴다(결함로그 D26 세 번째 갈래).
+ *
+ * ⚠ 설계 기준은 탐지 횟수가 아니라 **탐지가 행동으로 이어지는 비율**이다. 그래서
+ * 정확히 2줄이고, stale이 아니면 완전히 침묵한다. 배너·이모지 나열은 무시 학습을 만든다.
+ * 억제 타이머는 두지 않는다 — 타이머는 상태 파일이 필요하고 그 상태 파일이 또 낡는다.
+ */
+function driftBlock(summary) {
+  let agentsMd;
+  try {
+    agentsMd = fs.readFileSync(path.join(findProjectRoot(process.cwd()), 'AGENTS.md'), 'utf8');
+  } catch {
+    return ''; // AGENTS.md 없음 = 정상. 세션 시작을 막는 이유가 될 수 없다
+  }
+  const r = compareRules(summary, agentsMd);
+  // 마커 도입 이전에 만들어진 사본. 내용은 비교하지 않는다(어디까지가 사본인지 모른다) —
+  // 대신 탐지를 켜는 방법을 알린다. 이 분기가 없으면 기존 사용자 전원이 탐지 밖에 남는다.
+  if (r.state === 'unmarked') {
+    return [
+      '',
+      '⚠ AGENTS.md의 공통 규칙에 devkit 마커가 없다 — 규칙이 낡아도 탐지되지 않는다.',
+      '  탐지 켜기: `/kit sync` (마커 위치를 제안하고 승인을 받는다)  ·  관리 대상이 아니면 무시해도 된다.',
+    ].join('\n');
+  }
+  if (r.state !== 'stale') return ''; // current·custom·unknown은 침묵
+  return [
+    '',
+    `⚠ AGENTS.md의 공통 규칙이 플러그인 RULES와 ${r.diffLines}줄 다르다 (이 프로젝트 사본이 낡았을 수 있다).`,
+    '  최신으로 맞추기: `/kit sync`  ·  의도한 커스터마이즈면 마커를 `mode=custom` 으로 바꾼다.',
+  ].join('\n');
+}
+
 function extractSummary() {
   const rulesPath = path.join(__dirname, '..', 'RULES.md');
   const md = fs.readFileSync(rulesPath, 'utf8');
@@ -96,11 +133,25 @@ function extractSummary() {
 }
 
 let summary;
+let summaryIsCanonical = true;
 try {
   summary = extractSummary();
 } catch (e) {
   process.stderr.write(`[devkit] session-start: RULES.md 요약 로드 실패 — ${e.message}\n`);
   summary = FALLBACK;
+  // ⚠ FALLBACK은 정본이 아니다. 이걸로 사본을 비교하면 멀쩡한 AGENTS.md가 전부 stale로
+  // 뜬다 — 정본을 못 읽은 우리 잘못을 사용자 파일 탓으로 보고하는 꼴이다.
+  summaryIsCanonical = false;
 }
 
-process.stdout.write(summary + resumeBlock() + '\n');
+// 훅이 세션 시작을 막으면 안 된다 — 드리프트 판정이 터져도 리마인드는 나가야 한다.
+let drift = '';
+if (summaryIsCanonical) {
+  try {
+    drift = driftBlock(summary);
+  } catch (e) {
+    process.stderr.write(`[devkit] session-start: 규칙 동기화 검사 실패 — ${e.message}\n`);
+  }
+}
+
+process.stdout.write(summary + drift + resumeBlock() + '\n');

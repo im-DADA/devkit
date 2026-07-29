@@ -1,7 +1,7 @@
 ---
 name: kit
-description: devkit 도움말·초기화. 인자 없으면 도움말, `init`이면 현재 프로젝트에 AGENTS.md + .claude/settings.json 생성.
-argument-hint: "[init]"
+description: devkit 도움말·초기화·규칙 동기화. 인자 없으면 도움말, `init`이면 AGENTS.md + settings.json 생성, `sync`면 AGENTS.md의 공통 규칙 사본을 정본으로 갱신, `audit`이면 차단 이벤트 집계.
+argument-hint: "[init|sync|audit]"
 user-invocable: true
 allowed-tools:
   - Read
@@ -18,7 +18,8 @@ allowed-tools:
 `$ARGUMENTS`가 `init`이면 아래를 수행한다:
 
 1. **프로젝트 감지**: `package.json`을 Read. `scripts`(dev/build/test/lint/typecheck)와 `packageManager`, 주요 의존성(next/react/vite 등)을 파악. 없으면 사용자에게 스택을 한 번 물어본다.
-2. **`AGENTS.md` 생성** (이미 있으면 덮어쓰지 말고 diff만 제안). 명령어는 실제 `scripts`에서 가져온 것만, 추측 금지. 비어있으면 그 줄 생략. **팀 공통 규칙은 링크가 아니라 `AGENTS.md`에 인라인**한다 — 그래야 Claude Code뿐 아니라 Cursor·Codex·Copilot도 읽는다. 플러그인 `RULES.md`의 `SUMMARY:START~END` 블록을 Read해서 "## 공통 규칙"으로 그대로 붙여넣는다:
+2. **`AGENTS.md` 생성** (이미 있으면 덮어쓰지 말고 diff만 제안). 명령어는 실제 `scripts`에서 가져온 것만, 추측 금지. 비어있으면 그 줄 생략. **팀 공통 규칙은 링크가 아니라 `AGENTS.md`에 인라인**한다 — 그래야 Claude Code뿐 아니라 Cursor·Codex·Copilot도 읽는다. 플러그인 `RULES.md`의 `SUMMARY:START~END` 블록을 Read해서 "## 공통 규칙"으로 그대로 붙여넣는다.
+   ⚠ **인라인 구간을 `devkit:rules` 마커로 감싼다 (필수).** 이 사본은 devkit이 규칙을 바꿔도 자동으로 갱신되지 않는다 — 마커가 있어야 `session-start` 훅이 낡음을 탐지하고 `/kit sync`가 그 구간만 안전하게 교체할 수 있다. 마커가 없으면 사본은 조용히 낡고, 에이전트는 낡은 사본을 정본보다 **우선** 읽는다(결함로그 D26).
    ```markdown
    # AGENTS.md
 
@@ -34,7 +35,10 @@ allowed-tools:
    - 패키지 매니저: <pm> — DO NOT use 다른 매니저
 
    ## 공통 규칙
+
+   <!-- devkit:rules:start mode=managed -->
    <devkit RULES.md의 SUMMARY 블록 내용을 그대로 인라인>
+   <!-- devkit:rules:end -->
 
    ## This repo only
    - <devkit 기본과 다른 것만. 예: I 접두 사용, 특수 폴더 구조>
@@ -57,6 +61,22 @@ allowed-tools:
    마켓플레이스가 조직 git이면 `extraKnownMarketplaces`도 함께 안내(README 참조).
 8. **`.gitignore`에 `.devkit/` 추가** 제안(감사 로그는 로컬 산출물).
 9. 생성/변경한 파일 목록을 보고한다. 커밋은 하지 않는다(사용자 요청 시에만).
+
+## `sync` — 공통 규칙 사본을 정본에 맞춘다
+
+`$ARGUMENTS`가 `sync`면 프로젝트 `AGENTS.md`의 공통 규칙 구간을 플러그인 정본으로 갱신한다.
+
+**왜 필요한가**: `init`이 심은 사본은 devkit이 규칙을 바꿔도 자동 갱신되지 않는데, 에이전트는 그 사본을 정본보다 **우선** 읽는다. `session-start` 훅이 낡음을 탐지하면 이 명령을 안내한다.
+
+1. `AGENTS.md`를 Read. **없으면** `/kit init`을 안내하고 끝낸다.
+2. `<!-- devkit:rules:start ... -->` / `<!-- devkit:rules:end -->` 마커를 찾는다.
+   - **마커 없음** = `init` 이전 버전으로 만든 파일이다. 공통 규칙 절을 **자동으로 찾아 감싸지 마라** — 어디까지가 devkit 사본인지 추측하는 순간 사용자가 쓴 줄을 삼킨다. 대신 마커를 넣을 위치를 **제안**하고 승인을 받는다.
+   - **`mode=custom`** = 사용자 소유다. **아무것도 하지 않고** 그대로 보고한다.
+3. 플러그인 `RULES.md`의 `SUMMARY:START~END` 블록을 Read.
+4. **마커 사이만** 교체한다. 마커 밖은 한 글자도 건드리지 않는다 — `## This repo only`·`## Do NOT`은 사용자가 쓴 것이다.
+5. 교체 전 **diff를 보여주고 승인**을 받는다. `AGENTS.md`는 사용자 소유 파일이라 무단 덮어쓰기 금지.
+
+> 규칙을 devkit과 다르게 유지하고 싶으면 마커를 `mode=custom`으로 바꾼다 → 이후 탐지·동기화 대상에서 완전히 빠진다.
 
 ## `audit` — 관측성 조회
 
@@ -99,6 +119,7 @@ allowed-tools:
   /improve  세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장)
   /kit      이 도움말
   /kit init 현재 프로젝트에 AGENTS.md + eslint + CI + settings.json 생성
+  /kit sync  AGENTS.md의 공통 규칙 사본을 플러그인 정본으로 갱신 (마커 구간만)
   /kit audit 차단 이벤트(.devkit/audit.jsonl) 집계 조회
 
 에이전트 (자동 위임 또는 요청 시)
