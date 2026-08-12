@@ -87,7 +87,7 @@ function exec(cmd, args, { root, timeoutMs, env }) {
 /** status별로 무엇을 본문에 실을지. found는 진단만, failed는 원인 원문 그대로 */
 function bodyFor(kind, status, res) {
   if (status === 'ok' || status === 'skipped' || status === 'unavailable') {
-    return { text: '', total: 0, truncated: false };
+    return { text: '', total: 0, truncated: false, items: [] };
   }
   const out = `${stripAnsi(res.stdout)}\n${stripAnsi(res.stderr)}`;
   if (kind === 'typecheck') {
@@ -95,12 +95,15 @@ function bodyFor(kind, status, res) {
     const picked = status === 'found' ? source : compiler;
     if (picked.length) {
       const c = clipDiagnostics(picked.map((d) => d.raw));
-      return { text: c.text, total: c.total, truncated: c.truncated };
+      return { text: c.text, total: c.total, truncated: c.truncated, items: picked };
     }
   }
   const c = clipDiagnostics(out.split('\n').filter((l) => l.trim()));
-  return { text: c.text, total: c.total, truncated: c.truncated };
+  return { text: c.text, total: c.total, truncated: c.truncated, items: lines(out) };
 }
+
+/** lint는 형식 파서가 없다 — 줄 자체가 진단 단위다(사이클 B 결정 5) */
+const lines = (out) => out.split('\n').filter((l) => l.trim()).map((raw) => ({ raw }));
 
 /**
  * @param {string} root 검증 대상 패키지 루트
@@ -120,7 +123,7 @@ function runVerification(root, opts = {}) {
 
   if (!ctx.script) {
     meta.reason = 'no-script';
-    return { status: 'unavailable', diagnostics: '', meta };
+    return { status: 'unavailable', diagnostics: '', items: [], meta };
   }
 
   // 결정 3: 우회는 "스크립트가 하는 일 == 우리가 할 일"이 정적으로 증명될 때만.
@@ -160,12 +163,12 @@ function runVerification(root, opts = {}) {
   meta.mode = bypass.ok ? 'direct-tsc' : 'script';
   meta.argv = [cmd, ...args];
 
-  if (opts.dryRun) return { status: 'skipped', diagnostics: '', meta };
+  if (opts.dryRun) return { status: 'skipped', diagnostics: '', items: [], meta };
 
   const lock = acquire(root, kind, { ttlMs: timeoutMs, isAlive: opts.isAlive });
   if (!lock.ok) {
     meta.reason = 'lock-held';
-    return { status: 'skipped', diagnostics: '', meta };
+    return { status: 'skipped', diagnostics: '', items: [], meta };
   }
 
   try {
@@ -195,7 +198,7 @@ function runVerification(root, opts = {}) {
     meta.timedOut = res.timedOut;
     meta.totalDiagnostics = body.total;
     meta.truncated = body.truncated;
-    return { status: verdict.status, diagnostics: body.text, meta };
+    return { status: verdict.status, diagnostics: body.text, items: body.items || [], meta };
   } finally {
     release(lock);
   }

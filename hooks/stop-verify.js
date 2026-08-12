@@ -15,7 +15,11 @@ const path = require('node:path');
 const { record } = require('./lib/audit');
 const { warn } = require('./lib/diag');
 const { runVerification } = require('./lib/verify-runner');
-const { TIMEOUTS, SCRIPT_CANDIDATES, shouldNotify } = require('./lib/verify-classify');
+const { TIMEOUTS, SCRIPT_CANDIDATES, shouldNotify, clipDiagnostics } = require('./lib/verify-classify');
+const { backstopMessage } = require('./lib/behaviors');
+const { scopeFor } = require('./lib/verify-scope');
+const { fingerprintOf, readBaseline, writeBaseline } = require('./lib/verify-baseline');
+const { diffDiagnostics, formatDelta, attachHeaders } = require('./lib/verify-delta');
 
 const KINDS = ['typecheck', 'lint'];
 const ON = ['', 'on', '1', 'true', 'yes'];
@@ -68,33 +72,8 @@ const root = pkgRoot || process.cwd();
 const isNodeProject = pkgRoot !== null;
 const problems = [];
 
-// ── B9 백스톱: 구현 단계인데 behaviors.json이 없으면 경고 ──────────────
-// D5 대응. behaviors.json은 /gap의 소비 입력이라 /gap·/report가 하드 게이트로 막지만,
-// 그보다 이른 시점에 놓쳤음을 알려 되돌릴 여지를 준다. (강제 생성이 아니라 결핍 경고)
-//
-// ⚠ 백스톱은 침묵할 줄 알아야 산다. 실사용에서 두 번 헛짖었다 —
-//   (1) status:done인 완료 사이클, (2) docs/archive/로 옮겨진 사이클.
-// 완료한 작업에 "미완이다"를 띄우면 다음부터 이 경고 전체가 무시된다(무시 학습).
-try {
-  const { readState } = require('./lib/pdca-state');
-  const { archiveAlt } = require('./lib/evidence');
-  const state = readState(root);
-  const pending = state && state.status !== 'done';
-  if (pending && !state.foreign && ['do', 'gap', 'report'].includes(state.stage)) {
-    const rel = `docs/${state.cycleId}/behaviors.json`;
-    const alt = archiveAlt(rel); // /report가 옮긴 자리도 본다
-    const found = [rel, alt].some((p) => p && fs.existsSync(path.join(root, p)));
-    if (!found) {
-      problems.push(
-        `### behaviors.json 누락 (stage: ${state.stage})\n` +
-          `구현 단계인데 \`docs/${state.cycleId}/behaviors.json\`이 없다. ` +
-          `/plan의 behavior 목록 단계를 완료해 분모를 고정하라 — 없으면 /gap이 진행되지 않는다.`,
-      );
-    }
-  }
-} catch {
-  // 상태 로드 실패는 무시(백스톱이 대화를 막지 않는다)
-}
+const backstop = backstopMessage(root);
+if (backstop) problems.push(backstop);
 
 // ── 검증 ──────────────────────────────────────────────────────────
 const NOTICE = path.join(root, '.devkit', 'verify-notice.json');
@@ -102,42 +81,76 @@ const noticeKey = (input && input.session_id) || `day:${new Date().toISOString()
 let notice = null;
 try { notice = JSON.parse(fs.readFileSync(NOTICE, 'utf8')); } catch { notice = null; }
 
+const pending = [];
+
 for (const kind of (isNodeProject ? kinds : [])) {
+  // 층 3·2 — 볼 게 없으면 실행하지 않고, 볼 게 있으면 관심 집합을 받아둔다.
+  // ⚠ 변경 목록이 비어도 run:true다(결정 12) — 깨진 커밋이 무검증으로 통과하면 안 된다.
+  let scope;
   let r;
   try {
+    scope = scopeFor(root, kind);
+    if (!scope.run) continue; // 완전 침묵
     r = runVerification(root, { kind, timeoutMs: TIMEOUTS[kind] });
   } catch (e) {
     warn(`verify(${kind}) failed to run: ${e.message}`);
     continue;
   }
-  const { status, diagnostics, meta } = r;
-  if (status === 'ok' || status === 'skipped') continue; // 완전 침묵
+  const { status, diagnostics, items, meta } = r;
+  if (status === 'skipped') continue;
 
-  if (status === 'found') {
-    problems.push(`### ${kind} 진단 ${meta.totalDiagnostics}건\n${diagnostics}`);
-  } else if (status === 'failed') {
-    // 문구가 계약의 일부다 — 실행 실패를 "타입 에러"라고 절대 말하지 않는다.
-    problems.push(
-      `### 검증이 실행되지 못했다 — ${kind} (${meta.argv.join(' ')}, ${meta.reason})\n` +
-        `${diagnostics}\n` +
-        '※ 이건 코드의 결함이 아니다. 검증 환경/설정 문제이므로 에러 개수에 세지 마라.',
-    );
-  } else if (status === 'unavailable') {
-    // 침묵 no-op을 없애되 매 턴 반복하지 않는다 — 반복은 그 자체로 무시 학습이다.
+  if (status === 'unavailable') {
     const decided = shouldNotify(notice, noticeKey, kind);
     notice = decided.nextState;
     if (decided.notify) {
       problems.push(
         meta.reason === 'runner-missing' || meta.reason === 'tool-missing'
-          ? `### ${kind} 검증기를 실행할 수 없다 — 이 검증은 돌지 않는다\n` +
-            `스크립트 \`${meta.script}\`는 있는데 실행에 실패했다(${meta.reason}). ` +
-            '의존성 설치(node_modules)나 PATH를 확인하라.\n' +
-            '고칠 수 없으면 DEVKIT_VERIFY=off 로 끈다.'
-          : `### ${kind} 스크립트를 찾지 못했다 — 이 검증은 돌지 않는다\n` +
-            `package.json에서 찾는 이름: ${SCRIPT_CANDIDATES[kind].join(' · ')}\n` +
-            '하나를 추가하거나, 이 검증이 필요 없으면 DEVKIT_VERIFY=off 로 끈다.',
+          ? `### ${kind} 검증기를 실행할 수 없다 — 이 검증은 돌지 않는다\n`
+            + `스크립트 \`${meta.script}\`는 있는데 실행에 실패했다(${meta.reason}). `
+            + '의존성 설치(node_modules)나 PATH를 확인하라.\n'
+            + '고칠 수 없으면 DEVKIT_VERIFY=off 로 끈다.'
+          : `### ${kind} 스크립트를 찾지 못했다 — 이 검증은 돌지 않는다\n`
+            + `package.json에서 찾는 이름: ${SCRIPT_CANDIDATES[kind].join(' · ')}\n`
+            + '하나를 추가하거나, 이 검증이 필요 없으면 DEVKIT_VERIFY=off 로 끈다.',
       );
     }
+  } else if (status === 'failed') {
+    // 문구가 계약의 일부다 — 실행 실패를 "타입 에러"라고 절대 말하지 않는다.
+    problems.push(
+      `### 검증이 실행되지 못했다 — ${kind} (${meta.argv.join(' ')}, ${meta.reason})\n`
+        + `${diagnostics}\n`
+        + '※ 이건 코드의 결함이 아니다. 검증 환경/설정 문제이므로 에러 개수에 세지 마라.',
+    );
+  } else {
+    // ok · found → delta. 기준선이 있으면 "새로 생긴 것"만, 없으면 blast radius로 좁힌다.
+    const fp = fingerprintOf(root, meta, scope.branch);
+    const prev = readBaseline(root, kind, fp);
+    const decided = shouldNotify(prev && prev.notice, noticeKey, kind);
+    const delta = diffDiagnostics(prev ? prev.keys : [], items, root, kind);
+
+    let text = null;
+    if (prev) {
+      const raws = delta.newItems.map((i) => i.raw);
+      const body = clipDiagnostics(
+        kind === 'lint' ? attachHeaders(raws, items.map((i) => i.raw)) : raws,
+      ).text;
+      text = formatDelta(kind, delta, { firstTurn: decided.notify, body });
+    } else if (items.length) {
+      // 기준선 없음(세션 첫 턴·지형 변화 직후) → 그래프로 좁혀 보여준다.
+      const inScope = scope.mode === 'all'
+        ? items
+        : items.filter((i) => !i.file || scope.files.has(String(i.file).replace(/\\/g, '/')));
+      const shown = inScope.length ? inScope : items;
+      text = `### ${kind} 진단 ${items.length}건\n${clipDiagnostics(shown.map((i) => i.raw)).text}`;
+    }
+    if (text) problems.push(text);
+
+    // ⚠ ok·found에서만 기준선을 갱신한다(B21). failed 한 번에 기준선이 비워지면
+    // 다음 턴에 전문이 쏟아진다. 쓰기는 stdout 뒤로 미룬다 — 훅이 죽으면 다시 말해야 한다.
+    // ⚠ 공유 notice를 덮지 않는다. delta의 "세션 첫 턴" 판정은 **kind별로 baseline 안에**
+    // 따로 산다 — 여기서 공유 상태에 쓰면 typecheck가 lint의 알림 이력을 지워
+    // lint 알림이 매 턴 반복된다(실측으로 발견).
+    pending.push({ kind, entry: { fp, at: new Date().toISOString(), notice: decided.nextState, keys: delta.curKeys, total: items.length } });
   }
   record({ hook: 'stop-verify', action: `verify-${status}`, kind, reason: meta.reason });
 }
@@ -159,4 +172,6 @@ if (problems.length) {
     }),
   );
 }
+// 보고가 나간 **뒤에** 기준선을 갱신한다 — 순서가 뒤집히면 훅이 죽었을 때 그 진단이 영원히 침묵한다.
+for (const p of pending) writeBaseline(root, p.kind, p.entry);
 process.exit(0);
