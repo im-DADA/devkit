@@ -127,10 +127,14 @@ function classify(kind, r) {
  * (lib/receipt.js의 `clip`은 바이트 기준 head+tail이고 목적이 "인용 대조용 원문 보존"이라
  *  정책이 정면 반대다. 같은 이름으로 섞으면 receipt의 tail 보존이 조용히 깨진다.)
  */
+// 상한을 상수로 노출한다 — verify-delta의 지형 변화 임계가 이 값을 그대로 쓴다.
+// 새 임계 숫자를 발명하지 않기 위한 장치다(중복 상수 금지).
+const CLIP_DEFAULTS = { maxItems: 40, maxBytes: 8192 };
+
 function clipDiagnostics(items, opts = {}) {
   const list = (Array.isArray(items) ? items : []).filter((l) => typeof l === 'string');
-  const maxItems = opts.maxItems || 40;
-  const maxBytes = opts.maxBytes || 8192;
+  const maxItems = opts.maxItems || CLIP_DEFAULTS.maxItems;
+  const maxBytes = opts.maxBytes || CLIP_DEFAULTS.maxBytes;
   const kept = [];
   let bytes = 0;
   for (const line of list) {
@@ -163,7 +167,7 @@ function shouldNotify(state, key, kind) {
 }
 
 module.exports = {
-  SCRIPT_CANDIDATES, LOCKFILES, TIMEOUTS,
+  SCRIPT_CANDIDATES, LOCKFILES, TIMEOUTS, CLIP_DEFAULTS,
   stripAnsi, detectRunner, pickScript, parseTscDiagnostics,
   classify, clipDiagnostics, shouldNotify,
   ...bypass,
