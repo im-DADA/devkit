@@ -31,7 +31,11 @@ const TS_PRETTY = /^(.*?):(\d+):(\d+)\s+-\s+(?:error|warning)\s+(TS\d+):\s*(.*)$
 const TS_BARE = /^\s*(?:error|warning)\s+(TS\d+):\s*(.*)$/;
 const CONFIG_FILE = /(?:^|[/\\])[jt]sconfig(?:\.[^/\\]+)?\.json$/i;
 
-const NO_SCRIPT_SIG = /Missing script|ERR_PNPM_NO_SCRIPT|command not found|Command ".*" not found/i;
+// ⚠ 두 가지를 갈라야 한다. 합치면 `lint: "eslint"`가 있는데 eslint가 안 깔린 프로젝트에서
+// "스크립트를 찾지 못했다"고 말한다 — 있는 걸 없다고 하는 거짓 원인이고, 세션당 1회 규칙
+// 때문에 그 뒤로는 조용해진다(실사용에서 발견).
+const NO_SCRIPT_SIG = /Missing script|ERR_PNPM_NO_SCRIPT|Command ".*" not found/i;
+const TOOL_MISSING_SIG = /command not found|: not found$|Cannot find module/im;
 const CRASH_SIG = /JavaScript heap out of memory|FATAL ERROR:|Segmentation fault|Maximum call stack size exceeded/i;
 
 function stripAnsi(s) {
@@ -97,6 +101,7 @@ function classify(kind, r) {
 
   const err = stripAnsi(r.stderr);
   if (NO_SCRIPT_SIG.test(err)) return { status: 'unavailable', reason: 'no-script' };
+  if (TOOL_MISSING_SIG.test(err)) return { status: 'unavailable', reason: 'tool-missing' };
   if (CRASH_SIG.test(err)) return { status: 'failed', reason: 'crash' };
 
   const out = stripAnsi(r.stdout);

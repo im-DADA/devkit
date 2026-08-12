@@ -128,9 +128,10 @@ for (const kind of (isNodeProject ? kinds : [])) {
     notice = decided.nextState;
     if (decided.notify) {
       problems.push(
-        meta.reason === 'runner-missing'
+        meta.reason === 'runner-missing' || meta.reason === 'tool-missing'
           ? `### ${kind} 검증기를 실행할 수 없다 — 이 검증은 돌지 않는다\n` +
-            `${meta.runner}를 찾지 못했다(PATH 또는 설치 확인). 스크립트 \`${meta.script}\`는 있다.\n` +
+            `스크립트 \`${meta.script}\`는 있는데 실행에 실패했다(${meta.reason}). ` +
+            '의존성 설치(node_modules)나 PATH를 확인하라.\n' +
             '고칠 수 없으면 DEVKIT_VERIFY=off 로 끈다.'
           : `### ${kind} 스크립트를 찾지 못했다 — 이 검증은 돌지 않는다\n` +
             `package.json에서 찾는 이름: ${SCRIPT_CANDIDATES[kind].join(' · ')}\n` +

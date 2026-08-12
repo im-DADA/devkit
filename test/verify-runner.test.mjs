@@ -362,3 +362,14 @@ test('R12: lockfile은 가까운 디렉터리가 이긴다', () => {
   fs.writeFileSync(path.join(child, 'package-lock.json'), '{}');
   assert.equal(runVerification(child, { kind: 'typecheck', dryRun: true }).meta.runner, 'npm');
 });
+
+test('R13: 스크립트는 있는데 도구가 없으면 no-script가 아니라 tool-missing이다', () => {
+  // 실사용에서 발견: lint: "eslint"가 있는데 eslint가 안 깔린 프로젝트에서
+  // "lint 스크립트를 찾지 못했다"가 떴다. 있는 걸 없다고 말하는 거짓 원인이고,
+  // 세션당 1회 알림 규칙 때문에 그 뒤로는 조용해진다 — 최악의 조합이다.
+  const root = makeProject({ lint: 'definitely-not-installed-linter-xyz' });
+  const r = runVerification(root, { kind: 'lint' });
+  assert.equal(r.status, 'unavailable');
+  assert.equal(r.meta.reason, 'tool-missing');
+  assert.equal(r.meta.script, 'lint', '스크립트는 찾았다는 사실이 남아야 한다');
+});
