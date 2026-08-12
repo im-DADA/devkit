@@ -106,7 +106,7 @@ test('D6: baseline이 비어 있으면 전부 new', () => {
 test('D7: 완전 동일하면 new 0 · resolved 0 · unchanged N', () => {
   const cur = [item(), item({ file: 'src/b.ts' })];
   const d = diffDiagnostics(keysOf(cur), cur, ROOT, 'typecheck');
-  assert.deepEqual(d.counts, { new: 0, resolved: 0, unchanged: 2 });
+  assert.deepEqual(d.counts, { new: 0, resolved: 0, unchanged: 2, moved: 0 });
 });
 
 test('toKeyCounts: 중복을 센다', () => {
@@ -221,4 +221,37 @@ test('어떤 입력에도 throw하지 않는다', () => {
   assert.doesNotThrow(() => formatDelta('typecheck', null, {}));
   assert.doesNotThrow(() => lintLineKey(null, ROOT));
   assert.doesNotThrow(() => attachHeaders(null, null));
+});
+
+// ── REVIEW 대응: 실측으로 재현된 침묵 경로 ─────────────────────────
+test('D17: 같은 키가 자리만 옮기면 침묵하지 않고 건수로 알린다', () => {
+  // 🔴 리뷰가 실측 재현한 유일한 치명 경로. TS2532 "Object is possibly 'undefined.'"는
+  // 식별자를 안 담아 같은 파일의 두 줄이 바이트 단위로 동일하다. line12가 해결되고
+  // line80에 새로 생기면 개수가 같아 unchanged로 접히고 **완전히 침묵**했다.
+  // 키에 줄번호를 넣으면 막히지만 D1(줄 밀림 = 소음)이 깨진다 — 그래서 키는 두고
+  // 위치 집합이 바뀐 것만 건수로 알린다. 전문을 다시 뿌리지 않으니 반복 주입도 아니다.
+  const undef = (line) => ({
+    file: 'src/a.ts', line, col: 3, code: 'TS2532',
+    message: "Object is possibly 'undefined'.",
+    raw: `src/a.ts:${line}:3 - error TS2532: Object is possibly 'undefined'.`,
+  });
+  const before = [undef(12)];
+  const prevKeys = before.map((i) => diagKey(i, ROOT));
+  const prevPos = [`${diagKey(undef(12), ROOT)}@12`];
+
+  const d = diffDiagnostics(prevKeys, [undef(80)], ROOT, 'typecheck', prevPos);
+  assert.equal(d.counts.new, 0, '키가 같으니 new는 아니다');
+  assert.equal(d.counts.moved, 1, '위치가 바뀐 것을 세야 한다');
+  const out = formatDelta('typecheck', d, { firstTurn: false });
+  assert.ok(out, '침묵하면 안 된다');
+  assert.match(out, /위치가 바뀌/);
+});
+
+test('D17b: 위치도 같으면 moved가 0이고 여전히 침묵한다 (소음 안 만든다)', () => {
+  const cur = [item()];
+  const keys = keysOf(cur);
+  const pos = [`${keys[0]}@${cur[0].line}`];
+  const d = diffDiagnostics(keys, cur, ROOT, 'typecheck', pos);
+  assert.equal(d.counts.moved, 0);
+  assert.equal(formatDelta('typecheck', d, { firstTurn: false }), null);
 });

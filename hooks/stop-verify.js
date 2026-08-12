@@ -126,22 +126,27 @@ for (const kind of (isNodeProject ? kinds : [])) {
     const fp = fingerprintOf(root, meta, scope.branch);
     const prev = readBaseline(root, kind, fp);
     const decided = shouldNotify(prev && prev.notice, noticeKey, kind);
-    const delta = diffDiagnostics(prev ? prev.keys : [], items, root, kind);
+    const delta = diffDiagnostics(prev ? prev.keys : [], items, root, kind, prev && prev.positions);
 
     let text = null;
     if (prev) {
       const raws = delta.newItems.map((i) => i.raw);
       const body = clipDiagnostics(
-        kind === 'lint' ? attachHeaders(raws, items.map((i) => i.raw)) : raws,
+        kind === 'lint' ? attachHeaders(raws, r.context.length ? r.context : items.map((i) => i.raw)) : raws,
       ).text;
       text = formatDelta(kind, delta, { firstTurn: decided.notify, body });
     } else if (items.length) {
       // 기준선 없음(세션 첫 턴·지형 변화 직후) → 그래프로 좁혀 보여준다.
+      // ⚠ 걸러낸 것도 기준선에는 들어간다(다음 턴에 new로 튀면 안 되니까). 그래서
+      // **접힌 건수를 반드시 밝힌다** — 안 밝히면 한 번도 보고되지 않은 진단이 영구히 묻힌다.
+      // 이 사이클의 유일한 치명 실패 모드이고, 리뷰에서 실측으로 재현됐다.
       const inScope = scope.mode === 'all'
         ? items
         : items.filter((i) => !i.file || scope.files.has(String(i.file).replace(/\\/g, '/')));
       const shown = inScope.length ? inScope : items;
-      text = `### ${kind} 진단 ${items.length}건\n${clipDiagnostics(shown.map((i) => i.raw)).text}`;
+      const folded = items.length - shown.length;
+      text = `### ${kind} 진단 ${items.length}건\n${clipDiagnostics(shown.map((i) => i.raw)).text}`
+        + (folded > 0 ? `\n…이번 변경과 무관한 ${folded}건은 접었다(다음 턴부터는 새로 생긴 것만 보고한다).` : '');
     }
     if (text) problems.push(text);
 
@@ -150,7 +155,7 @@ for (const kind of (isNodeProject ? kinds : [])) {
     // ⚠ 공유 notice를 덮지 않는다. delta의 "세션 첫 턴" 판정은 **kind별로 baseline 안에**
     // 따로 산다 — 여기서 공유 상태에 쓰면 typecheck가 lint의 알림 이력을 지워
     // lint 알림이 매 턴 반복된다(실측으로 발견).
-    pending.push({ kind, entry: { fp, at: new Date().toISOString(), notice: decided.nextState, keys: delta.curKeys, total: items.length } });
+    pending.push({ kind, entry: { fp, at: new Date().toISOString(), notice: decided.nextState, keys: delta.curKeys, positions: delta.curPositions, total: items.length } });
   }
   record({ hook: 'stop-verify', action: `verify-${status}`, kind, reason: meta.reason });
 }

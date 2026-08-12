@@ -248,3 +248,49 @@ test('B9 bench: DEVKIT_BENCH_PROJECT가 있으면 실측, 없으면 skip', { ski
   assert.equal(json.stillReportsNew, true, '새 에러를 못 잡으면 조용해진 게 아니라 고장난 것이다');
   assert.equal(json.onlyNewShown, true, '기존 진단이 다시 나오면 delta가 안 도는 것이다');
 });
+
+// ── REVIEW 대응 ────────────────────────────────────────────────────
+
+test('H16: 기준선 없는 턴에 접힌 진단이 있으면 건수를 반드시 밝힌다', () => {
+  // 🔴 리뷰가 실측 재현: blast radius 밖 진단이 보고에서 빠지는데 기준선에는 들어가
+  // **한 번도 보고되지 않은 채 영구히 묻혔다.** 이 사이클의 유일한 치명 실패 모드다.
+  const p = deltaProject([]);
+  // z.ts는 아무도 import하지 않는다 → a.ts만 고치면 blast radius 밖이다
+  fs.writeFileSync(path.join(p.root, 'src', 'z.ts'), 'export const z = 1;\n');
+  gitIn(p.root, 'add', '-A');
+  gitIn(p.root, 'commit', '-qm', 'add z');
+  p.setLines([ERR1, 'src/z.ts:1:1 - error TS2304: Cannot find name GlobalThing.']);
+  fs.writeFileSync(path.join(p.root, 'src', 'a.ts'), 'export const a = 2;\n'); // a만 변경
+
+  const { stdout } = turn(p.root);
+  const ctx = ctxOf(stdout);
+  const hiddenShown = /TS2304/.test(ctx);
+  const foldedDeclared = /접었다/.test(ctx);
+  assert.ok(
+    hiddenShown || foldedDeclared,
+    `보여주지도 않고 접혔다고 밝히지도 않으면 영구 침묵이다: ${ctx}`,
+  );
+});
+
+test('H17: lint 요약 줄은 진단으로 세지 않는다 (거짓 "새 진단" 방지)', () => {
+  // 🔴 리뷰가 실측 재현: eslint stylish 꼬리(✖ N problems)가 개수가 바뀔 때마다
+  // 새 키가 되어 **에러를 고칠 때마다 "새 진단 1건"**이 떴다. 이 사이클의 대표 신호를
+  // 상시 오염시켜 정확히 무시 학습을 만든다.
+  const p = deltaProject([]);
+  const lintFx = path.join(p.root, 'lint.js');
+  const setLint = (n) => fs.writeFileSync(lintFx, [
+    'console.log("/repo/src/a.ts");',
+    ...Array.from({ length: n }, (_, i) => `console.log("  ${i + 1}:1  error  Boom${i}  rule-${i}");`),
+    `console.log("✖ ${n} problems (${n} errors, 0 warnings)");`,
+    'process.exit(1);',
+  ].join('\n'));
+  setLint(2);
+  fs.writeFileSync(path.join(p.root, 'package.json'), JSON.stringify({
+    name: 't', scripts: { typecheck: 'node fx.js', lint: 'node lint.js' },
+  }));
+  const both = { DEVKIT_VERIFY: 'lint' };
+  turn(p.root, both);
+  setLint(1); // 하나 고쳤다 — 새 문제는 0건이다
+  const { stdout } = turn(p.root, both);
+  assert.doesNotMatch(stdout, /새 진단/, `고쳤는데 새 진단이 떴다: ${stdout}`);
+});

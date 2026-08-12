@@ -129,7 +129,9 @@ function scopeFor(root, kind, opts = {}) {
   // 깨우는** 루프가 된다(.md 한 줄만 고친 턴에도 타입체크가 돈다).
   // '무관한 변경'으로 세면 안 된다 — 그러면 .devkit만 바뀐 턴이 skip으로 떨어져
   // 검증이 통째로 멈춘다. 걸러낸 **뒤에** 변경 유무를 판단한다.
-  const visible = changed.filter((p) => p !== '.devkit' && !p.startsWith('.devkit/'));
+  // ⚠ git status는 **git 루트 기준** 경로를 준다 — 모노레포에서 훅이 packages/app에서 돌면
+  // 'packages/app/.devkit/'로 나와 접두 검사가 안 먹는다. 세그먼트로 판정한다.
+  const visible = changed.filter((p) => !p.split('/').includes('.devkit'));
   if (!visible.length) return all('no-change', branch); // ⚠ skip이 아니다 — 상단 주석 참조
 
   const relevant = visible.filter((p) => !IRRELEVANT.has(path.extname(p).toLowerCase()));
@@ -142,6 +144,11 @@ function scopeFor(root, kind, opts = {}) {
     return { run: true, files: new Set(relevant), mode: 'scoped', reason: 'changed-only', branch };
   }
 
+  // 기준선이 있는 정상 턴에는 blast radius를 안 쓴다(delta가 판단한다) — 그런데도
+  // 매 턴 전체 스캔이 돌고 있었다. 필요할 때만 만든다.
+  if (opts.needGraph === false) {
+    return { run: true, files: new Set(relevant), mode: 'scoped', reason: 'changed-only', branch };
+  }
   const scan = scanSources(root, opts);
   if (!scan.ok) return all('scan-budget', branch); // 그래프를 못 만들면 좁히지 않는다
 

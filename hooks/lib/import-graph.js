@@ -14,7 +14,9 @@ const { builtinModules } = require('node:module');
 const BUILTINS = new Set(builtinModules);
 const EXT = /\.(d\.ts|[cm]?[jt]sx?)$/;
 
-const STATIC_IMPORT = /(?:^|[\s;}])(?:import|export)\s[^;'"]*?from\s*['"]([^'"]+)['"]/g;
+// ⚠ `[^;'"]`에 개행을 남기면 세미콜론 없는 스타일(prettier semi:false)에서 토큰마다
+// EOF까지 백트래킹한다 — 512KB 파일 하나에 3초가 붙었다(실측). 개행을 뺀다.
+const STATIC_IMPORT = /(?:^|[\s;}])(?:import|export)\s[^;'"\n]*?from\s*['"]([^'"]+)['"]/g;
 const BARE_IMPORT = /(?:^|[\s;}])import\s*['"]([^'"]+)['"]/g;
 const REQUIRE = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 const DYNAMIC_LITERAL = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;

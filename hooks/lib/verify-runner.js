@@ -177,7 +177,7 @@ function runVerification(root, opts = {}) {
     meta.timedOut = res.timedOut;
     meta.totalDiagnostics = body.total;
     meta.truncated = body.truncated;
-    return { status: verdict.status, diagnostics: body.text, items: body.items || [], meta };
+    return { status: verdict.status, diagnostics: body.text, items: body.items || [], context: body.context || [], meta };
   } finally {
     release(lock);
   }

@@ -69,6 +69,10 @@ const probeA = path.join(dirForProbe, 'devkit-bench-probe-a.ts');
 const probeB = path.join(dirForProbe, 'devkit-bench-probe-b.ts');
 const ERR = (n) => `export const probe${n}: number = 'devkit-bench-${n}';\n`;
 
+// finally는 SIGINT에 안 돈다 — 남의 레포에 고의 타입에러 파일을 남기면 안 된다.
+const cleanup = () => { for (const f of [probeA, probeB]) fs.rmSync(f, { force: true }); };
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanup(); process.exit(130); });
+
 // ⚠ 에러를 **턴1 전에** 심어야 세 신호가 다 나온다. 깨끗한 프로젝트에서 나중에 심으면
 // 턴1이 0바이트라 '감소'를 잴 수 없고, 그게 성공처럼 보인다(실측으로 발견).
 try {
@@ -81,7 +85,7 @@ try {
     t3 = turn();
   }
 } finally {
-  for (const f of [probeA, probeB]) fs.rmSync(f, { force: true });
+  cleanup();
 }
 
 // ⚠ 턴1이 진단이었는지 '스크립트 없음' 알림이었는지 구분한다. 구분 안 하면 검증이
