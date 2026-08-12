@@ -124,9 +124,15 @@ function scopeFor(root, kind, opts = {}) {
     changed.push(e.path);
     if (e.from) changed.push(e.from); // 사라진 원본이 있어야 importer를 찾는다(B13)
   }
-  if (!changed.length) return all('no-change', branch); // ⚠ skip이 아니다 — 상단 주석 참조
+  // ⚠ 우리 산출물(.devkit/)은 **아예 안 보이는 것**으로 다룬다. baseline·락·tsbuildinfo가
+  // 생기면 git status에 untracked로 잡히는데, 그걸 소스 변경으로 읽으면 **우리가 우리를
+  // 깨우는** 루프가 된다(.md 한 줄만 고친 턴에도 타입체크가 돈다).
+  // '무관한 변경'으로 세면 안 된다 — 그러면 .devkit만 바뀐 턴이 skip으로 떨어져
+  // 검증이 통째로 멈춘다. 걸러낸 **뒤에** 변경 유무를 판단한다.
+  const visible = changed.filter((p) => p !== '.devkit' && !p.startsWith('.devkit/'));
+  if (!visible.length) return all('no-change', branch); // ⚠ skip이 아니다 — 상단 주석 참조
 
-  const relevant = changed.filter((p) => !IRRELEVANT.has(path.extname(p).toLowerCase()));
+  const relevant = visible.filter((p) => !IRRELEVANT.has(path.extname(p).toLowerCase()));
   if (!relevant.length) {
     return { run: false, files: new Set(), mode: 'scoped', reason: 'no-relevant-change', branch };
   }
