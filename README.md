@@ -126,7 +126,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `PostToolUse(Write\|Edit)` | `tsc-on-edit` | 타입체크 (opt-in — `DEVKIT_TSC_ON_EDIT=1`). `stop-verify`와 **같은 실행 계약**을 쓴다 |
 | `PostToolUse(Write\|Edit)` | `convention-observe` | 통과한 규칙 위반(no-any·console.log·`.tsx` 로직) 관측 기록 |
 | `PostToolUse(Bash)` | `bash-receipt` | 실행 receipt 봉인 — evidence 인용 대조의 근거 |
-| `Stop` | `stop-verify` | 종료 시 typecheck/lint 실행·보고. 패키지 매니저·스크립트명을 **감지**하고, **실행 실패와 진단을 구분**하며(설정 오류·타임아웃을 "타입 에러"라고 말하지 않는다), 단일 tsc 스크립트는 `--incremental`로 돌린다. 끄려면 `DEVKIT_VERIFY=off` |
+| `Stop` | `stop-verify` | 종료 시 typecheck/lint 실행·보고. 패키지 매니저·스크립트명을 **감지**하고, **실행 실패와 진단을 구분**하며(설정 오류·타임아웃을 "타입 에러"라고 말하지 않는다), 단일 tsc 스크립트는 `--incremental`로 돌린다. **보고는 직전 실행 대비 새로 생긴 진단만** — 기존 에러는 건수 1줄로 접힌다. 끄려면 `DEVKIT_VERIFY=off` |
 
 #### 검증 스위치
 
@@ -151,8 +151,10 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | Template | `templates/ci.yml` | PR에서 typecheck/lint/test/시크릿/`pnpm audit` **머지 게이트** |
 | Template | `templates/pre-commit` | 세션 밖(사람 커밋) 시크릿·lint 방어 (`.githooks/`) |
 | Script | `scripts/verify-integrity.mjs` | 훅 공급망 변조 조기 탐지 |
+| Script | `scripts/bench-delta.mjs` | 보고 주입량 실측 (`--project <path> [--inject]`). 턴1/턴2/에러 주입 후를 바이트로 비교 — "조용해진 것"과 "고장난 것"을 가른다 |
 | Script | `scripts/bench-verify.mjs` | `--incremental` 재실행 속도 실측 (`--project <path>`). 대상 프로젝트의 typescript를 쓴다 — devkit은 TS를 설치하지 않는다 |
 | Script | `scripts/verify-evidence.mjs` | evidence 적합성 3층 보고 (ref 실존·인용 대조·커버리지). `/gap`이 부른다 — 플러그인 안에 있으므로 `${CLAUDE_PLUGIN_ROOT}` 경로로 호출 |
+| Observability | `.devkit/verify-baseline.json` | 직전 검증의 진단 키 집합 (gitignore 대상). 매 턴 같은 에러가 반복 주입되는 것을 막는다 — **새로 생긴 진단만** 보고하는 근거. 브랜치·tsconfig·러너가 바뀌면 자동으로 버려진다. 진단 원문(파일 경로·타입 이름)이 평문으로 들어간다 |
 | Observability | `.devkit/audit.jsonl` | 차단·통과위반·검증실패 기록 |
 | Observability | `.devkit/receipts.jsonl` | Bash 명령·출력 기록 (gitignore 대상, **알려진 키 형식 9종만 마스킹 — 그 외(`export K=V`·DB URL·Bearer 토큰 등)는 평문으로 남는다**, 끄려면 `DEVKIT_RECEIPTS=0`) |
 | Eval | `test/*.test.mjs` | 훅 동작 + 플러그인 무결성 회귀 테스트 — `node --test` |

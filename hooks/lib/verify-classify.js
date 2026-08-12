@@ -153,35 +153,6 @@ function clipDiagnostics(items, opts = {}) {
   };
 }
 
-/** status별로 무엇을 본문에 실을지. found는 진단만, failed는 원인 원문 그대로 */
-function bodyFor(kind, status, res) {
-  if (status === 'ok' || status === 'skipped' || status === 'unavailable') {
-    return { text: '', total: 0, truncated: false, items: [], context: [] };
-  }
-  const out = `${stripAnsi(res.stdout)}\n${stripAnsi(res.stderr)}`;
-  if (kind === 'typecheck') {
-    const { source, compiler } = parseTscDiagnostics(out);
-    const picked = status === 'found' ? source : compiler;
-    if (picked.length) {
-      const c = clipDiagnostics(picked.map((d) => d.raw));
-      return { text: c.text, total: c.total, truncated: c.truncated, items: picked, context: [] };
-    }
-  }
-  const c = clipDiagnostics(out.split('\n').filter((l) => l.trim()));
-  return { text: c.text, total: c.total, truncated: c.truncated, items: diagLines(out), context: lines(out).map((i) => i.raw) };
-}
-
-/**
- * lint는 형식 파서가 없다 — 줄 자체가 진단 단위다(사이클 B 결정 5).
- * ⚠ 단 **위치 토큰이 있는 줄만** 진단으로 센다. eslint stylish의 꼬리(`✖ 2 problems …`)는
- * 개수가 바뀔 때마다 새 키가 되어 "새 진단 1건"이라는 거짓 신호를 매번 만든다 —
- * 에러를 고칠 때마다 경고가 뜨면 그게 이 사이클이 없애려던 무시 학습이다.
- * 위치 없는 줄(파일명 헤더 등)은 context로 남겨 attachHeaders가 쓴다.
- */
-const HAS_POSITION = /\d+:\d+/;
-const lines = (out) => out.split('\n').filter((l) => l.trim()).map((raw) => ({ raw }));
-const diagLines = (out) => lines(out).filter((i) => HAS_POSITION.test(i.raw));
-
 /**
  * 세션당 1회만 알린다. 같은 문장을 매 턴 반복하면 그 경고 전체가 무시된다
  * (session-start.js의 drift 경고가 남긴 교훈).
@@ -198,6 +169,7 @@ function shouldNotify(state, key, kind) {
 module.exports = {
   SCRIPT_CANDIDATES, LOCKFILES, TIMEOUTS, CLIP_DEFAULTS,
   stripAnsi, detectRunner, pickScript, parseTscDiagnostics,
-  classify, clipDiagnostics, bodyFor, shouldNotify,
+  classify, clipDiagnostics, shouldNotify,
+  ...require('./verify-body'),
   ...bypass,
 };
