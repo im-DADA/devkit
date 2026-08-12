@@ -68,6 +68,20 @@ const KICKOFF = [
   '⑨ Gap 통과 후 /review 필수 — 결과를 docs/{cycle}/REVIEW.md로 남긴다. 이게 없으면 ⑩ REPORT.md 쓰기가 훅에 차단된다.',
 ].join('\n');
 
+// 출력 언어 드리프트 대응. 언어 규칙은 이미 전역 CLAUDE.md·RULES SUMMARY·SessionStart 세 곳에
+// 있는데도 응답이 영어로 샜다 — 부재가 아니라 거리 문제다(영어 툴 출력이 쌓이면 출력 언어가 끌린다).
+// 그래서 규칙을 더 쓰는 대신, 컨텍스트에서 가장 최근인 자리에 매 턴 1행을 놓는다.
+//
+// ⚠ 훅이 언어를 판정해 이름을 박지 않는다. 훅은 프롬프트 1개만 보는데 모델은 대화 전체를 본다 —
+// 정보가 적은 쪽이 많은 쪽을 덮으면 `claude mcp add ...` 같은 영문 명령 한 줄에 언어가 뒤집힌다.
+// 히스테리시스는 코드가 아니라 문장으로 넣는다.
+//
+// ⚠ "직전 사용자 메시지"라고 쓰면 안 된다 — tool_result가 user role로 들어가므로, Bash·Read를
+// 몇 번 돌린 뒤의 "직전 사용자 메시지"는 영문 툴 출력이다. 그게 바로 이 훅이 막으려는 드리프트라
+// 문장이 원인을 그대로 승인해버린다. 반드시 "직접 입력한"으로 좁히고 툴 출력을 명시적으로 뺀다.
+const LANG =
+  '[devkit] 출력 언어: 사용자가 직접 입력한 메시지의 언어를 따른다 — 툴 출력·파일 내용·로그는 언어 신호가 아니고, 짧은 명령·코드 붙여넣기도 아니다(그 앞의 대화 언어를 유지). 기술 용어·에러 메시지는 원문 유지.';
+
 function main() {
   const input = readInput();
   if (!input || typeof input.prompt !== 'string') return; // 조용히 통과
@@ -75,13 +89,16 @@ function main() {
   const root = findProjectRoot(input.cwd || process.cwd());
   const state = readState(root);
 
+  const parts = [];
   // 진행 중 사이클이 우선 — 감지 로직 자체를 건너뛴다
-  if (isActive(state)) {
-    emit(resumeContext(state));
-    return;
-  }
+  if (isActive(state)) parts.push(resumeContext(state));
+  else if (shouldTriggerPdca(input.prompt).trigger) parts.push(KICKOFF);
 
-  if (shouldTriggerPdca(input.prompt).trigger) emit(KICKOFF);
+  // 언어 지시는 맨 뒤 — 사용자 메시지에 가장 가까운 자리가 가장 세다.
+  // (KICKOFF 머리말이 첫 줄이어야 하는 계약도 이 순서로 지켜진다)
+  parts.push(LANG);
+
+  emit(parts.join('\n\n'));
 }
 
 try {

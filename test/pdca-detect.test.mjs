@@ -169,16 +169,104 @@ test('ESCAPE-B6: 탈출구 변경이 발동 판정을 건드리지 않는다', (
   assert.equal(shouldTriggerPdca(FEATURE_PROMPT).trigger, true, '기능 요청은 여전히 발동');
   assert.equal(shouldTriggerPdca('결제 기능은 어떻게 만들어?').trigger, false, '질문은 여전히 미발동');
   assert.equal(shouldTriggerPdca('오타 하나 고쳐줘').trigger, false, '사소한 요청은 여전히 미발동');
-  // 훅 경로로도 같은 결론이 나오는지(주입 유무)
-  assert.equal(run({ prompt: '결제 기능은 어떻게 만들어?', cwd }).stdout.trim(), '');
-  assert.notEqual(run({ prompt: FEATURE_PROMPT, cwd }).stdout.trim(), '');
+  // 훅 경로로도 같은 결론이 나오는지(KICKOFF 주입 유무).
+  // ⚠ "빈 stdout"으로 재지 않는다 — 언어 지시는 매 턴 나가므로 stdout은 항상 비지 않는다.
+  assert.doesNotMatch(run({ prompt: '결제 기능은 어떻게 만들어?', cwd }).stdout, /behaviors\.json/);
+  assert.match(run({ prompt: FEATURE_PROMPT, cwd }).stdout, /behaviors\.json/);
 });
 
-test('질문 프롬프트 → 주입 없음(빈 stdout)', () => {
+test('질문 프롬프트 → KICKOFF 주입 없음(언어 지시만)', () => {
   const cwd = makeRoot();
   const { code, stdout } = run({ prompt: '결제 기능은 어떻게 만들어?', cwd });
   assert.equal(code, 0);
-  assert.equal(stdout.trim(), '');
+  assert.doesNotMatch(stdout, /behaviors\.json/, 'PDCA 규약이 새면 안 됨');
+  assert.doesNotMatch(stdout, /진행 중 사이클/, '재개 컨텍스트가 새면 안 됨');
+});
+
+// ── 출력 언어 고정 (docs/2026-08-12-output-language-lock) ──────────────
+// 언어 규칙은 이미 세 곳(전역 CLAUDE.md·RULES SUMMARY·SessionStart)에 있는데도 응답이 영어로 샜다.
+// 부재가 아니라 드리프트 — 영어 툴 출력이 쌓이면 출력 언어가 끌린다. 그래서 규칙을 더 쓰는 대신
+// 매 턴 가장 최근 위치(UserPromptSubmit)에 1행을 놓는다. 거리 문제는 거리로 푼다.
+
+/**
+ * 주입된 컨텍스트에서 언어 지시 1행만 뽑는다.
+ * ⚠ stdout을 `split('\\n')`으로 자르면 안 된다 — 언어 지시만 나갈 때는 리터럴 `\n`이 하나도
+ * 없어서 조각이 1개가 되고, find가 JSON 래퍼째 stdout 전체를 돌려준다(kickoffLines가 같은
+ * 함정에 가드를 걸어둔 이유). 그러면 B7이 재는 값이 지시 길이가 아니라 래퍼 포함 길이가 된다.
+ * JSON을 파싱해 additionalContext에서 자른다.
+ */
+function langLine(stdout) {
+  const ctx = JSON.parse(stdout).hookSpecificOutput.additionalContext;
+  const line = ctx.split('\n').find((l) => /출력 언어/.test(l));
+  assert.ok(line, `언어 지시를 찾지 못했다: ${ctx.slice(0, 200)}`);
+  return line;
+}
+
+test('B1: 사이클 없음 + PDCA 미발동인 평범한 프롬프트에도 언어 지시가 주입된다', () => {
+  const cwd = makeRoot();
+  const { code, stdout } = run({ prompt: '이거 왜 이래?', cwd });
+  assert.equal(code, 0);
+  assert.match(stdout, /UserPromptSubmit/);
+  langLine(stdout);
+});
+
+test('B2: KICKOFF와 동시 발동 시 둘 다 나간다', () => {
+  const cwd = makeRoot();
+  const { stdout } = run({ prompt: FEATURE_PROMPT, cwd });
+  assert.match(stdout, /behaviors\.json/, 'KICKOFF가 살아 있어야 함');
+  langLine(stdout);
+});
+
+test('B3: 재개 컨텍스트와 동시 발동 시에도 둘 다 나간다', () => {
+  const cwd = makeRoot();
+  fs.mkdirSync(path.join(cwd, '.devkit'), { recursive: true });
+  fs.writeFileSync(
+    path.join(cwd, '.devkit', 'pdca-state.json'),
+    JSON.stringify({ version: 1, cycleId: '2026-07-23-t', stage: 'do', status: 'in-progress' }),
+  );
+  const { stdout } = run({ prompt: '이거 뭐야?', cwd });
+  assert.match(stdout, /진행 중 사이클/, '재개 컨텍스트가 살아 있어야 함');
+  langLine(stdout);
+});
+
+test('B4: 특정 언어를 고정하지 않는다 — 사용자 언어를 따라간다', () => {
+  const cwd = makeRoot();
+  const line = langLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  // 언어 이름을 박으면 사용자가 언어를 바꿔도 안 따라간다. 그게 이 사이클이 없애려는 것이다.
+  for (const hardcoded of ['한국어', 'Korean', '영어로 답']) {
+    assert.doesNotMatch(line, new RegExp(hardcoded), `언어를 고정하면 안 됨: ${hardcoded}`);
+  }
+  assert.match(line, /사용자/, '사용자 기준임을 밝혀야 함');
+  // 히스테리시스를 코드가 아니라 문장으로 넣는다 — 짧은 영문 명령 한 줄에 언어가 뒤집히면 안 된다
+  assert.match(line, /명령|붙여넣기/, '짧은 명령이 언어 신호가 아님을 밝혀야 함');
+});
+
+// REVIEW에서 나온 behavior — PLAN 시점에는 없었다.
+// tool_result는 Claude API에서 **user role**로 들어간다. 그래서 Bash·Read를 몇 번 돌리면
+// "직전 사용자 메시지"는 영문 툴 출력이 되고, 그게 정확히 이 훅이 막으려던 드리프트다.
+// 지시가 원인을 명시적으로 배제하지 않으면 원인을 승인하는 문장이 된다.
+test('B8: 툴 출력·로그를 언어 신호에서 명시적으로 제외한다', () => {
+  const cwd = makeRoot();
+  const line = langLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  assert.match(line, /직접 입력/, '사용자가 직접 입력한 것으로 좁혀야 함');
+  assert.match(line, /툴 출력/, '툴 출력이 언어 신호가 아님을 밝혀야 함');
+  assert.doesNotMatch(
+    line, /직전 사용자 메시지의 언어로/,
+    '옛 문구 회귀 — tool_result가 user role이라 영문 툴 출력을 언어 신호로 승인한다',
+  );
+});
+
+test('B5: 기술 용어·에러 원문 유지를 같은 줄에서 밝힌다', () => {
+  const cwd = makeRoot();
+  const line = langLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  assert.match(line, /원문/, '원문 유지 지시가 있어야 함');
+  assert.match(line, /에러|로그/, '에러·로그가 대상임을 밝혀야 함');
+});
+
+test('B7: 언어 지시는 1행 200자 이내 (주입 비용 상한)', () => {
+  const cwd = makeRoot();
+  const line = langLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  assert.ok(line.length <= 200, `언어 지시가 너무 길다(${line.length}자): ${line}`);
 });
 
 test('진행 중 사이클이 있으면 재개 컨텍스트를 주입(감지보다 우선)', () => {
