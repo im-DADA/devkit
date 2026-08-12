@@ -274,6 +274,57 @@ test('stop-verify: stop_hook_active 가드 존재(무한루프 방지)', () => {
   assert.match(src, /stop_hook_active/, '재진입 가드 없음');
 });
 
+// B9 백스톱의 오탐 2종. 실제로 터졌다 — 사이클을 완료·아카이브한 직후 턴에서
+// "behaviors.json 누락, /plan을 완료하라"가 떴다. 완료한 작업에 미완 경고를 띄우면
+// 다음부터 이 경고 전체를 무시하게 된다(무시 학습). 백스톱은 침묵할 줄 알아야 산다.
+/** stop-verify를 tmp 루트에서 돌려 stdout 반환 */
+function runStopVerify(root) {
+  try {
+    return execFileSync('node', [hook('stop-verify')], {
+      input: '{}', cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    return e.stdout ?? '';
+  }
+}
+
+function stopRoot(state) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-stop-'));
+  fs.writeFileSync(path.join(d, 'package.json'), '{}');
+  fs.mkdirSync(path.join(d, '.devkit'), { recursive: true });
+  fs.writeFileSync(path.join(d, '.devkit', 'pdca-state.json'), JSON.stringify(state));
+  return d;
+}
+
+test('stop-verify: 완료된 사이클(status:done)에 behaviors.json 경고를 내지 않는다', () => {
+  const root = stopRoot({
+    version: 1, cycleId: '2026-08-12-x', stage: 'report', status: 'done',
+  });
+  assert.doesNotMatch(runStopVerify(root), /behaviors\.json 누락/, '완료한 작업에 미완 경고');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('stop-verify: 아카이브된 사이클의 behaviors.json을 찾는다', () => {
+  const root = stopRoot({
+    version: 1, cycleId: '2026-08-12-x', stage: 'report', status: 'in-progress',
+  });
+  // /report가 docs/{date}-{slug}/ → docs/archive/{date}/{slug}/로 옮긴다.
+  // 옮긴 자리를 안 보면 아카이빙 순간 "누락"이 된다 — evidence.js가 같은 이유로 이미 폴백을 갖고 있다.
+  const arch = path.join(root, 'docs', 'archive', '2026-08-12', 'x');
+  fs.mkdirSync(arch, { recursive: true });
+  fs.writeFileSync(path.join(arch, 'behaviors.json'), '{"version":1,"behaviors":[]}');
+  assert.doesNotMatch(runStopVerify(root), /behaviors\.json 누락/, 'archive 폴백 미적용');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('stop-verify: 진짜 누락은 여전히 경고한다 (백스톱이 죽지 않았다)', () => {
+  const root = stopRoot({
+    version: 1, cycleId: '2026-08-12-x', stage: 'do', status: 'in-progress',
+  });
+  assert.match(runStopVerify(root), /behaviors\.json 누락/, '백스톱이 통째로 죽었다');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('stop-verify: 어떤 입력에도 exit 0 (비차단)', () => {
   // 검증 스크립트가 없는 tmp에서 도는 케이스 + 깨진 stdin
   for (const input of [{}, { stop_hook_active: true }, 'not json']) {

@@ -41,12 +41,20 @@ const problems = [];
 // ── B9 백스톱: 구현 단계인데 behaviors.json이 없으면 경고 ──────────────
 // D5 대응. behaviors.json은 /gap의 소비 입력이라 /gap·/report가 하드 게이트로 막지만,
 // 그보다 이른 시점에 놓쳤음을 알려 되돌릴 여지를 준다. (강제 생성이 아니라 결핍 경고)
+//
+// ⚠ 백스톱은 침묵할 줄 알아야 산다. 실사용에서 두 번 헛짖었다 —
+//   (1) status:done인 완료 사이클, (2) docs/archive/로 옮겨진 사이클.
+// 완료한 작업에 "미완이다"를 띄우면 다음부터 이 경고 전체가 무시된다(무시 학습).
 try {
   const { readState } = require('./lib/pdca-state');
+  const { archiveAlt } = require('./lib/evidence');
   const state = readState(root);
-  if (state && !state.foreign && ['do', 'gap', 'report'].includes(state.stage)) {
-    const cycleDir = path.join(root, 'docs', state.cycleId);
-    if (!fs.existsSync(path.join(cycleDir, 'behaviors.json'))) {
+  const pending = state && state.status !== 'done';
+  if (pending && !state.foreign && ['do', 'gap', 'report'].includes(state.stage)) {
+    const rel = `docs/${state.cycleId}/behaviors.json`;
+    const alt = archiveAlt(rel); // /report가 옮긴 자리도 본다
+    const found = [rel, alt].some((p) => p && fs.existsSync(path.join(root, p)));
+    if (!found) {
       problems.push(
         `### behaviors.json 누락 (stage: ${state.stage})\n` +
           `구현 단계인데 \`docs/${state.cycleId}/behaviors.json\`이 없다. ` +

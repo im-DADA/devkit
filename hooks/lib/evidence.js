@@ -187,4 +187,4 @@ function gateEvidence(doc, root) {
   return { ok: false, unresolved, reason };
 }
 
-module.exports = { parseRefPaths, classifyRef, gateEvidence };
+module.exports = { parseRefPaths, classifyRef, gateEvidence, archiveAlt };
