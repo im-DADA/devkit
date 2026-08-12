@@ -2,6 +2,60 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [0.19.0] - 2026-08-12
+
+### 검증 실행 계약 (breaking-ish — 동작이 바뀐다)
+
+`stop-verify`·`tsc-on-edit`의 실행·판정을 하나의 계약(`hooks/lib/verify-runner.js`)으로 합쳤다.
+기존 코드는 전제가 전부 하드코딩이었다: `npm run` 고정, 스크립트명 `typecheck`/`lint` 고정,
+0이 아닌 종료코드를 전부 "실패"로 뭉갬, 출력 뒤 20줄만 남김.
+
+**기존 사용자 동작 변경 3가지:**
+
+1. **처음으로 끌 수 있다** — `DEVKIT_VERIFY=off`. 지금까지 `stop-verify`는 끄는 방법이 없었다.
+2. **다른 스크립트명도 잡는다** — `type-check`·`check-types`·`ts:check`·`tsc`·`lint:check`·`eslint`·`biome`.
+   그동안 이 이름을 쓰던 프로젝트는 **아무것도 검증되지 않고 있었다**(조용히).
+   (`types`·`check`는 일부러 뺐다 — emit 부작용/CI 전체 파이프라인인 경우가 흔하다.)
+3. **스크립트가 없으면 처음으로 말한다** — 세션당 1회, 그리고 **Node 프로젝트에서만**.
+   검증되는 줄 알았는데 아무것도 안 도는 상태가 제일 나쁘다는 판단이다. 시끄러우면 `DEVKIT_VERIFY=off`.
+4. **`tsc-on-edit`이 스크립트를 요구한다** — 예전엔 `node_modules/.bin/tsc`를 무조건 직접 돌렸다.
+   지금은 같은 계약을 쓰므로 typecheck 계열 스크립트가 필요하고, 없으면 stderr로 알린다.
+
+### 고침
+
+- **진단 파서가 pretty 출력을 못 읽던 것**(리뷰에서 발견) — `tsc`의 **기본** 출력 형식은
+  `src/a.ts:1:7 - error TS2322`인데 괄호 형식만 알아서, script 모드에서 **진짜 타입 에러가
+  "검증이 실행되지 못했다"로** 나갔다. 두 형식 모두 인식한다.
+- **실행 실패를 타입 에러라고 보고하던 것** — tsconfig 오류·타임아웃·OOM이 "타입 에러"로 올라왔다.
+  이제 `ok`/`found`/`unavailable`/`failed`/`skipped` 5-status로 나뉘고, `failed`는
+  "검증이 실행되지 못했다"로 보고하며 에러 개수에 세지 않는다.
+- **출력 절단이 뒤를 남기던 것** — tsc는 에러 뒤에 요약을 찍으므로 마지막 20줄이 요약만일 수 있었다.
+  이제 앞(첫 진단)을 남기고 잘린 개수를 밝힌다.
+- **패키지 매니저 하드코딩** — `packageManager` 필드 > lockfile 순으로 감지한다.
+- **중복 실행** — 같은 패키지·같은 kind에 single-flight 락. 죽은 락은 PID 생존 OR mtime으로 만료.
+
+### 빨라짐
+
+단일 `tsc` 스크립트는 `--incremental`로 직접 돈다(안전 조건 5개를 전부 통과할 때만 —
+`&&`·`tsc -b`·`next build`·`vue-tsc`·`references`·`composite`는 전부 거부). 실측:
+
+| 프로젝트 | cold | warm(중앙값) | 비율 |
+|---|---|---|---|
+| adion | 7708ms | 1532ms | 0.199 |
+| cogotool | 2081ms | 752ms | 0.361 |
+| designer-hire-app | 1140ms | 734ms | 0.644 |
+
+`node scripts/bench-verify.mjs --project <path>`로 재현. TypeScript 4.5.5·5.9.3에서 확인.
+문제가 생기면 `DEVKIT_VERIFY_MODE=script`로 직접 실행을 끈다.
+
+### 안 닫힌 것
+
+- **Windows에서는 `--incremental` 직접 실행을 쓰지 않는다**(알려진 결함이라 껐다):
+  `.bin/tsc`가 확장자 없는 sh 스크립트라 cmd.exe가 못 돌리고, `shell:true`가 인자를 인용 없이
+  이어붙여 공백 있는 경로에서 argv가 쪼개진다. 스크립트 경로로만 동작하며 이쪽은 러너가 해결한다.
+- `meta.fallback` 라벨이 캐시 손상일 때도 `incremental-unsupported`라고 말한다.
+- lint 러너별 exit code 관례는 eslint 기준이다. biome 2.x·oxlint는 미검증(틀려도 `failed` 방향이라 안전).
+
 ## [0.18.0] - 2026-07-29
 
 **낡은 규칙 사본을 탐지한다** — 0.17.0이 닫은 것의 마지막 갈래. `/kit init`이 `RULES.md`의 SUMMARY를 소비자 `AGENTS.md`에 인라인 복사하는데 재동기화 경로가 없었고, **에이전트는 그 사본을 정본보다 우선 읽는다.** 즉 0.17.0의 `views/` 폐지는 이미 `init`을 돌린 프로젝트에 영원히 도달하지 않는 상태였다(D26 세 번째 갈래). 새 의존성 0.

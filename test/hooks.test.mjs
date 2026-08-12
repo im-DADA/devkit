@@ -341,3 +341,232 @@ test('stop-verify: 어떤 입력에도 exit 0 (비차단)', () => {
     assert.equal(code, 0, `비차단이어야 함: ${JSON.stringify(input)}`);
   }
 });
+
+// ── 검증 실행 계약 배선 (docs/2026-08-12-verification-runtime/ X10~X16) ──────
+// 여기서 보는 건 "판정이 맞나"가 아니라 "훅이 계약을 제대로 부르고 status별로
+// 다르게 보고하나"다. 판정 자체는 test/verify-classify.test.mjs가 프로세스 없이 본다.
+
+const verifyTmp = [];
+function verifyProject(scripts, extra = {}) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-hookverify-'));
+  verifyTmp.push(d);
+  fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'tmp', scripts }));
+  for (const [rel, body] of Object.entries(extra)) {
+    fs.mkdirSync(path.dirname(path.join(d, rel)), { recursive: true });
+    fs.writeFileSync(path.join(d, rel), body);
+  }
+  return d;
+}
+after(() => { for (const d of verifyTmp) fs.rmSync(d, { recursive: true, force: true }); });
+
+/** 훅을 특정 cwd·env로 돌려 { code, stdout, stderr } */
+function runIn(name, input, cwd, env = {}) {
+  const r = spawnSync('node', [hook(name)], {
+    input: JSON.stringify(input), cwd, encoding: 'utf8',
+    env: { ...process.env, ...env },
+  });
+  return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+/** 지정 줄을 찍고 code로 끝나는 스크립트 파일을 만들어 명령 문자열을 준다 */
+function fixtureCmd(root, line, code = 1) {
+  const name = `.fx-${Math.abs(line.length + code)}-${root.length}.js`;
+  fs.writeFileSync(path.join(root, name), `console.log(${JSON.stringify(line)});\nprocess.exit(${code});\n`);
+  return `node ${name}`;
+}
+
+const A_TS_ERR = 'src/a.ts(1,1): error TS2322: nope';
+
+test('X10: DEVKIT_VERIFY=off → 두 훅 모두 완전 침묵 + exit 0', () => {
+  const root = verifyProject({});
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'tmp', scripts: { typecheck: fixtureCmd(root, A_TS_ERR) } }),
+  );
+  const stop = runIn('stop-verify', {}, root, { DEVKIT_VERIFY: 'off' });
+  assert.equal(stop.code, 0);
+  assert.equal(stop.stdout.trim(), '', '껐는데 말이 나오면 스위치가 아니다');
+
+  const edit = runIn('tsc-on-edit', { tool_input: { file_path: path.join(root, 'src/a.ts') } },
+    root, { DEVKIT_VERIFY: 'off', DEVKIT_TSC_ON_EDIT: '1' });
+  assert.equal(edit.code, 0);
+  assert.equal(edit.stdout.trim(), '', '상위 스위치를 끄면 하위도 꺼져야 한다');
+});
+
+test('X11: DEVKIT_VERIFY=typecheck → lint는 돌지 않는다', () => {
+  const root = verifyProject({});
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: 'tmp',
+    scripts: { typecheck: 'node -e ""', lint: fixtureCmd(root, 'a.ts:1:1  error  no-rule', 1) },
+  }));
+  const { code, stdout } = runIn('stop-verify', {}, root, { DEVKIT_VERIFY: 'typecheck' });
+  assert.equal(code, 0);
+  assert.doesNotMatch(stdout, /no-rule/, 'lint를 제외했는데 lint 진단이 나왔다');
+});
+
+test('X12: 알 수 없는 값은 검증을 켜둔 채 경고한다 (fail-open)', () => {
+  // 검증기의 실패는 "검증을 안 하는 것"이고 그게 이 사이클이 죽이려는 침묵 no-op이다.
+  // (시크릿 유출이 걸린 bash-receipt와는 반대 방향이고, 각자 더 비싼 쪽을 피한다.)
+  const root = verifyProject({});
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'tmp', scripts: { typecheck: fixtureCmd(root, A_TS_ERR) } }),
+  );
+  const { code, stdout, stderr } = runIn('stop-verify', {}, root, { DEVKIT_VERIFY: 'ture' });
+  assert.equal(code, 0);
+  assert.match(stdout, /TS2322/, '오타 하나로 검증이 꺼지면 안 된다');
+  assert.match(stderr, /ture/, '무엇이 인식되지 않았는지 원문으로 알려야 한다');
+});
+
+test('X14: found일 때 Stop 계약(hookSpecificOutput JSON)을 지킨다', () => {
+  const root = verifyProject({});
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'tmp', scripts: { typecheck: fixtureCmd(root, A_TS_ERR) } }),
+  );
+  const { stdout } = runIn('stop-verify', {}, root, {});
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.hookSpecificOutput.hookEventName, 'Stop');
+  assert.match(parsed.hookSpecificOutput.additionalContext, /TS2322/);
+});
+
+test('X14b: failed는 "타입 에러"라고 말하지 않는다 (거짓 보고 금지)', () => {
+  const root = verifyProject({});
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: 'tmp', scripts: { typecheck: fixtureCmd(root, "error TS5083: Cannot read file '/x'.") },
+  }));
+  const { stdout } = runIn('stop-verify', {}, root, {});
+  const ctx = JSON.parse(stdout).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /실행되지 못했다/, '실행 실패임을 밝혀야 한다');
+  assert.match(ctx, /TS5083/, '원인 원문을 남겨야 한다');
+  assert.doesNotMatch(ctx, /타입 에러 \d/, '에러 개수로 세면 안 된다');
+});
+
+test('X1b: 스크립트가 없으면 침묵하지 않고 한 번 말한다 (침묵 no-op 금지)', () => {
+  const root = verifyProject({ build: 'echo hi' });
+  const first = runIn('stop-verify', { session_id: 'sess-x1b' }, root, {});
+  assert.match(first.stdout, /typecheck/, '무엇이 없는지 밝혀야 한다');
+  assert.match(first.stdout, /DEVKIT_VERIFY/, '끄는 방법을 같이 줘야 한다');
+  const second = runIn('stop-verify', { session_id: 'sess-x1b' }, root, {});
+  assert.doesNotMatch(second.stdout, /typecheck 스크립트/, '같은 세션에서 두 번 말하면 무시 학습이 된다');
+});
+
+test('X15: stop_hook_active면 즉시 종료한다 (재진입 방지, 기존 동작)', () => {
+  const root = verifyProject({});
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'tmp', scripts: { typecheck: fixtureCmd(root, A_TS_ERR) } }),
+  );
+  const { code, stdout } = runIn('stop-verify', { stop_hook_active: true }, root, {});
+  assert.equal(code, 0);
+  assert.equal(stdout.trim(), '');
+});
+
+test('X13: 어떤 입력에도 exit 0 (비차단 계약)', () => {
+  const root = verifyProject({ typecheck: 'node -e ""' });
+  for (const [input, cwd] of [['', root], ['{깨진', root], ['{}', os.tmpdir()]]) {
+    const r = spawnSync('node', [hook('stop-verify')], { input, cwd, encoding: 'utf8' });
+    assert.equal(r.status, 0, `exit 0이어야 함: ${input.slice(0, 10)}`);
+  }
+});
+
+test('X16: 두 훅이 같은 계약을 쓴다 — 판정 코드가 두 벌로 갈라지지 않는다', () => {
+  for (const name of ['stop-verify', 'tsc-on-edit']) {
+    const src = fs.readFileSync(hook(name), 'utf8');
+    assert.match(src, /require\(['"]\.\/lib\/verify-runner['"]\)/, `${name}이 계약을 안 쓴다`);
+    // 판정을 훅에 다시 쓰면 stop-verify와 tsc-on-edit이 조용히 갈라진다
+    assert.doesNotMatch(src, /error TS\\d/, `${name}에 판정 정규식이 새로 생겼다`);
+  }
+});
+
+// ── /iterate: GAP 반증 대응 ───────────────────────────────────────
+
+test('G5: DEVKIT_VERIFY=off는 검증만 끈다 — PDCA 백스톱은 별개 기능이다', () => {
+  // GAP 반증: X10이 통과한 건 픽스처에 pdca-state.json이 없어서였다. 진행 중 사이클이 있으면
+  // off에서도 출력이 나간다. 스위치 이름이 DEVKIT_**VERIFY**이므로 백스톱까지 끄는 게 오히려
+  // 놀라운 동작이다 — 계약 문구를 "검증 출력 0바이트"로 바로잡고, 껐을 때 파일도 안 만든다.
+  const root = verifyProject({});
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'tmp', scripts: { typecheck: fixtureCmd(root, A_TS_ERR) } }),
+  );
+  fs.mkdirSync(path.join(root, '.devkit'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, '.devkit', 'pdca-state.json'),
+    JSON.stringify({ version: 1, cycleId: '2026-08-12-x', stage: 'do', status: 'in-progress' }),
+  );
+  const { code, stdout } = runIn('stop-verify', {}, root, { DEVKIT_VERIFY: 'off' });
+  assert.equal(code, 0);
+  assert.doesNotMatch(stdout, /TS2322/, '껐는데 검증 진단이 나왔다');
+  assert.match(stdout, /behaviors\.json 누락/, '백스톱은 검증 스위치와 무관하게 살아 있어야 한다');
+  assert.equal(
+    fs.existsSync(path.join(root, '.devkit', 'verify-notice.json')), false,
+    '껐는데 검증용 상태 파일을 만들면 스위치 계약에 어긋난다',
+  );
+});
+
+test('G6: tsc-on-edit이 found를 stdout으로 낸다 (분기 회귀)', () => {
+  // GAP: X16은 정적 검사라 tsc-on-edit의 status 분기를 아무도 실행하지 않았다(funcs 0.00).
+  const root = verifyProject({});
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'tmp', scripts: { typecheck: fixtureCmd(root, A_TS_ERR) } }),
+  );
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  const r = runIn('tsc-on-edit', { tool_input: { file_path: path.join(root, 'src', 'a.ts') } },
+    root, { DEVKIT_TSC_ON_EDIT: '1' });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /TS2322/);
+});
+
+test('G7: tsc-on-edit의 failed는 진단으로 찍지 않고 stderr로 보낸다', () => {
+  // 편집 훅이 실행 실패를 진단처럼 찍으면 사용자가 자기 코드를 고치려 든다.
+  const root = verifyProject({});
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    name: 'tmp', scripts: { typecheck: fixtureCmd(root, "error TS5083: Cannot read file '/x'.") },
+  }));
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  const r = runIn('tsc-on-edit', { tool_input: { file_path: path.join(root, 'src', 'b.ts') } },
+    root, { DEVKIT_TSC_ON_EDIT: '1' });
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout.trim(), '', '실행 실패를 컨텍스트에 진단처럼 흘리면 안 된다');
+  assert.match(r.stderr, /TS5083/, '원인은 남겨야 한다');
+});
+
+test('R8: 비-Node 레포에서는 검증 알림을 내지 않는다', () => {
+  // 🔴 devkit은 범용 플러그인이라 파이썬·Go 레포에서도 돈다. 거기서 "package.json에
+  // typecheck 스크립트를 추가하라"는 알림이 아니라 소음이고, 이전 버전은 완전 침묵이었다.
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-nonnode-'));
+  verifyTmp.push(d);
+  fs.writeFileSync(path.join(d, 'main.py'), 'print(1)\n');
+  const { code, stdout } = runIn('stop-verify', { session_id: 's-r8' }, d, {});
+  assert.equal(code, 0);
+  assert.equal(stdout.trim(), '', 'Node 프로젝트가 아닌데 Node 스크립트를 요구하면 안 된다');
+  assert.equal(fs.existsSync(path.join(d, '.devkit', 'verify-notice.json')), false);
+});
+
+test('R9: 러너가 없으면 스크립트를 추가하라고 하지 않는다 (원인 오보 금지)', () => {
+  // 🔴 unavailable 원인 3종이 하나로 뭉개져 있었다. 스크립트는 멀쩡히 있는데
+  // "스크립트를 추가하라"가 나가고, 그 뒤로는 세션당 1회 규칙 때문에 침묵했다.
+  // PATH를 비우면 훅 프로세스(node)조차 못 뜬다 — node만 있고 npm은 없는 PATH를 만든다.
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-bin-'));
+  verifyTmp.push(binDir);
+  fs.symlinkSync(process.execPath, path.join(binDir, 'node'));
+  const root = verifyProject({ typecheck: 'node -e ""' });
+  // typecheck만 켠다 — lint는 스크립트가 없어 no-script 문구가 같이 나오고, 그러면
+  // 이 테스트가 'typecheck의 원인 문구'가 아니라 'stdout 전체'를 보게 된다.
+  const { stdout } = runIn('stop-verify', { session_id: 's-r9' }, root, { PATH: binDir, DEVKIT_VERIFY: 'typecheck' });
+  assert.match(stdout, /실행할 수 없다/, '원인을 러너로 지목해야 한다');
+  assert.doesNotMatch(stdout, /스크립트를 찾지 못했다/, '있는 스크립트를 없다고 말하면 안 된다');
+});
+
+test('R10: tsc-on-edit은 스크립트가 없으면 침묵하지 않고 stderr에 남긴다', () => {
+  // 🔴 구버전은 스크립트 없이도 tsc를 직접 돌렸다. 훅을 명시적으로 켠 사용자에게
+  // 아무 신호 없이 죽는 건 회귀다.
+  const root = verifyProject({ build: 'echo hi' });
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  const r = runIn('tsc-on-edit', { tool_input: { file_path: path.join(root, 'src', 'c.ts') } },
+    root, { DEVKIT_TSC_ON_EDIT: '1' });
+  assert.equal(r.code, 0);
+  assert.match(r.stderr, /typecheck skipped/);
+});

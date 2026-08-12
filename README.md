@@ -123,10 +123,20 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `PreToolUse(Write\|Edit)` | `secret-guard` | 시크릿 감지 차단 |
 | `PreToolUse(Write\|Edit)` | `pdca-gate` | **PDCA 게이트** — ① 선행 산출물 없이 `GAP.md`·`REPORT.md` 쓰기 차단(`REVIEW.md` 없이 REPORT 불가) ② 상태 파일 스키마 강제 ③ 사이클 폴더에 `.md`/`.json` 아닌 파일 차단(시안·목업·PNG → **대안 경로 안내와 함께**) |
 | `PostToolUse(Write\|Edit)` | `post-edit-format` | 자동 prettier 포맷 |
-| `PostToolUse(Write\|Edit)` | `tsc-on-edit` | 타입체크 (opt-in — `DEVKIT_TSC_ON_EDIT=1`) |
+| `PostToolUse(Write\|Edit)` | `tsc-on-edit` | 타입체크 (opt-in — `DEVKIT_TSC_ON_EDIT=1`). `stop-verify`와 **같은 실행 계약**을 쓴다 |
 | `PostToolUse(Write\|Edit)` | `convention-observe` | 통과한 규칙 위반(no-any·console.log·`.tsx` 로직) 관측 기록 |
 | `PostToolUse(Bash)` | `bash-receipt` | 실행 receipt 봉인 — evidence 인용 대조의 근거 |
-| `Stop` | `stop-verify` | 종료 시 typecheck/lint 실행·보고 |
+| `Stop` | `stop-verify` | 종료 시 typecheck/lint 실행·보고. 패키지 매니저·스크립트명을 **감지**하고, **실행 실패와 진단을 구분**하며(설정 오류·타임아웃을 "타입 에러"라고 말하지 않는다), 단일 tsc 스크립트는 `--incremental`로 돌린다. 끄려면 `DEVKIT_VERIFY=off` |
+
+#### 검증 스위치
+
+| 변수 | 값 | 기본 | 의미 |
+|---|---|---|---|
+| `DEVKIT_VERIFY` | `off`/`0`/`false`/`no` · `typecheck` · `lint` · `typecheck,lint` | 켬(전부) | 상위 스위치. `off`면 `stop-verify`·`tsc-on-edit` 둘 다 완전 침묵 |
+| `DEVKIT_TSC_ON_EDIT` | `1` | 꺼짐 | 편집 직후 타입체크. `DEVKIT_VERIFY`가 꺼져 있으면 이것도 안 돈다 |
+| `DEVKIT_VERIFY_MODE` | `auto` · `script` | `auto` | `script`면 `--incremental` 직접 실행을 끄고 프로젝트 스크립트만 쓴다 |
+
+알 수 없는 값(`DEVKIT_VERIFY=ture` 같은 오타)은 **검증을 켜둔 채** stderr로 알린다 — 오타 하나로 검증이 조용히 꺼지는 쪽이 더 비싸다.
 
 **훅 설계 원칙**: 판정할 수 없으면 통과시킨다. 훅 자체의 버그가 작업 차단으로 이어지면 안 되므로, 파싱 실패·예상 못한 입력은 전부 fail-open이다.
 
@@ -141,6 +151,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | Template | `templates/ci.yml` | PR에서 typecheck/lint/test/시크릿/`pnpm audit` **머지 게이트** |
 | Template | `templates/pre-commit` | 세션 밖(사람 커밋) 시크릿·lint 방어 (`.githooks/`) |
 | Script | `scripts/verify-integrity.mjs` | 훅 공급망 변조 조기 탐지 |
+| Script | `scripts/bench-verify.mjs` | `--incremental` 재실행 속도 실측 (`--project <path>`). 대상 프로젝트의 typescript를 쓴다 — devkit은 TS를 설치하지 않는다 |
 | Script | `scripts/verify-evidence.mjs` | evidence 적합성 3층 보고 (ref 실존·인용 대조·커버리지). `/gap`이 부른다 — 플러그인 안에 있으므로 `${CLAUDE_PLUGIN_ROOT}` 경로로 호출 |
 | Observability | `.devkit/audit.jsonl` | 차단·통과위반·검증실패 기록 |
 | Observability | `.devkit/receipts.jsonl` | Bash 명령·출력 기록 (gitignore 대상, **알려진 키 형식 9종만 마스킹 — 그 외(`export K=V`·DB URL·Bearer 토큰 등)는 평문으로 남는다**, 끄려면 `DEVKIT_RECEIPTS=0`) |
