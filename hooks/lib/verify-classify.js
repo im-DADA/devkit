@@ -153,6 +153,27 @@ function clipDiagnostics(items, opts = {}) {
   };
 }
 
+/** status별로 무엇을 본문에 실을지. found는 진단만, failed는 원인 원문 그대로 */
+function bodyFor(kind, status, res) {
+  if (status === 'ok' || status === 'skipped' || status === 'unavailable') {
+    return { text: '', total: 0, truncated: false, items: [] };
+  }
+  const out = `${stripAnsi(res.stdout)}\n${stripAnsi(res.stderr)}`;
+  if (kind === 'typecheck') {
+    const { source, compiler } = parseTscDiagnostics(out);
+    const picked = status === 'found' ? source : compiler;
+    if (picked.length) {
+      const c = clipDiagnostics(picked.map((d) => d.raw));
+      return { text: c.text, total: c.total, truncated: c.truncated, items: picked };
+    }
+  }
+  const c = clipDiagnostics(out.split('\n').filter((l) => l.trim()));
+  return { text: c.text, total: c.total, truncated: c.truncated, items: lines(out) };
+}
+
+/** lint는 형식 파서가 없다 — 줄 자체가 진단 단위다(사이클 B 결정 5) */
+const lines = (out) => out.split('\n').filter((l) => l.trim()).map((raw) => ({ raw }));
+
 /**
  * 세션당 1회만 알린다. 같은 문장을 매 턴 반복하면 그 경고 전체가 무시된다
  * (session-start.js의 drift 경고가 남긴 교훈).
@@ -169,6 +190,6 @@ function shouldNotify(state, key, kind) {
 module.exports = {
   SCRIPT_CANDIDATES, LOCKFILES, TIMEOUTS, CLIP_DEFAULTS,
   stripAnsi, detectRunner, pickScript, parseTscDiagnostics,
-  classify, clipDiagnostics, shouldNotify,
+  classify, clipDiagnostics, bodyFor, shouldNotify,
   ...bypass,
 };

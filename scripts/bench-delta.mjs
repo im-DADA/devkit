@@ -112,6 +112,17 @@ process.stdout.write(
     + `감소: ${t1.bytes ? `${Math.round((1 - t2.bytes / t1.bytes) * 100)}%` : 'n/a'}\n`,
 );
 
+// 그래프 통계 — 열린 질문 Q3(alias 비중)·Q6(스캔 예산)을 닫는 데 쓴다
+let graph = null;
+let scanMs = null;
+try {
+  const { scopeFor } = await import(new URL('../hooks/lib/verify-scope.js', import.meta.url));
+  const s0 = Date.now();
+  const s = scopeFor(root, 'typecheck');
+  scanMs = Date.now() - s0;
+  graph = s.graph || null;
+} catch { /* 통계 실패가 측정을 막지 않는다 */ }
+
 // 마지막 한 줄은 항상 파싱 가능한 JSON. 절대경로는 basename만(사설 경로 유출 방지).
 process.stdout.write(
   `${JSON.stringify({
@@ -123,6 +134,9 @@ process.stdout.write(
     turn1Status: status,
     totalDiagnostics: total,
     turnMs: [t1.ms, t2.ms, t3 ? t3.ms : null],
+    // 결정 10이 "실측 가능하게 남긴다"고 한 값 — alias 비중(Q3)과 스캔 예산(Q6)을 여기서 잰다
+    graph,
+    scanMs,
     node: process.version,
     os: `${process.platform} ${process.arch}`,
     // 판정 기준: turn2 < turn1 (필수). --inject 시 turn3 > 0 (필수 —

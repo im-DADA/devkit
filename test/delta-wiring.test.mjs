@@ -234,3 +234,17 @@ test('H15: 공유 notice를 덮지 않는다 — lint 알림이 매 턴 반복�
   const third = turn(p.root, both);
   assert.equal(third.stdout.trim(), '', '3턴은 완전 침묵');
 });
+
+// DESIGN 배선: 외부 프로젝트가 필요한 측정이 CI를 깨지 않게 하되, 있으면 자동으로 돈다.
+// ⚠ 사이클 A의 GAP이 "skip 배선이 설계에만 있고 구현에 없었다"를 잡았다 — 같은 형태의 재발을 막는다.
+test('B9 bench: DEVKIT_BENCH_PROJECT가 있으면 실측, 없으면 skip', { skip: !process.env.DEVKIT_BENCH_PROJECT }, () => {
+  const r = spawnSync('node', [
+    path.join(dir, '..', 'scripts', 'bench-delta.mjs'),
+    '--project', process.env.DEVKIT_BENCH_PROJECT, '--inject',
+  ], { encoding: 'utf8', timeout: 600000 });
+  const json = JSON.parse((r.stdout || '').trim().split('\n').pop());
+  assert.equal(json.turn1Status, 'found', `측정 불가한 프로젝트다: ${json.turn1Status}`);
+  assert.equal(json.quieter, true, `2턴째가 더 조용하지 않다: ${JSON.stringify(json)}`);
+  assert.equal(json.stillReportsNew, true, '새 에러를 못 잡으면 조용해진 게 아니라 고장난 것이다');
+  assert.equal(json.onlyNewShown, true, '기존 진단이 다시 나오면 delta가 안 도는 것이다');
+});

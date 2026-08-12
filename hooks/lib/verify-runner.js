@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
   TIMEOUTS, LOCKFILES, stripAnsi, detectRunner, pickScript,
-  parseTscDiagnostics, classify, clipDiagnostics,
+  classify, bodyFor,
 } = require('./verify-classify');
 const { parseTscCommand, tsconfigBlocksBypass } = require('./tsc-bypass');
 const { acquire, release } = require('./single-flight');
@@ -83,27 +83,6 @@ function exec(cmd, args, { root, timeoutMs, env }) {
     durationMs: Date.now() - started,
   };
 }
-
-/** status별로 무엇을 본문에 실을지. found는 진단만, failed는 원인 원문 그대로 */
-function bodyFor(kind, status, res) {
-  if (status === 'ok' || status === 'skipped' || status === 'unavailable') {
-    return { text: '', total: 0, truncated: false, items: [] };
-  }
-  const out = `${stripAnsi(res.stdout)}\n${stripAnsi(res.stderr)}`;
-  if (kind === 'typecheck') {
-    const { source, compiler } = parseTscDiagnostics(out);
-    const picked = status === 'found' ? source : compiler;
-    if (picked.length) {
-      const c = clipDiagnostics(picked.map((d) => d.raw));
-      return { text: c.text, total: c.total, truncated: c.truncated, items: picked };
-    }
-  }
-  const c = clipDiagnostics(out.split('\n').filter((l) => l.trim()));
-  return { text: c.text, total: c.total, truncated: c.truncated, items: lines(out) };
-}
-
-/** lint는 형식 파서가 없다 — 줄 자체가 진단 단위다(사이클 B 결정 5) */
-const lines = (out) => out.split('\n').filter((l) => l.trim()).map((raw) => ({ raw }));
 
 /**
  * @param {string} root 검증 대상 패키지 루트
