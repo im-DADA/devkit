@@ -158,12 +158,33 @@ function clipDiagnostics(items, opts = {}) {
  * (session-start.js의 drift 경고가 남긴 교훈).
  * 상태가 깨져 있으면 **알리는 쪽으로 연다** — 이 사이클이 죽이려는 건 침묵 no-op이다.
  */
+// ⚠ 슬롯이 하나면 안 된다. 같은 레포에 두 세션이 붙으면 서로의 이력을 지워
+// **매 턴 반복**된다(실측: A1=158 A2=0 B1=177 → A3·B2·A4 전부 177). 반복은 이 함수가
+// 없애려던 바로 그 무시 학습이다. 여러 세션을 기억하되 무한히 자라지 않게 상한을 둔다.
+const MAX_NOTICE_SESSIONS = 8;
+
+/** 옛 형식 `{key, kinds}`도 읽는다 — 기존 사용자의 이력을 잃으면 한 번 더 떠든다 */
+function readSessions(state) {
+  if (!state || typeof state !== 'object') return { sessions: {}, order: [] };
+  if (state.sessions && typeof state.sessions === 'object') {
+    return { sessions: { ...state.sessions }, order: Array.isArray(state.order) ? [...state.order] : [] };
+  }
+  if (typeof state.key === 'string' && Array.isArray(state.kinds)) {
+    return { sessions: { [state.key]: [...state.kinds] }, order: [state.key] };
+  }
+  return { sessions: {}, order: [] };
+}
+
 function shouldNotify(state, key, kind) {
-  const valid = state && typeof state === 'object'
-    && typeof state.key === 'string' && Array.isArray(state.kinds);
-  if (!valid || state.key !== key) return { notify: true, nextState: { key, kinds: [kind] } };
-  if (state.kinds.includes(kind)) return { notify: false, nextState: state };
-  return { notify: true, nextState: { key, kinds: [...state.kinds, kind] } };
+  const { sessions, order } = readSessions(state);
+  const seen = Array.isArray(sessions[key]) ? sessions[key] : null;
+  if (seen && seen.includes(kind)) return { notify: false, nextState: { sessions, order } };
+
+  sessions[key] = seen ? [...seen, kind] : [kind];
+  const next = order.filter((k) => k !== key);
+  next.push(key); // 최근 사용 순 — 오래된 것부터 버린다
+  while (next.length > MAX_NOTICE_SESSIONS) delete sessions[next.shift()];
+  return { notify: true, nextState: { sessions, order: next } };
 }
 
 module.exports = {

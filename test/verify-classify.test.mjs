@@ -294,3 +294,34 @@ test('TIMEOUTS 상한이 hooks.json 예산 안에 들어간다', () => {
     `kind 상한 합(${TIMEOUTS.typecheck + TIMEOUTS.lint})이 Stop 예산(${stopTimeout}) 안이어야 함`,
   );
 });
+
+// ── 두 세션 핑퐁 (사이클 B가 새로 만든 결함) ──────────────────────
+// 알림 슬롯이 하나뿐이고 키가 session_id라, 같은 레포에 두 세션이 붙으면 서로의 이력을
+// 지워 매 턴 반복된다. 실측: A1=158 A2=0 B1=177 **A3=177 B2=177 A4=177**.
+// 반복은 이 기능이 없애려던 바로 그 무시 학습이다.
+
+test('P20: 두 세션이 교차해도 각자 1회만 알린다', () => {
+  let s = null;
+  const step = (key) => { const r = shouldNotify(s, key, 'typecheck'); s = r.nextState; return r.notify; };
+  assert.equal(step('A'), true, 'A 첫 턴');
+  assert.equal(step('A'), false, 'A 두 번째는 침묵');
+  assert.equal(step('B'), true, 'B는 처음이니 알린다');
+  assert.equal(step('A'), false, 'B가 끼어들어도 A의 이력이 살아 있어야 한다');
+  assert.equal(step('B'), false);
+  assert.equal(step('A'), false);
+});
+
+test('P21: 세션 이력은 상한이 있고 오래된 것부터 버린다', () => {
+  let s = null;
+  for (let i = 0; i < 20; i++) s = shouldNotify(s, 'sess-' + i, 'typecheck').nextState;
+  const size = JSON.stringify(s).length;
+  assert.ok(size < 800, '상태가 무한히 자라면 안 된다: ' + size);
+  assert.equal(shouldNotify(s, 'sess-19', 'typecheck').notify, false, '최근 세션은 기억한다');
+});
+
+test('P22: 옛 형식({key,kinds}) 상태도 읽는다 (기존 사용자 무손실)', () => {
+  const legacy = { key: 'A', kinds: ['typecheck'] };
+  assert.equal(shouldNotify(legacy, 'A', 'typecheck').notify, false, '옛 이력을 잃으면 한 번 더 떠든다');
+  assert.equal(shouldNotify(legacy, 'A', 'lint').notify, true);
+  assert.equal(shouldNotify(legacy, 'B', 'typecheck').notify, true);
+});

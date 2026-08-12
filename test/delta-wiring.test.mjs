@@ -294,3 +294,15 @@ test('H17: lint 요약 줄은 진단으로 세지 않는다 (거짓 "새 진단"
   const { stdout } = turn(p.root, both);
   assert.doesNotMatch(stdout, /새 진단/, `고쳤는데 새 진단이 떴다: ${stdout}`);
 });
+
+test('H18: 두 세션이 교차해도 각자 1회만 알린다 (핑퐁 회귀 방지)', () => {
+  // 실측으로 발견됐던 결함. 순수층(P20)만으로는 stop-verify가 상태를 어떻게 저장하는지
+  // 못 본다 — 배선까지 봐야 한다.
+  const p = deltaProject([ERR1, ERR2]);
+  turn(p.root, {}, 'A');
+  assert.equal(turn(p.root, {}, 'A').stdout.trim(), '', 'A 두 번째는 침묵');
+  assert.notEqual(turn(p.root, {}, 'B').stdout.trim(), '', 'B는 처음이니 알린다');
+  assert.equal(turn(p.root, {}, 'A').stdout.trim(), '', 'B가 끼어들어도 A는 계속 침묵');
+  assert.equal(turn(p.root, {}, 'B').stdout.trim(), '');
+  assert.equal(turn(p.root, {}, 'A').stdout.trim(), '');
+});
