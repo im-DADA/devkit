@@ -66,7 +66,7 @@ function scanSources(root, opts = {}) {
 
   while (stack.length) {
     if (files.length > maxFiles || Date.now() - started > maxMs) {
-      return { ok: false, reason: 'budget', files: [] };
+      return { ok: false, reason: 'budget', files: [], scanned: files.length };
     }
     let entries;
     try {
@@ -75,6 +75,12 @@ function scanSources(root, opts = {}) {
       continue; // 못 읽는 디렉터리는 건너뛴다(권한 등)
     }
     for (const e of entries) {
+      // ⚠ 예산 검사가 디렉터리 **사이**에만 있으면 실질적으로 미시행이다 — 한 디렉터리에
+      // 3만 파일이 있으면 상한의 7.5배(11.2초)·15배(RSS 1.28GB)를 쓰고 나서야 포기한다.
+      // 상수가 계약을 말하려면 안에서도 봐야 한다.
+      if (files.length > maxFiles || Date.now() - started > maxMs) {
+        return { ok: false, reason: 'budget', files: [], scanned: files.length };
+      }
       const full = path.join(e.parentPath || e.path, e.name);
       if (e.isSymbolicLink()) continue; // 루트 이탈·순환 방지
       if (e.isDirectory()) {
@@ -93,7 +99,7 @@ function scanSources(root, opts = {}) {
       }
     }
   }
-  if (files.length > maxFiles) return { ok: false, reason: 'budget', files: [] };
+  if (files.length > maxFiles) return { ok: false, reason: 'budget', files: [], scanned: files.length };
   return { ok: true, files };
 }
 

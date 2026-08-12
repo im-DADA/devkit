@@ -306,3 +306,17 @@ test('H18: 두 세션이 교차해도 각자 1회만 알린다 (핑퐁 회귀 �
   assert.equal(turn(p.root, {}, 'B').stdout.trim(), '');
   assert.equal(turn(p.root, {}, 'A').stdout.trim(), '');
 });
+
+test('H19: 기준선 쓰기는 보고 출력보다 **뒤**에 있다 (구조 고정)', () => {
+  // 🔴 리스크의 1차 완화인데 뮤테이션이 살아남았다 — H 테스트는 결과만 보고 순서를 못 본다.
+  // 순서가 뒤집히면 훅이 stdout 직전에 죽었을 때 그 진단이 **영원히 침묵**한다.
+  // 실행으로 재현할 수 없는 종류(프로세스를 정확한 시점에 죽여야 한다)라 구조로 고정한다.
+  const src = fs.readFileSync(hook('stop-verify'), 'utf8');
+  const writeOut = src.indexOf('process.stdout.write(');
+  const writeBase = src.indexOf('for (const p of pending) writeBaseline(');
+  assert.ok(writeOut > 0 && writeBase > 0, '두 지점을 찾지 못했다');
+  assert.ok(
+    writeBase > writeOut,
+    '기준선을 먼저 쓰면 훅이 죽었을 때 그 진단이 영원히 침묵한다',
+  );
+});

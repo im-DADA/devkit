@@ -169,3 +169,15 @@ test('S11: 브랜치명이 -b 헤더에서 나오고 detached에서도 throw하�
   assert.doesNotThrow(() => scopeFor(root, 'typecheck'));
   assert.ok(typeof scopeFor(root, 'typecheck').branch === 'string');
 });
+
+test('S12: 한 디렉터리 안에서도 예산을 지킨다 — 다 읽고 나서 포기하지 않는다', () => {
+  // 예산 검사가 디렉터리 **사이**에만 있으면 결과(ok:false)는 같지만 3만 파일을 다 읽고
+  // 나서야 포기한다(실측 11.2초 · RSS 1.28GB). 결과가 같으니 뮤테이션이 살아남았다 —
+  // "언제 멈추는가"를 관측 가능하게 만들어야 계약이 잡힌다.
+  const root = makeRepo();
+  for (let i = 0; i < 50; i++) write(root, `src/f${i}.ts`, `export const f${i} = 1;`);
+  const r = scanSources(root, { maxFiles: 5 });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'budget');
+  assert.ok(r.scanned <= 7, `상한 5인데 ${r.scanned}개를 읽었다 — 다 읽고 나서 포기한 것이다`);
+});

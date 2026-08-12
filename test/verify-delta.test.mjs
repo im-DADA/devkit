@@ -199,10 +199,29 @@ test('lint delta도 같은 계약으로 돈다', () => {
 });
 
 // ── D15~D16 순수성·재사용 ──────────────────────────────────────────
-test('D15: verify-delta.js는 fs·child_process를 require하지 않는다', () => {
+test('D15: verify-delta.js는 fs·child_process를 실제로 로드하지 않는다', () => {
+  // ⚠ 소스 grep은 위조된다 — `const _fs = require('fs')`를 넣어도 통과했다(리뷰가 실증).
+  // 로드된 모듈 그래프를 본다. 'fs'든 'node:fs'든 표기와 무관하게 잡힌다.
+  const fresh = createRequire(import.meta.url);
+  const key = fresh.resolve(modPath);
+  delete fresh.cache[key];
+  fresh(modPath);
+  const seen = new Set();
+  const walk = (m) => {
+    if (!m || seen.has(m.id)) return;
+    seen.add(m.id);
+    for (const child of m.children || []) walk(child);
+  };
+  walk(fresh.cache[key]);
+  const loaded = [...seen].map((id) => id.replace(/\\/g, '/'));
+  assert.equal(
+    loaded.some((id) => /\/hooks\/lib\//.test(id) === false && id !== key), false,
+    `플러그인 밖 모듈을 로드했다: ${loaded.filter((id) => !/\/hooks\/lib\//.test(id))}`,
+  );
+  // builtin은 children에 안 잡히므로 소스 검사도 남긴다(2중 방어)
   const src = fs.readFileSync(modPath, 'utf8');
-  assert.doesNotMatch(src, /require\(['"]node:fs['"]\)/);
-  assert.doesNotMatch(src, /require\(['"]node:child_process['"]\)/);
+  assert.doesNotMatch(src, /require\(['"](node:)?fs['"]\)/);
+  assert.doesNotMatch(src, /require\(['"](node:)?child_process['"]\)/);
 });
 
 test('D16: 새 진단 파서를 만들지 않았다 — 소스에 TS 진단 정규식이 없다', () => {
