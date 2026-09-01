@@ -185,35 +185,45 @@ test('B13: /report 하드 게이트에 REVIEW.md + 아카이빙 경로·수령 �
   for (const [re, why] of must) assert.match(src, re, `commands/report.md: ${why} 누락`);
 });
 
-// ── 부재 증명 금지 ───────────────────────────────────────────
-// 실사용 보고: 몇 군데 훑고 "없다"고 단정 → 실제로는 instrumentation.ts에 있었고,
+// ── 확신에 찬 부정 금지 ───────────────────────────────────────
+// 실사용 보고: 몇 군데 훑고 "안 된다"고 단정 → 실제로는 instrumentation.ts에 있었고,
 // 지적받고도 확인 없이 두 번째 추측을 얹었다. 기존 "추측 금지"가 이걸 못 잡는 이유는
-// 모델이 **grep을 돌렸으니 추측이 아니라고 믿기** 때문이다 — 그 grep이 준 근거는
-// 세상이 아니라 자기 grep에 대한 것이다. 그래서 별도 규칙이고, 별도 테스트다.
-test('A1: RULES가 부재 주장을 별도로 금지하고, 숨는 자리를 준다', () => {
+// 모델이 **찾아는 봤으니 추측이 아니라고 믿기** 때문이다 — 그 탐색이 준 근거는
+// 세상이 아니라 자기 탐색에 대한 것이다. 그래서 별도 규칙이고, 별도 테스트다.
+test('A1: 도메인·주장 형태를 안 가린다 (좁게 쓰면 그 도메인에서만 지켜진다)', () => {
   const rules = read('RULES.md');
-  assert.match(rules, /부재 증명 금지/, 'RULES.md: 부재 증명 금지 규칙 없음');
-  assert.match(rules, /grep을 돌렸으니 추측이 아니다/, 'RULES.md: 이 규칙이 따로 필요한 이유가 없다');
-  for (const spot of ['instrumentation', 'middleware', 'postinstall', 'Dockerfile']) {
-    assert.match(rules, new RegExp(spot), `RULES.md: 숨는 자리 "${spot}" 누락`);
+  assert.match(rules, /확신에 찬 부정 금지/, 'RULES.md: 규칙 없음');
+  // ⚠ 이게 이 테스트의 핵심이다. 처음 쓸 때 사례가 마이그레이션이라 규칙까지
+  // "부재(없다)" + "마이그레이션"으로 좁아졌다 — 사용자가 그 자리에서 잡았다.
+  for (const form of ['안 된다', '불가능', '지원 안 한다']) {
+    assert.match(rules, new RegExp(form), `RULES.md: 부정 형태 "${form}"가 대상에서 빠졌다`);
   }
+  assert.match(rules, /도메인도 가리지 않는다|도메인 무관/, 'RULES.md: 도메인 일반성이 없다');
+  assert.match(rules, /규칙은 마이그레이션 규칙이 아니다/, 'RULES.md: 사례가 규칙을 좁히는 것을 막는 문장이 없다');
 });
 
-// 규칙의 절반은 **보고 형식**이다. "없다"는 사용자가 반박할 근거를 안 주지만
-// "어디를 봤는데 안 나왔다"는 탐색이 좁았음을 드러내 즉시 교정된다.
-test('A2: 부재 보고 형식과 사용자 우위를 명시한다', () => {
+// 목록은 외우는 순간 그 목록 밖에서 뚫린다. 도메인 무관한 판정법이 있어야 한다.
+test('A2: 체크리스트가 아니라 판정법을 준다', () => {
   const rules = read('RULES.md');
-  assert.match(rules, /어디를 봤는데 안 나왔다/, 'RULES.md: 부재 보고 형식이 없다');
+  assert.match(rules, /틀리려면 무엇이 있어야 하나/, 'RULES.md: 도메인 무관 판정법이 없다');
+  assert.match(rules, /찾아는 봤으니 추측이 아니다/, 'RULES.md: 이 규칙이 따로 필요한 이유가 없다');
+  assert.match(rules, /숨는 자리는 도메인마다 다르므로/, 'RULES.md: 목록이 판정법 자리를 차지하고 있다');
+});
+
+test('A3: 보고 형식과 사용자 우위를 명시한다', () => {
+  const rules = read('RULES.md');
+  assert.match(rules, /어디까지 봤는데 안 나왔다/, 'RULES.md: 부정 보고 형식이 없다');
   assert.match(rules, /내 탐색 결과보다 강한 증거/, 'RULES.md: 사용자 진술이 우선한다는 문장이 없다');
   const summary = (rules.match(/<!-- SUMMARY:START -->([\s\S]*?)<!-- SUMMARY:END -->/) || [])[1];
   assert.ok(summary, 'SUMMARY 블록 없음');
-  assert.match(summary, /부재 단정/, 'SUMMARY: 매 세션 보이는 자리에 없다');
+  assert.match(summary, /확신에 찬 부정/, 'SUMMARY: 매 세션 보이는 자리에 없다');
+  assert.match(summary, /안 된다/, 'SUMMARY: 부재로만 좁아졌다');
 });
 
-// gap-detector는 직업 자체가 부재 판정(❌ 누락)이라 이 실패의 진앙이다.
-test('A3: gap-detector가 ❌ 누락을 주기 전에 탐색 범위를 되묻게 한다', () => {
+// gap-detector는 직업 자체가 부정 판정(❌ 누락)이라 이 실패의 진앙이다.
+test('A4: gap-detector가 ❌ 누락을 주기 전에 탐색 범위를 되묻게 한다', () => {
   const src = read('agents/gap-detector.md');
-  assert.match(src, /"없음"은 "못 찾음"보다 훨씬 비싼 주장/, 'gap-detector.md: 부재 경고 없음');
+  assert.match(src, /"없음"은 "못 찾음"보다 훨씬 비싼 주장/, 'gap-detector.md: 부정 경고 없음');
   assert.match(src, /어디를 봤는지/, 'gap-detector.md: 탐색 범위 자문 문장 없음');
 });
 
