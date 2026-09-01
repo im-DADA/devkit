@@ -92,6 +92,26 @@ test('dep-guard: 승인 에스케이프(DEVKIT_ALLOW_DEP=1)는 통과', () => {
   assert.equal(dep('cd /x && DEVKIT_ALLOW_DEP=1 pnpm add foo'), 0);
 });
 
+// 실사용 보고: bare install이 차단됐다. 원인은 `2>&1`의 `2`가 패키지 이름으로 읽힌 것.
+// `> /dev/null`은 통과하고 `2>&1`만 걸려서 눈에 안 띄었다 — `>`는 패키지 문자셋 밖이지만
+// `2`는 \w다. 기존 테스트가 전부 리다이렉트 없는 형태라 이 구멍을 못 봤다.
+test('dep-guard: 리다이렉트가 붙은 bare install은 통과 (2>&1의 2를 패키지로 읽지 않는다)', () => {
+  assert.equal(dep('pnpm i 2>&1 | tail -5'), 0);
+  assert.equal(dep('pnpm install 2>&1 | tail -20'), 0);
+  assert.equal(dep('cd /x && pnpm i 2>&1 | tail -3'), 0);
+  assert.equal(dep('pnpm install --frozen-lockfile 2>&1'), 0);
+  assert.equal(dep('pnpm install > /dev/null'), 0);
+  assert.equal(dep('npm ci 2>&1 | tail'), 0);
+});
+
+// 리다이렉트를 떼는 것이 차단을 뚫는 우회로가 되면 안 된다 — 오탐을 고치려다 미탐을 만들면
+// 이 훅은 존재 이유를 잃는다.
+test('dep-guard: 리다이렉트가 붙어도 진짜 추가는 여전히 차단', () => {
+  assert.equal(dep('pnpm add exceljs 2>&1 | tail'), 2);
+  assert.equal(dep('npm install --save-dev jest > /dev/null'), 2);
+  assert.equal(dep('pnpm add 2>&1 exceljs'), 2);
+});
+
 test('dep-guard: 비설치 명령 오탐 없음', () => {
   assert.equal(dep(`node -e "require('exceljs')"`), 0);
   assert.equal(dep('ls node_modules/exceljs'), 0);

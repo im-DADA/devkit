@@ -33,11 +33,23 @@ const ADD = [
   new RegExp(`\\bbun\\s+add${PKG.source}`, 'i'),
 ];
 
-if (ADD.some((re) => re.test(cmd))) {
+// ⚠ 리다이렉션은 인자가 아니다. 떼지 않으면 `2>&1`의 `2`가 패키지 이름으로 읽혀
+// **bare install이 "새 의존성"으로 차단된다**(실사용에서 발견). `>`는 패키지 문자셋에 없어
+// `> /dev/null`은 통과하는데 `2`는 \w라서 걸리는, 눈에 안 띄는 구멍이었다.
+// 순서가 중요하다 — `>&` 형태를 먼저 떼지 않으면 뒤 규칙이 `&`를 못 넘어 그대로 남는다.
+// ⚠ heredoc 본문은 일부러 안 뗀다. 떼면 `cat <<EOF | sh` 안에 설치 명령을 숨길 수 있다 —
+// 오탐은 한 번 막히고 끝이지만 미탐은 이 훅의 존재 이유를 없앤다.
+const stripRedirects = (c) => c
+  .replace(/\d*>>?\s*&\s*\d*/g, ' ')    // 2>&1, >&2
+  .replace(/\d*>>?\s*[^\s;|&]+/g, ' ')  // > out.txt, 2> err.log
+  .replace(/<\s*[^\s;|&]+/g, ' ');      // < in.txt
+
+if (ADD.some((re) => re.test(stripRedirects(cmd)))) {
   record({ hook: 'dep-guard', action: 'blocked', reason: 'new dependency', command: cmd });
   process.stderr.write(
     `[devkit] 새 의존성 추가 감지 → 사용자 승인 필요.\n대상: ${cmd}\n` +
     `사용자에게 왜 필요한지 먼저 묻고, 승인되면 명령 앞에 DEVKIT_ALLOW_DEP=1 을 붙여 실행하세요.\n` +
+    `⚠ 이 차단을 피하려고 라이브러리 없는 설계로 돌아가지 마세요 — 묻는 것이 이 훅의 목적입니다.\n` +
     `예: DEVKIT_ALLOW_DEP=1 pnpm add <pkg>\n`
   );
   process.exit(2);

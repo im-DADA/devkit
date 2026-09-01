@@ -185,6 +185,32 @@ test('B13: /report 하드 게이트에 REVIEW.md + 아카이빙 경로·수령 �
   for (const [re, why] of must) assert.match(src, re, `commands/report.md: ${why} 누락`);
 });
 
+// ── 의존성 규칙은 양면이어야 한다 ─────────────────────────────
+// 실사용 보고: "패키지 추가는 승인이 필요하니 없는 방향으로 만들겠습니다"라며 설계를 조용히
+// 좁혔다. 원인은 규칙이 **추가에만 비용을 매기는 한쪽 문장**이었다는 것 — 그러면 게이트를
+// 안 건드리는 설계가 가장 싼 길이 된다. dep-guard 훅은 `pnpm add`를 실제로 시도해야
+// 발동하므로, 이 실패 모드에서는 훅이 원리적으로 안 보인다. 문장으로만 막을 수 있다.
+test('D1: 의존성 규칙이 "우회 금지"까지 말한다 (한쪽 면이면 우회가 최적해가 된다)', () => {
+  const rules = read('RULES.md');
+  const summary = (rules.match(/<!-- SUMMARY:START -->([\s\S]*?)<!-- SUMMARY:END -->/) || [])[1];
+  assert.ok(summary, 'SUMMARY 블록 없음');
+  for (const [src, where] of [[summary, 'RULES SUMMARY'], [rules, 'RULES.md']]) {
+    assert.match(src, /우회|조용히/, `${where}: 의존성 우회를 금지하는 문장이 없다`);
+  }
+  assert.match(rules, /선택지가 있었다는/, 'RULES.md: 우회의 비용(사용자가 모른다)이 없다');
+});
+
+test('D2: architect가 승인 비용을 트레이드오프로 쓰지 못하게 한다', () => {
+  const src = read('agents/architect.md');
+  assert.match(src, /승인 비용은 트레이드오프가 아니다/, 'architect.md: 승인 비용 배제 문장 없음');
+  assert.match(src, /대가/, 'architect.md: 의존성 없이 갈 때의 대가를 적으라는 문장 없음');
+});
+
+test('D3: dep-guard 차단 메시지가 우회를 막는다', () => {
+  const src = read('hooks/dep-guard.js');
+  assert.match(src, /라이브러리 없는 설계로 돌아가지/, 'dep-guard.js: 우회 금지 문장 없음');
+});
+
 // 문서에 박힌 상태값이 코드 enum 밖으로 흘러나가면 훅이 정상 작업을 차단한다.
 test('B13: 문서의 stage·status 리터럴이 코드 enum 안에 있다', () => {
   const docs = ['RULES.md', ...fs.readdirSync(path.join(root, 'commands')).map((f) => `commands/${f}`)];
