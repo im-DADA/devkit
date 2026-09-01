@@ -119,7 +119,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `UserPromptSubmit` | `pdca-detect` | 기능 요청 감지 → 사이클 규약 안내 (차단 없이 주입만) |
 | `PreToolUse(Bash)` | `bash-guard` | 위험 명령 차단 |
 | `PreToolUse(Bash)` | `dep-guard` | 새 의존성 설치 차단 |
-| `PreToolUse(Write\|Edit)` | `protected-file` | 보호 파일(.env·lockfile·.git) 편집 차단 |
+| `PreToolUse(Write\|Edit)` | `protected-file` | 보호 파일(.env·lockfile·.git) 편집 차단. **`.env`는 통째 덮어쓰기만 막는다** — Edit·신규 생성·`>>` 추가는 통과 |
 | `PreToolUse(Write\|Edit)` | `secret-guard` | 시크릿 감지 차단 |
 | `PreToolUse(Write\|Edit)` | `pdca-gate` | **PDCA 게이트** — ① 선행 산출물 없이 `GAP.md`·`REPORT.md` 쓰기 차단(`REVIEW.md` 없이 REPORT 불가) ② 상태 파일 스키마 강제 ③ 사이클 폴더에 `.md`/`.json` 아닌 파일 차단(시안·목업·PNG → **대안 경로 안내와 함께**) |
 | `PostToolUse(Write\|Edit)` | `post-edit-format` | 자동 prettier 포맷 |

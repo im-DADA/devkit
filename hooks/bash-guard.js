@@ -2,7 +2,7 @@
 // PreToolUse(Bash): 위험 명령 차단. 매칭되면 exit 2 (stderr에 사유) → 도구 실행 거부됨.
 const fs = require('node:fs');
 const { record } = require('./lib/audit');
-const { matchProtected } = require('./lib/protected-patterns');
+const { blockedFor } = require('./lib/protected-patterns');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -43,10 +43,16 @@ const PATTERNS = [
 ];
 
 // 리다이렉트/tee로 보호 파일(.env·lockfile·.git)에 쓰는 것 차단 (protected-file 훅의 Bash 우회 방지).
+// ⚠ 자르기(`>`·`tee`)와 덧붙이기(`>>`·`tee -a`)를 가른다 — `.env`는 통째 대체만 막는다.
+// 여기선 파일 존재를 확인하지 않는다(명령의 cwd를 모른다). `>` .env는 존재하면 소실이므로
+// 항상 막고, 새로 만들 일이 있으면 Write가 통과시킨다.
+const REDIRECT = /(>>?|\btee\b(?:\s+-a\b)?)\s*([^\s;|&>]+)/g;
+
 function redirectToProtected(c) {
-  const targets = [...c.matchAll(/(?:>>?|\btee\b(?:\s+-a)?)\s*([^\s;|&>]+)/g)].map((m) => m[1].replace(/^["']|["']$/g, ''));
-  for (const t of targets) {
-    const p = matchProtected(t);
+  for (const m of c.matchAll(REDIRECT)) {
+    const append = m[1] === '>>' || /-a\b/.test(m[1]);
+    const target = m[2].replace(/^["']|["']$/g, '');
+    const p = blockedFor(target, { overwrite: !append });
     if (p) return p.why;
   }
   return null;

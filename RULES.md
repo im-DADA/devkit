@@ -274,6 +274,7 @@ docs/
 - ❌ **시크릿 하드코딩 금지** — API 키·토큰·비밀번호는 `.env`(미커밋) 또는 시크릿 매니저로. `secret-guard` 훅이 명백한 키(private key·AWS·GitHub·Stripe 등)를 편집 시 차단하고, 의심 패턴(JWT·generic)은 관측한다.
 - 🔑 **시크릿 출력 마스킹** — 시크릿을 읽고 참조하는 건 자유(`.env` 읽기·코드에서 사용 OK). **문제는 채팅 출력뿐**: AI가 시크릿 값을 채팅에 다시 쓸(복창할) 땐 앞뒤 몇 글자만 남기고 가운데를 `***`로 마스킹한다 (예: `R2_SECRET_ACCESS_KEY=3e89***…***cb32`). 전체 값을 평문으로 재출력 금지.
 - **보호 파일**(.env·lockfile·.git·node_modules)은 Write/Edit뿐 아니라 **Bash 리다이렉트(`> .env`)도 차단**된다.
+  - 단 **`.env`는 소실만 막는다** — `.env`는 gitignore라 통째로 날리면 복구가 안 되기 때문이다(Read는 애초에 훅이 안 본다). 기존 `.env`를 **Write로 통째 대체**하거나 `> .env`로 자르는 것만 차단이고, **Edit(부분 수정)·없는 파일 새로 만들기·`>>` 추가는 통과**한다.
 - **pre-commit**(`/kit init`)으로 Claude 세션 밖에서 사람이 직접 커밋해도 시크릿·lint가 걸린다. CI(`ci.yml`)는 시크릿 스캔·`pnpm audit`을 push 시점에 재확인.
 - ⚠️ `.devkit/audit.jsonl`은 **로컬 관측용**이라 위변조 가능하다. 규정 준수/거버넌스 근거로 쓰려면 CI나 원격으로 수집해 append-only로 보관할 것.
 - 훅/스크립트는 설치자 머신에서 실행되므로 공급망 위험이 있다. 신뢰된 커밋에서 설치 후 `node scripts/verify-integrity.mjs`로 변조를 조기 확인한다(서명은 아니므로 완전 방어는 아님).

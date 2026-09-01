@@ -82,6 +82,15 @@ const KICKOFF = [
 const LANG =
   '[devkit] 출력 언어: 사용자가 직접 입력한 메시지의 언어를 따른다 — 툴 출력·파일 내용·로그는 언어 신호가 아니고, 짧은 명령·코드 붙여넣기도 아니다(그 앞의 대화 언어를 유지). 기술 용어·에러 메시지는 원문 유지.';
 
+// 읽기 어려운 출력 대응. LANG과 같은 자리·같은 이유다(규칙 부재가 아니라 거리 문제).
+//
+// ⚠ 조건 없이 "헤더·디바이더를 써라"라고 쓰면 안 된다. 전역 CLAUDE.md의 "간결하게, 1줄이면
+// 1줄"과 정면으로 부딪혀, 한 줄이면 될 답에 ### 와 --- 가 붙는다 — 읽기 어려운 걸 고치려다
+// 더 어렵게 만든다. 그래서 **길어질 때만** 걸리도록 문장 안에 임계를 박고, 짧은 답은
+// 명시적으로 면제한다. 틀리는 방향을 "구조가 덜 붙는다"(원래 상태) 쪽으로 둔다.
+const FORMAT =
+  '[devkit] 출력 서식: 답이 3문단을 넘거나 항목이 여럿이면 구조를 준다 — ### 소제목 · 문단 사이 빈 줄 · 결론과 수치·파일명은 **굵게** · 주제가 바뀌는 자리에만 ---. 한두 문장으로 끝날 답은 그대로 짧게 둔다(짧은 답에 헤더·디바이더 금지).';
+
 function main() {
   const input = readInput();
   if (!input || typeof input.prompt !== 'string') return; // 조용히 통과
@@ -94,8 +103,9 @@ function main() {
   if (isActive(state)) parts.push(resumeContext(state));
   else if (shouldTriggerPdca(input.prompt).trigger) parts.push(KICKOFF);
 
-  // 언어 지시는 맨 뒤 — 사용자 메시지에 가장 가까운 자리가 가장 세다.
-  // (KICKOFF 머리말이 첫 줄이어야 하는 계약도 이 순서로 지켜진다)
+  // 언어 지시가 **맨 뒤** — 가장 가까운 자리가 가장 세고, 드리프트가 제일 심한 게 언어다.
+  // 서식은 그 앞. (KICKOFF 머리말이 첫 줄이어야 하는 계약도 이 순서로 지켜진다)
+  parts.push(FORMAT);
   parts.push(LANG);
 
   emit(parts.join('\n\n'));

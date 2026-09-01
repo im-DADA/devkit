@@ -26,7 +26,7 @@ function run(name, input) {
 }
 const bash = (command) => run('bash-guard', { tool_input: { command } });
 const dep = (command) => run('dep-guard', { tool_input: { command } });
-const prot = (file) => run('protected-file', { tool_input: { file_path: file } });
+const prot = (file, tool = 'Write') => run('protected-file', { tool_name: tool, tool_input: { file_path: file } });
 const secret = (content) => run('secret-guard', { tool_input: { file_path: 'x.ts', content } });
 
 test('bash-guard: 위험 명령 차단(exit 2)', () => {
@@ -52,9 +52,16 @@ test('bash-guard: 줄바꿈 우회 정규화 후 차단', () => {
 
 test('bash-guard: 리다이렉트로 보호파일 쓰기 차단', () => {
   assert.equal(bash('echo "K=1" > .env'), 2);
-  assert.equal(bash('printf x >> apps/web/.env.local'), 2);
   assert.equal(bash('cat foo | tee pnpm-lock.yaml'), 2);
   assert.equal(bash('echo hi > ./out.txt'), 0); // 일반 파일은 허용
+});
+
+// `.env`가 막는 건 소실뿐이다(Read는 훅이 안 본다). 덧붙이기는 기존 값을 못 지운다.
+test('bash-guard: .env 덧붙이기는 허용, 자르기는 차단', () => {
+  assert.equal(bash('printf x >> apps/web/.env.local'), 0);
+  assert.equal(bash('cat foo | tee -a .env'), 0);
+  assert.equal(bash('cat foo | tee .env'), 2);
+  assert.equal(bash('printf x >> pnpm-lock.yaml'), 2); // lockfile은 덧붙이기도 금지
 });
 
 test('secret-guard: 명백한 키 차단 / 일반 코드 허용', () => {
@@ -92,12 +99,25 @@ test('dep-guard: 비설치 명령 오탐 없음', () => {
 });
 
 test('protected-file: 시크릿/lockfile/.git 차단', () => {
-  assert.equal(prot('.env'), 2);
-  assert.equal(prot('apps/web/.env.local'), 2);
   assert.equal(prot('pnpm-lock.yaml'), 2);
   assert.equal(prot('.git/config'), 2);
   assert.equal(prot('node_modules/x/index.js'), 2);
   assert.equal(prot('src/app.ts'), 0);
+});
+
+// .env는 **통째 대체만** 막는다. Read가 애초에 안 막히므로 이 규칙이 지키는 건 유출이
+// 아니라 소실이고, Edit·신규 생성은 소실을 만들 수 없다.
+test('protected-file: .env는 덮어쓰기만 차단 — Edit·신규 생성은 허용', () => {
+  const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-envguard-')));
+  const f = path.join(d, '.env');
+  try {
+    assert.equal(prot(f, 'Write'), 0, '없는 .env를 새로 만드는 Write');
+    fs.writeFileSync(f, 'K=1\n');
+    assert.equal(prot(f, 'Write'), 2, '기존 .env 통째 덮어쓰기');
+    assert.equal(prot(f, 'Edit'), 0, '기존 .env 부분 수정');
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
 });
 
 // ── bash-receipt (B9) ────────────────────────────────────────

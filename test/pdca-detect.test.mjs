@@ -269,6 +269,66 @@ test('B7: 언어 지시는 1행 200자 이내 (주입 비용 상한)', () => {
   assert.ok(line.length <= 200, `언어 지시가 너무 길다(${line.length}자): ${line}`);
 });
 
+// ── 출력 서식 ────────────────────────────────────────────────
+// 같은 메커니즘·같은 자리. 위험은 반대 방향이다: 조건 없이 "헤더를 써라"라고 하면
+// 한 줄이면 될 답에 ### 와 --- 가 붙어 더 읽기 나빠진다. 그래서 임계와 면제를 강제한다.
+function fmtLine(stdout) {
+  const ctx = JSON.parse(stdout).hookSpecificOutput.additionalContext;
+  const line = ctx.split('\n').find((l) => /출력 서식/.test(l));
+  assert.ok(line, `서식 지시를 찾지 못했다: ${ctx.slice(0, 200)}`);
+  return line;
+}
+
+test('F1: 평범한 프롬프트에도 서식 지시가 주입되고, 언어 지시와 공존한다', () => {
+  const cwd = makeRoot();
+  const { code, stdout } = run({ prompt: '이거 왜 이래?', cwd });
+  assert.equal(code, 0);
+  fmtLine(stdout);
+  langLine(stdout); // 서식을 넣느라 언어가 밀려나면 안 된다
+});
+
+test('F2: 언어 지시가 서식보다 뒤에 온다 (가장 가까운 자리는 언어 몫)', () => {
+  const cwd = makeRoot();
+  const ctx = JSON.parse(run({ prompt: '이거 왜 이래?', cwd }).stdout)
+    .hookSpecificOutput.additionalContext;
+  const lines = ctx.split('\n').filter(Boolean);
+  assert.ok(
+    lines.findIndex((l) => /출력 서식/.test(l)) < lines.findIndex((l) => /출력 언어/.test(l)),
+    '언어 지시가 맨 뒤여야 한다',
+  );
+});
+
+test('F3: KICKOFF 머리말이 첫 줄이라는 계약을 서식 줄이 깨지 않는다', () => {
+  const cwd = makeRoot();
+  const ctx = JSON.parse(run({ prompt: FEATURE_PROMPT, cwd }).stdout)
+    .hookSpecificOutput.additionalContext;
+  assert.match(ctx.split('\n')[0], /^\[devkit PDCA\]/);
+});
+
+// ⚠ 이게 이 기능의 핵심 가드다. 임계 없이 항상 구조를 주면 전역 CLAUDE.md의
+// "간결하게, 1줄이면 1줄"과 충돌해 짧은 답까지 헤더가 붙는다 — 고치려던 문제를 키운다.
+test('F4: 무조건이 아니라 길 때만 — 짧은 답 면제를 같은 줄에서 밝힌다', () => {
+  const cwd = makeRoot();
+  const line = fmtLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  assert.match(line, /넘거나|이상|여럿/, '언제 구조를 줄지 임계가 있어야 함');
+  assert.match(line, /짧게|짧은 답/, '짧은 답 면제가 있어야 함');
+});
+
+test('F5: 사용자가 요청한 네 가지를 다 지시한다 (헤더·문단·굵게·디바이더)', () => {
+  const cwd = makeRoot();
+  const line = fmtLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  assert.match(line, /###/, '헤더');
+  assert.match(line, /빈 줄|문단/, '문단 구분');
+  assert.match(line, /굵게/, '강조');
+  assert.match(line, /---/, '디바이더');
+});
+
+test('F6: 서식 지시는 1행 200자 이내 (주입 비용 상한)', () => {
+  const cwd = makeRoot();
+  const line = fmtLine(run({ prompt: '이거 왜 이래?', cwd }).stdout);
+  assert.ok(line.length <= 200, `서식 지시가 너무 길다(${line.length}자): ${line}`);
+});
+
 test('진행 중 사이클이 있으면 재개 컨텍스트를 주입(감지보다 우선)', () => {
   const cwd = makeRoot();
   fs.mkdirSync(path.join(cwd, '.devkit'), { recursive: true });
