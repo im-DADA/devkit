@@ -185,6 +185,38 @@ test('B13: /report 하드 게이트에 REVIEW.md + 아카이빙 경로·수령 �
   for (const [re, why] of must) assert.match(src, re, `commands/report.md: ${why} 누락`);
 });
 
+// ── 부재 증명 금지 ───────────────────────────────────────────
+// 실사용 보고: 몇 군데 훑고 "없다"고 단정 → 실제로는 instrumentation.ts에 있었고,
+// 지적받고도 확인 없이 두 번째 추측을 얹었다. 기존 "추측 금지"가 이걸 못 잡는 이유는
+// 모델이 **grep을 돌렸으니 추측이 아니라고 믿기** 때문이다 — 그 grep이 준 근거는
+// 세상이 아니라 자기 grep에 대한 것이다. 그래서 별도 규칙이고, 별도 테스트다.
+test('A1: RULES가 부재 주장을 별도로 금지하고, 숨는 자리를 준다', () => {
+  const rules = read('RULES.md');
+  assert.match(rules, /부재 증명 금지/, 'RULES.md: 부재 증명 금지 규칙 없음');
+  assert.match(rules, /grep을 돌렸으니 추측이 아니다/, 'RULES.md: 이 규칙이 따로 필요한 이유가 없다');
+  for (const spot of ['instrumentation', 'middleware', 'postinstall', 'Dockerfile']) {
+    assert.match(rules, new RegExp(spot), `RULES.md: 숨는 자리 "${spot}" 누락`);
+  }
+});
+
+// 규칙의 절반은 **보고 형식**이다. "없다"는 사용자가 반박할 근거를 안 주지만
+// "어디를 봤는데 안 나왔다"는 탐색이 좁았음을 드러내 즉시 교정된다.
+test('A2: 부재 보고 형식과 사용자 우위를 명시한다', () => {
+  const rules = read('RULES.md');
+  assert.match(rules, /어디를 봤는데 안 나왔다/, 'RULES.md: 부재 보고 형식이 없다');
+  assert.match(rules, /내 탐색 결과보다 강한 증거/, 'RULES.md: 사용자 진술이 우선한다는 문장이 없다');
+  const summary = (rules.match(/<!-- SUMMARY:START -->([\s\S]*?)<!-- SUMMARY:END -->/) || [])[1];
+  assert.ok(summary, 'SUMMARY 블록 없음');
+  assert.match(summary, /부재 단정/, 'SUMMARY: 매 세션 보이는 자리에 없다');
+});
+
+// gap-detector는 직업 자체가 부재 판정(❌ 누락)이라 이 실패의 진앙이다.
+test('A3: gap-detector가 ❌ 누락을 주기 전에 탐색 범위를 되묻게 한다', () => {
+  const src = read('agents/gap-detector.md');
+  assert.match(src, /"없음"은 "못 찾음"보다 훨씬 비싼 주장/, 'gap-detector.md: 부재 경고 없음');
+  assert.match(src, /어디를 봤는지/, 'gap-detector.md: 탐색 범위 자문 문장 없음');
+});
+
 // ── 의존성 규칙은 양면이어야 한다 ─────────────────────────────
 // 실사용 보고: "패키지 추가는 승인이 필요하니 없는 방향으로 만들겠습니다"라며 설계를 조용히
 // 좁혔다. 원인은 규칙이 **추가에만 비용을 매기는 한쪽 문장**이었다는 것 — 그러면 게이트를
