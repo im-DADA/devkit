@@ -228,7 +228,10 @@ docs/
 - ⚠ **디자인 토큰이 있다고 디자인 언어가 있는 것은 아니다.** 토큰은 "무슨 색"만 정하고 **"위계를 어떻게 만드는지"** 는 안 정한다. 그래서 시맨틱 토큰(`text-text-muted` 등)을 문법적으로 맞게 쓰고도 결과가 틀릴 수 있다 — 그 프로젝트가 위계를 투명도나 굵기로 만드는 곳이면 그렇다. `DESIGN.md`가 정하는 건 그 **방법**이다.
 - ❌ **`DESIGN.md`가 없는데 임의로 만들어 두지 말 것**(요청 안 한 파일 생성). 다만 같은 톤 수정이 반복되는 게 보이면 **한 번 제안은 한다.**
 - 형식은 [DESIGN.md 규약](https://github.com/VoltAgent/awesome-design-md)을 따른다: Colors · Typography · Layout · Shapes · Components · **Do's and Don'ts** · Responsive · Known Gaps. `AGENTS.md`가 "어떻게 만들지"라면 `DESIGN.md`는 "어떻게 보여야 하는지"다.
-- 만들거나 갱신할 땐 `/design-md` 스킬을 쓴다 — **관측(코드·git 히스토리·Figma)에서만 뽑고 창작하지 않는다.**
+- 만들거나 갱신할 땐 `/design-md` 스킬을 쓴다 — **창작하지 않는다.** 길은 둘뿐이다:
+  이력이 있으면 **관측**(코드·git 수정이력·Figma), 없으면 **실존 브랜드 벤치마킹**
+  (awesome-design-md의 73개). ⚠ 디자인 언어를 직접 지어내는 세 번째 길은 없다 —
+  지어낸 규칙은 쓰는 사람의 기본값이고 그게 "AI 냄새"의 정체다.
 - **`DESIGN.md`는 미감·접근성을 다루지 않는다.** 층이 넷이고 서로 안 겹친다 —
   `DESIGN.md`(이 프로젝트의 스타일 결정) · `frontend-design`(미감·독창성, Anthropic 공식) ·
   `/web-interface-audit`(접근성·성능·i18n·안티패턴 — 보편 규칙 100+, 도메인 무관) ·

@@ -264,7 +264,7 @@ test('DM3: design-md 스킬이 창작이 아니라 관측을 강제한다', () =
   assert.match(src, /관측한 것만 적는다/, 'SKILL.md: 관측 강제 문장 없음');
   assert.match(src, /Known Gaps/, 'SKILL.md: 모르는 것을 적는 자리가 없다');
   assert.match(src, /git log/, 'SKILL.md: 수정 이력을 근거로 쓰는 절차가 없다');
-  assert.match(src, /남의 브랜드 DESIGN\.md를 복사해 오지 않는다/, 'SKILL.md: 복사 금지 없음');
+  assert.match(src, /남의 브랜드 DESIGN\.md를 가져오지 않는다/, 'SKILL.md: A 경로 복사 금지 없음');
   assert.match(src, /모노레포/, 'SKILL.md: 모노레포 앱별 배치 지침 없음');
   assert.match(src, /앱마다/, 'SKILL.md: 앱별 배치 문구 없음');
 });
@@ -279,6 +279,36 @@ test('DM4: 두 DESIGN.md의 이름 충돌을 위치로 구분해 준다', () => 
   assert.match(rules, /앱 루트.*DESIGN\.md|DESIGN\.md.*앱 루트/, 'RULES.md: 디자인 언어 쪽 위치 명시 없음');
   const skill = read('skills/design-md/SKILL.md');
   assert.match(skill, /절대 거기 쓰지 마라/, 'SKILL.md: 사이클 폴더 오배치 금지 없음');
+});
+
+// 실사용에서 드러난 구멍: 스킬이 "관측에서만 뽑아라"만 말하고 **이력이 없을 때의 길**을
+// 안 줬다. 그래서 새 도메인 랜딩 둘을 만들 때 디자인 언어를 직접 지어냈고, 지어낸 규칙은
+// 결국 쓰는 사람의 기본값이라 사용자가 "뭐가 별론지 모르겠는데 별로"라고 했다.
+// 길을 명시적으로 둘로 갈라 두지 않으면 세 번째 길(창작)로 샌다.
+test('DM5: 이력이 없을 때의 길(벤치마킹)이 명시돼 있다', () => {
+  const src = read('skills/design-md/SKILL.md');
+  assert.match(src, /세 번째 길은 없다/, 'SKILL.md: 창작 금지가 길 분기에 없다');
+  assert.match(src, /awesome-design-md/, 'SKILL.md: 벤치마킹 근거 저장소가 없다');
+  assert.match(src, /브랜드를 고르기 \*\*전에\*\*/, 'SKILL.md: 요구사항 먼저 적는 절차가 없다');
+  assert.match(src, /실제로\*\* 연다|실제로 연다/, 'SKILL.md: 파일을 실제로 열라는 지시가 없다');
+});
+
+// 앞서 쓴 "남의 브랜드 복사 금지"가 B 경로와 정면 충돌했다. 조건 없이 두면 그 문장이
+// 벤치마킹을 막고 다시 창작으로 밀어낸다 — 실제로 그렇게 밟았다.
+test('DM6: 복사 금지가 A 경로에 한정되고 B에서는 정답임을 밝힌다', () => {
+  const src = read('skills/design-md/SKILL.md');
+  assert.match(src, /A 경로/, 'SKILL.md: 복사 금지의 적용 범위가 없다');
+  assert.match(src, /B 경로.*정답|정답이다/, 'SKILL.md: B에서는 벤치마킹이 정답이라는 문장이 없다');
+  assert.match(src, /가장 비싼 오독/, 'SKILL.md: 오독 경고가 없다');
+});
+
+// 값을 못 옮기는 경우(독점 폰트·한글 미지원)에 원칙까지 버리면 벤치마킹이 무의미해진다.
+test('DM7: 값을 못 옮길 때 원칙을 옮기라고 말한다', () => {
+  const src = read('skills/design-md/SKILL.md');
+  assert.match(src, /원칙을 옮긴다/, 'SKILL.md: 원칙 이식 지침이 없다');
+  assert.match(src, /충돌하면 브랜드를 따른다/, 'SKILL.md: 브랜드 금지사항 우선 규칙이 없다');
+  const rules = read('RULES.md');
+  assert.match(rules, /세 번째 길은 없다/, 'RULES.md: 창작 금지가 없다');
 });
 
 // 규칙 본문을 저장소에 복사해 두면 스냅샷이 정본 행세를 하고, 원격이 갱신돼도 모른다.
