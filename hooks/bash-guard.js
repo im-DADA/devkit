@@ -30,7 +30,10 @@ function dangerousRm(c) {
 }
 
 const PATTERNS = [
-  { re: /\bgit\s+push\b[^;]*\s(--force|-f)\b/i, why: 'git push --force' },
+  // ⚠ `--force-with-lease`는 뺀다. 그건 원격에 남의 커밋이 새로 생겼으면 **실패하는**
+  // 안전한 변형이고, `--force`가 파괴적인 이유(남의 작업을 말없이 덮어씀)가 성립하지 않는다.
+  // `\b`만 쓰면 `--force-with-lease`의 하이픈이 경계라서 같이 걸린다(실사용 4건 확인).
+  { re: /\bgit\s+push\b[^;]*\s(--force(?!-with-lease\b)|-f)\b/i, why: 'git push --force' },
   { re: /\bgit\s+reset\s+--hard\b/i, why: 'git reset --hard' },
   { re: /\bgit\s+clean\s+-\S*f/i, why: 'git clean -f (추적 안 된 파일 삭제)' },
   { re: /\b(mkfs\S*|dd)\b[^;]*\bof=\/dev\//i, why: '디스크 직접 쓰기' },
