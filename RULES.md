@@ -16,6 +16,7 @@
 - Feature 구조: `features/{f}/`에 components(.tsx) · hooks·api·data·types·utils(.ts). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만(page에 붙이면 metadata를 잃는다).
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
 - 네이밍(린터가 못 잡는 것만): 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 파일·폴더 kebab-case. 축약어/부정boolean 금지.
+- 🎨 UI 작업 전 루트에 `DESIGN.md`가 있는지 보고, 있으면 읽고 따른다(특히 `Don't`). 없으면 만들지 말 것 — 반복 톤수정이 보일 때만 한 번 제안.
 - 라이브러리·프레임워크가 있다고 가정하지 말 것 — 쓰기 전 package.json으로 확인. 없으면 **묻는다**. ⚠ 승인이 필요하다는 이유로 라이브러리 없는 설계로 조용히 우회하지 말 것 — 사용자는 더 나쁜 구현을 받고 선택지가 있었다는 것도 모른다.
 - 🧪 새 순수함수/명확한 계약(멱등성·경계·격리·대소문자 등)은 **테스트 먼저(TDD)**. 테스트 러너 없으면 조용히 넘기지 말고 "테스트 셋업할까?"를 물어볼 것. 강하게 하려면 `/tdd`.
 - 새 유틸/훅 작성 전 Grep으로 기존 것 탐색 → 재사용.
@@ -208,7 +209,18 @@ docs/
 
 빈 파일은 없는 것으로 본다(`touch`로 게이트를 여는 우회 차단). 정본은 `hooks/lib/pdca-state.js`의 `STAGE_REQUIREMENTS`다.
 
-## Figma / 디자인 구현
+## 디자인 구현 (DESIGN.md · Figma)
+
+### DESIGN.md — 프로젝트의 디자인 언어
+
+- **프로젝트 루트(또는 앱 루트)에 `DESIGN.md`가 있으면 UI를 만들거나 고치기 전에 반드시 Read하고 그대로 따른다.** 특히 `Don't` 목록은 금지 규칙으로 취급한다.
+- 이게 필요한 이유: Figma 규칙은 **시안이 있는 화면**만 커버한다. 시안 없이 새 목록·폼·상세를 만들 때 AI는 기본값으로 돌아가고, 그러면 나중에 사람이 와서 화면마다 "톤 통일"을 다시 한다(실측: 한 프로젝트에서 같은 통일 작업이 6개 화면에 반복).
+- ⚠ **디자인 토큰이 있다고 디자인 언어가 있는 것은 아니다.** 토큰은 "무슨 색"만 정하고 **"위계를 어떻게 만드는지"** 는 안 정한다. 그래서 시맨틱 토큰(`text-text-muted` 등)을 문법적으로 맞게 쓰고도 결과가 틀릴 수 있다 — 그 프로젝트가 위계를 투명도나 굵기로 만드는 곳이면 그렇다. `DESIGN.md`가 정하는 건 그 **방법**이다.
+- ❌ **`DESIGN.md`가 없는데 임의로 만들어 두지 말 것**(요청 안 한 파일 생성). 다만 같은 톤 수정이 반복되는 게 보이면 **한 번 제안은 한다.**
+- 형식은 [DESIGN.md 규약](https://github.com/VoltAgent/awesome-design-md)을 따른다: Colors · Typography · Layout · Shapes · Components · **Do's and Don'ts** · Responsive · Known Gaps. `AGENTS.md`가 "어떻게 만들지"라면 `DESIGN.md`는 "어떻게 보여야 하는지"다.
+- 만들거나 갱신할 땐 `/design-md` 스킬을 쓴다 — **관측(코드·git 히스토리·Figma)에서만 뽑고 창작하지 않는다.**
+
+### Figma 시안이 있는 화면
 
 - Figma MCP가 연결돼 있으면 **각 화면마다 `get_design_context`(또는 metadata/variables)로 정확한 수치를 받아** 구현: width/height, gap, padding, margin, font-size/weight/line-height/letter-spacing, color(hex), radius를 하나하나 대조한다.
 - ❌ **스크린샷 눈대중으로 값(간격·크기·폰트)을 추정해 만들지 말 것.** 스크린샷은 전체 레이아웃 파악·최종 대조용이지 수치 산출용이 아니다.

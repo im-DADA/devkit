@@ -239,6 +239,36 @@ test('A5: 동작 단정에도 탐색 기준이 걸린다 (부정만 막으면 �
   assert.match(summary, /한 파일만 보고 동작 단정/, 'SUMMARY: 매 세션 보이는 자리에 없다');
 });
 
+// ── DESIGN.md 규약 ───────────────────────────────────────────
+// 실측 근거: 한 프로젝트에서 "랜딩 톤으로 통일"이 6개 화면에 반복됐다. 디자인 토큰은
+// 이미 있었는데도 그랬다 — 토큰은 "무슨 색"만 정하고 "위계를 어떻게 만드는지"는 안 정하기
+// 때문이다. 기존 Figma 규칙은 시안 있는 화면만 덮으므로 그 구멍이 문서로 남아야 한다.
+test('DM1: DESIGN.md 규약이 있고, 왜 토큰만으론 부족한지 밝힌다', () => {
+  const rules = read('RULES.md');
+  assert.match(rules, /`DESIGN\.md`가 있으면 UI를 만들거나 고치기 전에 반드시 Read/, 'RULES.md: 읽기 의무 없음');
+  assert.match(rules, /디자인 토큰이 있다고 디자인 언어가 있는 것은 아니다/, 'RULES.md: 토큰≠언어 구분 없음');
+  const summary = (rules.match(/<!-- SUMMARY:START -->([\s\S]*?)<!-- SUMMARY:END -->/) || [])[1];
+  assert.match(summary, /DESIGN\.md/, 'SUMMARY: 매 세션 보이는 자리에 없다');
+});
+
+// 요청 안 한 파일 생성 금지와 충돌하면 안 된다 — 없을 때 만들어두는 건 금지다.
+test('DM2: 없을 때 임의 생성을 금지한다', () => {
+  const rules = read('RULES.md');
+  assert.match(rules, /없는데 임의로 만들어 두지 말 것/, 'RULES.md: 임의 생성 금지 문장 없음');
+});
+
+// 이 스킬의 실패 모드는 "그럴듯한 디자인 원칙 창작"이다. 그러면 남의 스타일 가이드가
+// 하나 더 생길 뿐이고 사람이 다시 고치는 루프는 그대로다.
+test('DM3: design-md 스킬이 창작이 아니라 관측을 강제한다', () => {
+  const src = read('skills/design-md/SKILL.md');
+  assert.match(src, /관측한 것만 적는다/, 'SKILL.md: 관측 강제 문장 없음');
+  assert.match(src, /Known Gaps/, 'SKILL.md: 모르는 것을 적는 자리가 없다');
+  assert.match(src, /git log/, 'SKILL.md: 수정 이력을 근거로 쓰는 절차가 없다');
+  assert.match(src, /남의 브랜드 DESIGN\.md를 복사해 오지 않는다/, 'SKILL.md: 복사 금지 없음');
+  assert.match(src, /모노레포/, 'SKILL.md: 모노레포 앱별 배치 지침 없음');
+  assert.match(src, /앱마다/, 'SKILL.md: 앱별 배치 문구 없음');
+});
+
 // ── 의존성 규칙은 양면이어야 한다 ─────────────────────────────
 // 실사용 보고: "패키지 추가는 승인이 필요하니 없는 방향으로 만들겠습니다"라며 설계를 조용히
 // 좁혔다. 원인은 규칙이 **추가에만 비용을 매기는 한쪽 문장**이었다는 것 — 그러면 게이트를

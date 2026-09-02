@@ -87,6 +87,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `/cycles` | PDCA 사이클 목록·열람 (진행 중 + 아카이브) |
 | `/commit` | Conventional Commit (Co-Author 없이, 푸시 X) |
 | `/ship` | 리뷰 → 커밋 메시지 + PR 초안 (승인 후 실행) |
+| `/design-md` | 프로젝트 디자인 언어를 `DESIGN.md`로 고정 — 코드·git 수정이력·Figma에서 **관측한 것만** 추출 |
 | `/merge` `[PR#]` | PR 스쿼시 머지 → 원격 브랜치 삭제 → 로컬 `main` 동기화. 로컬 브랜치 삭제만 확인 |
 | `/improve` | 세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장) |
 | `/kit` `[init]` | 도움말 / `init` 시 레포에 AGENTS.md·settings.json 생성 |
