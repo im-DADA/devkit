@@ -229,6 +229,10 @@ docs/
 - ❌ **`DESIGN.md`가 없는데 임의로 만들어 두지 말 것**(요청 안 한 파일 생성). 다만 같은 톤 수정이 반복되는 게 보이면 **한 번 제안은 한다.**
 - 형식은 [DESIGN.md 규약](https://github.com/VoltAgent/awesome-design-md)을 따른다: Colors · Typography · Layout · Shapes · Components · **Do's and Don'ts** · Responsive · Known Gaps. `AGENTS.md`가 "어떻게 만들지"라면 `DESIGN.md`는 "어떻게 보여야 하는지"다.
 - 만들거나 갱신할 땐 `/design-md` 스킬을 쓴다 — **관측(코드·git 히스토리·Figma)에서만 뽑고 창작하지 않는다.**
+- **`DESIGN.md`는 미감·접근성을 다루지 않는다.** 층이 넷이고 서로 안 겹친다 —
+  `DESIGN.md`(이 프로젝트의 스타일 결정) · `frontend-design`(미감·독창성, Anthropic 공식) ·
+  `/web-interface-audit`(접근성·성능·i18n·안티패턴 — 보편 규칙 100+, 도메인 무관) ·
+  `convention-check`(코드 구조). 한 층에 다른 층 일을 시키면 둘 다 나빠진다.
 
 ### Figma 시안이 있는 화면
 

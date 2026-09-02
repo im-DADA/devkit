@@ -281,6 +281,35 @@ test('DM4: 두 DESIGN.md의 이름 충돌을 위치로 구분해 준다', () => 
   assert.match(skill, /절대 거기 쓰지 마라/, 'SKILL.md: 사이클 폴더 오배치 금지 없음');
 });
 
+// 규칙 본문을 저장소에 복사해 두면 스냅샷이 정본 행세를 하고, 원격이 갱신돼도 모른다.
+// 그리고 fetch 실패 시 조용히 넘어가면 사용자는 감사받은 줄 안다 — devkit이 검증에서
+// 없앤 바로 그 침묵 no-op이다.
+test('W1: 웹 감사 스킬이 규칙을 복사하지 않고 원격에서 받는다', () => {
+  const src = read('skills/web-interface-audit/SKILL.md');
+  assert.match(src, /raw\.githubusercontent\.com\/vercel-labs\/web-interface-guidelines/, 'SKILL.md: 규칙 출처 URL 없음');
+  assert.match(src, /복사해 두지 않는다/, 'SKILL.md: 사본 금지 문장 없음');
+  assert.match(src, /조용히 넘어가지 마라/, 'SKILL.md: fetch 실패 시 침묵 금지 문장 없음');
+  assert.match(src, /MIT/, 'SKILL.md: 라이선스 출처 표기 없음');
+});
+
+// 레포 전체를 훑으면 남의 코드까지 지적하게 되고, 그러면 보고 전체가 무시된다.
+// 검증 보고를 차분으로 좁힌 것과 같은 이유다.
+test('W2: 감사 범위를 변경분으로 좁힌다', () => {
+  const src = read('skills/web-interface-audit/SKILL.md');
+  assert.match(src, /git diff --name-only/, 'SKILL.md: 변경분 기준이 없다');
+  assert.match(src, /레포 전체를 훑지 마라/, 'SKILL.md: 전체 스캔 금지 문장 없음');
+});
+
+// 층이 겹치면 같은 지적이 두 곳에서 나오거나 아무 데서도 안 나온다.
+test('W3: 네 층의 역할 분담이 문서에 있다', () => {
+  const src = read('skills/web-interface-audit/SKILL.md');
+  for (const other of ['frontend-design', 'DESIGN.md', 'convention-check']) {
+    assert.match(src, new RegExp(other.replace('.', '\\.')), `SKILL.md: ${other}와의 경계가 없다`);
+  }
+  const rules = read('RULES.md');
+  assert.match(rules, /층이 넷이고 서로 안 겹친다/, 'RULES.md: 층 정리가 없다');
+});
+
 // ── 의존성 규칙은 양면이어야 한다 ─────────────────────────────
 // 실사용 보고: "패키지 추가는 승인이 필요하니 없는 방향으로 만들겠습니다"라며 설계를 조용히
 // 좁혔다. 원인은 규칙이 **추가에만 비용을 매기는 한쪽 문장**이었다는 것 — 그러면 게이트를
