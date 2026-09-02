@@ -83,6 +83,9 @@ git log --oneline --since="6 months ago" -i \
 
 ## 4. 둘 곳
 
+⚠ **`docs/{cycle}/DESIGN.md`(PDCA 설계 문서)와 이름이 같다. 절대 거기 쓰지 마라** — 사이클
+폴더는 판단의 기록이고 아카이빙되면 묻힌다(폴더 규약상 7개 파일만 허용). 이 파일은 **앱 루트**다.
+
 - 모노레포면 **앱마다** 둔다(`user/DESIGN.md`, `admin/DESIGN.md`) — 도메인마다 스타일이
   다른 게 정상이고, 하나로 합치면 둘 다 틀린다.
 - 만든 뒤 그 앱의 `AGENTS.md`(또는 `CLAUDE.md`)에 **"UI 작업 전 `DESIGN.md`를 읽는다"** 한 줄을

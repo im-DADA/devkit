@@ -269,6 +269,18 @@ test('DM3: design-md 스킬이 창작이 아니라 관측을 강제한다', () =
   assert.match(src, /앱마다/, 'SKILL.md: 앱별 배치 문구 없음');
 });
 
+// devkit엔 이미 docs/{cycle}/DESIGN.md(PDCA 설계 문서)가 있다. 같은 이름의 다른 물건을
+// 들여왔으므로 구분이 문서에 없으면 모델이 섞어 쓴다. 훅은 cycleDir 안에서만 해석하므로
+// 코드 충돌은 없지만, 문서 충돌은 실제로 사람이 아니라 모델이 밟는다.
+test('DM4: 두 DESIGN.md의 이름 충돌을 위치로 구분해 준다', () => {
+  const rules = read('RULES.md');
+  assert.match(rules, /이름이 겹친다/, 'RULES.md: 충돌 경고 없음');
+  assert.match(rules, /docs\/\{cycle\}\/DESIGN\.md/, 'RULES.md: PDCA 쪽 경로 명시 없음');
+  assert.match(rules, /앱 루트.*DESIGN\.md|DESIGN\.md.*앱 루트/, 'RULES.md: 디자인 언어 쪽 위치 명시 없음');
+  const skill = read('skills/design-md/SKILL.md');
+  assert.match(skill, /절대 거기 쓰지 마라/, 'SKILL.md: 사이클 폴더 오배치 금지 없음');
+});
+
 // ── 의존성 규칙은 양면이어야 한다 ─────────────────────────────
 // 실사용 보고: "패키지 추가는 승인이 필요하니 없는 방향으로 만들겠습니다"라며 설계를 조용히
 // 좁혔다. 원인은 규칙이 **추가에만 비용을 매기는 한쪽 문장**이었다는 것 — 그러면 게이트를
