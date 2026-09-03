@@ -31,6 +31,9 @@ allowed-tools:
 8. **확장자** — 로직만 있고 JSX 없는 파일이 `.tsx`면 `.ts`로, JSX 있는데 `.ts`면 `.tsx`로
 9. **네이밍 컨벤션** — 컴포넌트/타입 PascalCase, 변수/함수 camelCase, 훅 `use*`, 핸들러 `handle*`/`on*`, boolean `is*`/`has*`/`can*`/`should*`, 상수 UPPER_SNAKE, 파일·폴더 kebab-case(심볼명은 PascalCase 유지, 예 `user-card.tsx` → `UserCard`). 위반 예: 축약어(`btn`/`usr`), 부정 boolean(`isNotReady`), 타입 접두 `I`/`T`(`IUser`). Grep으로 대조 후 위치 보고.
 10. **커밋 컨벤션** — (요청 시) 최근 커밋이 Conventional Commits + Co-Authored-By 없는지
+11. **문서 주석** — 양방향으로 본다.
+    - **없어서 위반**: 새로 export된 Server Action(`'use server'`)·API 핸들러·부수효과 있는 함수(DB 쓰기·`revalidatePath`·캐시 무효화)에 `/** */`가 없거나, 있어도 **`@security`(세션·권한 검증을 누가 지는지)** 가 빠진 것. 호출부는 시그니처만 본다.
+    - **있어서 위반**: Grep `@param {` → TS에서 **타입 재기술**은 시그니처와 어긋날 수 있으니 제거 대상. 이름만 한국어로 옮긴 줄(`@param userId - 사용자 ID`), 컴포넌트 props·내부 헬퍼에 붙은 형식적 JSDoc도 노이즈로 보고.
 
 ## 출력
 
