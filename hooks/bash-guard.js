@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // PreToolUse(Bash): 위험 명령 차단. 매칭되면 exit 2 (stderr에 사유) → 도구 실행 거부됨.
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { record } = require('./lib/audit');
 const { blockedFor } = require('./lib/protected-patterns');
 
@@ -47,15 +49,36 @@ const PATTERNS = [
 
 // 리다이렉트/tee로 보호 파일(.env·lockfile·.git)에 쓰는 것 차단 (protected-file 훅의 Bash 우회 방지).
 // ⚠ 자르기(`>`·`tee`)와 덧붙이기(`>>`·`tee -a`)를 가른다 — `.env`는 통째 대체만 막는다.
-// 여기선 파일 존재를 확인하지 않는다(명령의 cwd를 모른다). `>` .env는 존재하면 소실이므로
-// 항상 막고, 새로 만들 일이 있으면 Write가 통과시킨다.
 const REDIRECT = /(>>?|\btee\b(?:\s+-a\b)?)\s*([^\s;|&>]+)/g;
+
+/**
+ * 리다이렉트 대상의 **실제 경로**를 돌려준다. 확실히 못 정하면 `null`.
+ *
+ * `.env`는 소실만 막으므로(overwriteOnly) 파일이 없으면 `>`도 신규 생성이라 통과해야 한다.
+ * 그러려면 존재를 봐야 하고, 존재를 보려면 경로가 정해져야 한다 — 그런데 훅은 명령이
+ * **어느 cwd에서 돌지 모른다.** 그래서 정해지는 경우만 정하고 나머지는 포기한다.
+ *
+ * ⚠ 호출부는 `null`을 "파일이 있다"로 취급해야 한다(fail-closed). 틀리는 방향이
+ *   소실 한쪽뿐이라, 모를 때 열면 가드가 무의미해진다.
+ * @returns 절대경로, 또는 정할 수 없으면 `null`
+ */
+function resolveTarget(target, c) {
+  if (/[$`*?]/.test(target)) return null;              // 셸 변수·글로브는 훅이 전개 못 한다
+  if (target.startsWith('~/')) return path.join(os.homedir(), target.slice(2));
+  if (path.isAbsolute(target)) return target;          // 위 둘은 cwd와 무관하게 정해진다
+  if (/\b(cd|pushd|popd)\b/.test(c)) return null;      // 상대경로인데 cwd가 바뀐다
+  return path.resolve(process.cwd(), target);
+}
 
 function redirectToProtected(c) {
   for (const m of c.matchAll(REDIRECT)) {
     const append = m[1] === '>>' || /-a\b/.test(m[1]);
     const target = m[2].replace(/^["']|["']$/g, '');
-    const p = blockedFor(target, { overwrite: !append });
+    const resolved = resolveTarget(target, c);
+    const exists = resolved === null ? true : fs.existsSync(resolved);
+    // 없는 파일에 `>`는 소실이 아니라 생성이다. lockfile 등 overwriteOnly가 아닌 규칙은
+    // blockedFor가 이 값과 무관하게 막으므로 여기서 따로 가르지 않는다.
+    const p = blockedFor(target, { overwrite: !append && exists });
     if (p) return p.why;
   }
   return null;

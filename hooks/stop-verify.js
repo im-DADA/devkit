@@ -119,7 +119,13 @@ for (const kind of (isNodeProject ? kinds : [])) {
     problems.push(
       `### 검증이 실행되지 못했다 — ${kind} (${meta.argv.join(' ')}, ${meta.reason})\n`
         + `${diagnostics}\n`
-        + '※ 이건 코드의 결함이 아니다. 검증 환경/설정 문제이므로 에러 개수에 세지 마라.',
+        + '※ 이건 코드의 결함이 아니다. 검증 환경/설정 문제이므로 에러 개수에 세지 마라.'
+        // 상한이 하드코딩이던 동안, 큰 레포는 매번 timeout으로 끝나면서 **고칠 방법을
+        // 안내받지 못했다**(감사 로그: 한 프로젝트 41/41 timeout). 지금은 knob이 있으므로 알린다.
+        + (meta.reason === 'timeout'
+          ? `\n상한 ${Math.round(TIMEOUTS[kind] / 1000)}s를 넘겼다. 이 레포가 원래 느리면 `
+            + `\`DEVKIT_TIMEOUT_${kind.toUpperCase()}\`에 **초 단위**로 올려라(예: 120). 최대 600.`
+          : ''),
     );
   } else {
     // ok · found → delta. 기준선이 있으면 "새로 생긴 것"만, 없으면 blast radius로 좁힌다.

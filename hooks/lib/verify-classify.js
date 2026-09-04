@@ -6,7 +6,30 @@
 // (결정 3의 우회 판정은 200줄 규칙 때문에 ./tsc-bypass.js로 분리했다 — 아래에서 재수출한다)
 const bypass = require('./tsc-bypass');
 
-const TIMEOUTS = { typecheck: 30000, lint: 15000 };
+/**
+ * 검증 명령의 상한(ms). `DEVKIT_TIMEOUT_TYPECHECK`·`DEVKIT_TIMEOUT_LINT`로 **초 단위** 조절.
+ *
+ * 하드코딩이던 것을 연 이유: 감사 로그에서 한 프로젝트가 41번 중 41번 timeout으로 끝났다.
+ * 한 번도 완주한 적이 없는데 올릴 방법이 훅을 통째로 끄는 것뿐이었다.
+ *
+ * ⚠ 단위는 초다. ms로 오해해 `30000`을 넣어도 상한 600s에서 잘려 안전하게 끝난다.
+ * ⚠ 잘못된 값을 0으로 떨어뜨리면 **모든 검증이 즉시 timeout**이 되므로 기본값으로 돌린다.
+ * ⚠ Stop 예산은 60s다(verify-runner의 폴백 주석 참조) — 그보다 크게 잡으면 Stop이 길어진다.
+ */
+const MIN_TIMEOUT_S = 5;
+const MAX_TIMEOUT_S = 600;
+function envTimeoutMs(name, fallbackMs) {
+  const raw = process.env[name];
+  if (!raw) return fallbackMs;
+  const s = Number(raw);
+  if (!Number.isFinite(s) || s <= 0) return fallbackMs;
+  return Math.min(Math.max(s, MIN_TIMEOUT_S), MAX_TIMEOUT_S) * 1000;
+}
+
+const TIMEOUTS = {
+  typecheck: envTimeoutMs('DEVKIT_TIMEOUT_TYPECHECK', 30000),
+  lint: envTimeoutMs('DEVKIT_TIMEOUT_LINT', 15000),
+};
 
 // `types`는 .d.ts emit인 경우가 흔해 제외한다(매 턴 부작용 있는 emit 금지).
 // `check`는 프로젝트마다 CI 전체 파이프라인(build+test)을 뜻해 제외한다.

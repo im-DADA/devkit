@@ -66,16 +66,57 @@ test('bash-guard: 줄바꿈 우회 정규화 후 차단', () => {
 });
 
 test('bash-guard: 리다이렉트로 보호파일 쓰기 차단', () => {
-  assert.equal(bash('echo "K=1" > .env'), 2);
   assert.equal(bash('cat foo | tee pnpm-lock.yaml'), 2);
   assert.equal(bash('echo hi > ./out.txt'), 0); // 일반 파일은 허용
+});
+
+// `.env`는 **소실**만 막는다(overwriteOnly). 없는 파일에 `>`는 소실이 아니라 신규 생성이다.
+// Write 훅은 fs.existsSync로 이미 갈랐는데 Bash 경로만 안 갈라서, `cat > .env.test`가
+// 하드 차단됐다(실측: play-on-the-pitch에서 테스트용 .env.test를 못 만들어 막힘).
+test('bash-guard: .env 신규 생성은 허용, 기존 파일 자르기는 차단', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-envguard-'));
+  const fresh = path.join(tmp, '.env.test');
+  const live = path.join(tmp, '.env');
+  fs.writeFileSync(live, 'A=1\n');
+  try {
+    assert.equal(bash(`cat > ${fresh} <<EOF\nX=1\nEOF`), 0, '없는 .env.test 생성은 허용');
+    assert.equal(bash(`echo "K=1" > ${live}`), 2, '있는 .env 자르기는 차단');
+    // lockfile은 overwriteOnly가 아니다 — 없어도 막힌다(생성 자체가 패키지매니저 몫).
+    assert.equal(bash(`printf x > ${path.join(tmp, 'pnpm-lock.yaml')}`), 2);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// 존재 확인은 **경로를 확실히 정할 수 있을 때만**. 못 정하면 있다고 치고 막는다(fail-closed).
+// 틀리는 방향이 한쪽(소실)뿐이라 열어두면 가드가 무의미해진다.
+test('bash-guard: 경로를 못 정하면 막는다 (cd·변수 전개)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-envguard2-'));
+  try {
+    // cd가 섞이면 상대경로의 실제 기준 디렉터리를 모른다
+    assert.equal(bash(`cd ${tmp} && echo x > .env`), 2);
+    // 셸 변수/글로브는 훅이 전개할 수 없다
+    assert.equal(bash('echo x > $HOME/.env'), 2);
+    assert.equal(bash('echo x > "${DIR}"/.env'), 2);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 // `.env`가 막는 건 소실뿐이다(Read는 훅이 안 본다). 덧붙이기는 기존 값을 못 지운다.
 test('bash-guard: .env 덧붙이기는 허용, 자르기는 차단', () => {
   assert.equal(bash('printf x >> apps/web/.env.local'), 0);
   assert.equal(bash('cat foo | tee -a .env'), 0);
-  assert.equal(bash('cat foo | tee .env'), 2);
+  // ⚠ 자르기 차단은 **파일이 있을 때**만 성립한다 — 없으면 소실이 아니라 생성이다.
+  // 존재하는 파일을 만들어 검사한다(예전엔 tmpdir의 없는 `.env`로 검사해 우연히 통과했다).
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-tee-'));
+  const live = path.join(tmp, '.env');
+  fs.writeFileSync(live, 'A=1\n');
+  try {
+    assert.equal(bash(`cat foo | tee ${live}`), 2);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
   assert.equal(bash('printf x >> pnpm-lock.yaml'), 2); // lockfile은 덧붙이기도 금지
 });
 
@@ -624,4 +665,58 @@ test('R10: tsc-on-edit은 스크립트가 없으면 침묵하지 않고 stderr�
     root, { DEVKIT_TSC_ON_EDIT: '1' });
   assert.equal(r.code, 0);
   assert.match(r.stderr, /typecheck skipped/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `.env.example`류는 **값이 없는 템플릿**이고 커밋 대상이다. 보호하면 실사용만 막힌다.
+// 실측: 21개 프로젝트 감사에서 `.env.example` 차단이 2건 있었다.
+test('protected-patterns: .env 템플릿은 보호 대상이 아니다', async () => {
+  const { matchProtected } = await import('../hooks/lib/protected-patterns.js');
+  for (const f of ['.env.example', '.env.sample', '.env.template',
+                   'apps/web/.env.example', '.env.local.example']) {
+    assert.equal(matchProtected(f), null, `${f}는 통과해야 한다`);
+  }
+  // 진짜 .env류는 그대로 보호한다 — 오탐을 고치다 미탐을 만들지 않는다.
+  for (const f of ['.env', '.env.local', '.env.test', '.env.production', 'apps/web/.env']) {
+    assert.notEqual(matchProtected(f), null, `${f}는 보호돼야 한다`);
+  }
+  // ⚠ 템플릿 면제는 .env 규칙에만 적용된다 — node_modules 안이면 다른 규칙이 잡아야 한다.
+  assert.notEqual(matchProtected('node_modules/foo/.env.example'), null);
+});
+
+test('bash-guard: .env.example 덮어쓰기는 허용', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-envex-'));
+  const tpl = path.join(tmp, '.env.example');
+  fs.writeFileSync(tpl, 'A=\n');
+  try {
+    assert.equal(bash(`echo "B=" > ${tpl}`), 0);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 실측: bash-guard가 `.env` 쓰기를 **차단하면서** 그 명령에 든 Anthropic 키를
+// `.devkit/audit.jsonl`에 평문으로 남겼다(salesflow, 2026-08-28). 차단은 성공했는데
+// 유출 경로를 새로 하나 만든 셈이다. receipt.js에 이미 있는 maskSecrets를 재사용한다.
+// 훅 프로세스의 cwd는 테스트가 못 바꾼다 → record()를 직접 불러 마스킹을 고정한다.
+test('audit: record()가 중첩 필드까지 마스킹한다', async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-audit2-')));
+  fs.writeFileSync(path.join(root, 'package.json'), '{}');
+  const key = 'sk-ant-api03-' + 'B'.repeat(80) + '-xyzQRS';
+  const url = 'postgresql://app:hunter2secret@db.internal:5432/prod';
+  const cwd = process.cwd();
+  try {
+    process.chdir(root);
+    const { record } = await import(`../hooks/lib/audit.js?t=${Date.now()}`);
+    record({ hook: 't', action: 'blocked', command: `echo ${key}`, meta: { url, list: [url] } });
+    const raw = fs.readFileSync(path.join(root, '.devkit', 'audit.jsonl'), 'utf8');
+    assert.ok(!raw.includes(key), '최상위 문자열이 안 가려졌다');
+    assert.ok(!raw.includes('hunter2secret'), '중첩 객체가 안 가려졌다');
+    assert.ok(!raw.includes('hunter2secret'), '배열 안이 안 가려졌다');
+    assert.match(raw, /db\.internal:5432\/prod/, '접속 대상은 남아야 디버깅이 된다');
+  } finally {
+    process.chdir(cwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

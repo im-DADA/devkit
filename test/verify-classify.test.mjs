@@ -325,3 +325,34 @@ test('P22: 옛 형식({key,kinds}) 상태도 읽는다 (기존 사용자 무손�
   assert.equal(shouldNotify(legacy, 'A', 'lint').notify, true);
   assert.equal(shouldNotify(legacy, 'B', 'typecheck').notify, true);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 실측(감사 로그): salesflow에서 stop-verify가 **41번 중 41번** timeout으로 끝났다.
+// 한 번도 완주한 적이 없는데, 상한이 하드코딩이라 올릴 방법이 훅을 통째로 끄는 것뿐이었다.
+// 큰 레포는 30s 안에 tsc가 안 끝난다 → 환경변수로 연다. 단위는 **초**(ms는 오타가 위험하다).
+import { execFileSync } from 'node:child_process';
+
+const timeoutsWith = (env) => JSON.parse(execFileSync('node',
+  ['-e', `process.stdout.write(JSON.stringify(require(${JSON.stringify(modPath)}).TIMEOUTS))`],
+  { env: { ...process.env, ...env }, encoding: 'utf8' }));
+
+test('TIMEOUTS: 환경변수가 없으면 기본값', () => {
+  const t = timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: '', DEVKIT_TIMEOUT_LINT: '' });
+  assert.equal(t.typecheck, 30000);
+  assert.equal(t.lint, 15000);
+});
+
+test('TIMEOUTS: 초 단위 환경변수로 올린다', () => {
+  const t = timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: '120', DEVKIT_TIMEOUT_LINT: '45' });
+  assert.equal(t.typecheck, 120000);
+  assert.equal(t.lint, 45000);
+});
+
+// 잘못된 값에 조용히 0을 넣으면 **모든 검증이 즉시 timeout**이 된다 — 최악의 실패다.
+test('TIMEOUTS: 쓰레기 값·범위 밖은 기본값/한계로 떨어진다', () => {
+  assert.equal(timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: 'abc' }).typecheck, 30000);
+  assert.equal(timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: '0' }).typecheck, 30000);
+  assert.equal(timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: '-5' }).typecheck, 30000);
+  assert.equal(timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: '99999' }).typecheck, 600000, '상한 600s로 자른다');
+  assert.equal(timeoutsWith({ DEVKIT_TIMEOUT_TYPECHECK: '1' }).typecheck, 5000, '하한 5s로 올린다');
+});

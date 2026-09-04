@@ -3,12 +3,12 @@
 // 기록이 훅을 죽이면 안 되므로 실패는 stderr에 남기고 계속한다(audit.js와 동일 degrade).
 const fs = require('node:fs');
 const path = require('node:path');
-const { HIGH, SUSPECT } = require('./secret-patterns');
+const { HIGH, SUSPECT, MASK_ONLY } = require('./secret-patterns');
 const { warn } = require('./diag');
 
 // secret-patterns.js의 패턴을 그대로 재사용한다(신규 패턴을 만들지 않는다).
 // scanHigh/scanSuspect는 why 배열만 주므로 치환에 못 쓴다 → re에 'g'만 덧붙인다.
-const MASKS = [...HIGH, ...SUSPECT].map((p) => ({
+const MASKS = [...HIGH, ...SUSPECT, ...MASK_ONLY].map((p) => ({
   re: new RegExp(p.re.source, p.re.flags.includes('g') ? p.re.flags : p.re.flags + 'g'),
   to: `[REDACTED:${p.why}]`,
 }));

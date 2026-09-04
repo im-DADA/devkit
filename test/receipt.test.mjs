@@ -202,9 +202,10 @@ test('B12: 절단 경계에 걸친 시크릿도 원문이 남지 않는다 (마�
 // 따옴표를 요구해 `export K=V` 형태를 못 잡는다). 문서가 "시크릿 마스킹"이라고만
 // 적으면 사용자가 .devkit/receipts.jsonl을 안전한 것으로 잘못 믿는다.
 test('R5: 마스킹을 통과하는 실무 형태가 실제로 있다 (문서 문구의 근거)', () => {
+  // ⚠ DB URL은 여기 있었지만 MASK_ONLY로 옮겨 이제 가려진다(감사 로그 실유출 대응).
+  //    남은 둘은 여전히 통과한다 — 문서가 "전부 가린다"고 말하면 안 되는 근거다.
   const leaks = [
     'export DB_PASSWORD=' + 'SuperSecret' + '123456',
-    'DATABASE_URL=postgres://user:' + 'p4ssw0rd' + '_secret@db.host:5432/app',
     'curl -H "Authorization: Bearer ' + 'q'.repeat(40) + '"',
   ];
   for (const l of leaks) {
@@ -223,7 +224,10 @@ test('R5: README·RULES가 마스킹 범위를 과장하지 않는다', () => {
     while (end < lines.length && /^\s+\S/.test(lines[end])) end += 1;
     const block = lines.slice(at, end).join('\n');
 
-    assert.match(block, /9종/, `${f}: 마스킹 범위를 수치로 밝혀야 한다 — "${block}"`);
+    // 수치를 하드코딩하면 패턴을 늘릴 때마다 문서가 조용히 거짓이 된다. 실제 개수로 대조한다.
+    const { HIGH, SUSPECT, MASK_ONLY } = require(path.join(repoRoot, 'hooks', 'lib', 'secret-patterns.js'));
+    const n = HIGH.length + SUSPECT.length + MASK_ONLY.length;
+    assert.match(block, new RegExp(`${n}종`), `${f}: 마스킹 범위를 실제 개수(${n}종)로 밝혀야 한다 — "${block}"`);
     assert.match(block, /평문/, `${f}: 가려지지 않는 것이 있음을 밝혀야 한다 — "${block}"`);
   }
 });
@@ -243,10 +247,40 @@ test('B12: 대조 로직은 citation.js에만 있다 (receipt.js에 두 벌을 �
 // B12는 "기존 secret-patterns.js를 재사용하고 신규 패턴을 만들지 않는다"가 제약이다.
 // 문장으로 두면 지켜졌는지 알 수 없다 — 개수로 실행에 못 박는다.
 test('B12: secret-patterns.js를 재사용한다 — 신규 패턴을 만들지 않았다', () => {
-  const { HIGH, SUSPECT } = require(path.join(repoRoot, 'hooks', 'lib', 'secret-patterns.js'));
-  assert.equal(HIGH.length, 7, 'HIGH에 패턴이 늘거나 줄었다');
+  const { HIGH, SUSPECT, MASK_ONLY } = require(path.join(repoRoot, 'hooks', 'lib', 'secret-patterns.js'));
+  assert.equal(HIGH.length, 8, 'HIGH에 패턴이 늘거나 줄었다');
   assert.equal(SUSPECT.length, 2, 'SUSPECT에 패턴이 늘거나 줄었다');
+  // MASK_ONLY는 **차단 등급이 아니다.** 여기 올린 패턴이 HIGH로 새면 정상 파일 작성이 막힌다.
+  assert.equal(MASK_ONLY.length, 1, 'MASK_ONLY에 패턴이 늘거나 줄었다');
   // receipt.js가 자기 패턴을 새로 정의하지 않고 가져다 쓰는지 소스로 고정
   const src = fs.readFileSync(path.join(repoRoot, 'hooks', 'lib', 'receipt.js'), 'utf8');
   assert.match(src, /require\(['"]\.\/secret-patterns['"]\)/, 'secret-patterns를 재사용하지 않는다');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 실측(감사 로그 21개 프로젝트): 마스킹이 실제로 샌 두 형식을 못 잡았다.
+//  · salesflow — bash-guard가 `.env` 쓰기를 **차단하면서** 그 명령의 Anthropic 키를 평문 기록
+//  · play-on-the-pitch — DATABASE_URL의 비밀번호가 평문 기록
+test('maskSecrets: Anthropic 키를 가린다', () => {
+  const key = 'sk-ant-api03-' + 'A'.repeat(80) + '-abcdEF';
+  const out = maskSecrets(`ANTHROPIC_API_KEY=${key}`);
+  assert.ok(!out.includes(key), '키 원문이 남으면 안 된다');
+  assert.match(out, /\[REDACTED:/);
+});
+
+// DB URL은 **비밀번호만** 가린다 — host·db 이름까지 지우면 로그로 디버깅을 못 한다.
+test('maskSecrets: DB URL은 비밀번호만 가리고 접속 대상은 남긴다', () => {
+  const out = maskSecrets('DATABASE_URL=postgresql://appuser:hunter2secret@db.example.com:5432/app');
+  assert.ok(!out.includes('hunter2secret'), '비밀번호가 남으면 안 된다');
+  assert.match(out, /db\.example\.com:5432\/app/, 'host·db는 남아야 한다');
+  assert.match(out, /appuser/, 'user는 남아야 한다');
+});
+
+// ⚠ DB URL 패턴은 **마스킹 전용**이다. secret-guard(HIGH)에 넣으면
+// `postgresql://pop:pop@localhost`가 든 테스트 픽스처·docker-compose 작성까지 차단된다.
+test('secret-guard: 로컬 DB URL이 든 파일 작성은 차단하지 않는다', async () => {
+  const { scanHigh } = require(path.join(repoRoot, 'hooks', 'lib', 'secret-patterns.js'));
+  assert.deepEqual(scanHigh('DATABASE_URL="postgresql://pop:pop@localhost:5432/pop"'), []);
+  // 진짜 키는 여전히 HIGH로 차단한다
+  assert.ok(scanHigh('sk-ant-api03-' + 'A'.repeat(80) + '-abcdEF').length > 0);
 });

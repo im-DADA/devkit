@@ -138,6 +138,8 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `DEVKIT_VERIFY` | `off`/`0`/`false`/`no` · `typecheck` · `lint` · `typecheck,lint` | 켬(전부) | 상위 스위치. `off`면 `stop-verify`·`tsc-on-edit` 둘 다 완전 침묵 |
 | `DEVKIT_TSC_ON_EDIT` | `1` | 꺼짐 | 편집 직후 타입체크. `DEVKIT_VERIFY`가 꺼져 있으면 이것도 안 돈다 |
 | `DEVKIT_VERIFY_MODE` | `auto` · `script` | `auto` | `script`면 `--incremental` 직접 실행을 끄고 프로젝트 스크립트만 쓴다 |
+| `DEVKIT_TIMEOUT_TYPECHECK` | 초 (5~600) | `30` | typecheck 상한. 큰 레포는 30s 안에 `tsc`가 안 끝나 **매번 timeout**으로 끝난다(실측: 한 프로젝트 41/41). 쓰레기 값·범위 밖은 기본값/한계로 떨어진다 |
+| `DEVKIT_TIMEOUT_LINT` | 초 (5~600) | `15` | lint 상한. 위와 같음 |
 
 알 수 없는 값(`DEVKIT_VERIFY=ture` 같은 오타)은 **검증을 켜둔 채** stderr로 알린다 — 오타 하나로 검증이 조용히 꺼지는 쪽이 더 비싸다.
 
@@ -159,7 +161,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | Script | `scripts/verify-evidence.mjs` | evidence 적합성 3층 보고 (ref 실존·인용 대조·커버리지). `/gap`이 부른다 — 플러그인 안에 있으므로 `${CLAUDE_PLUGIN_ROOT}` 경로로 호출 |
 | Observability | `.devkit/verify-baseline.json` | 직전 검증의 진단 키 집합 (gitignore 대상). 매 턴 같은 에러가 반복 주입되는 것을 막는다 — **새로 생긴 진단만** 보고하는 근거. 브랜치·tsconfig·러너가 바뀌면 자동으로 버려진다. 진단 원문(파일 경로·타입 이름)이 평문으로 들어간다 |
 | Observability | `.devkit/audit.jsonl` | 차단·통과위반·검증실패 기록 |
-| Observability | `.devkit/receipts.jsonl` | Bash 명령·출력 기록 (gitignore 대상, **알려진 키 형식 9종만 마스킹 — 그 외(`export K=V`·DB URL·Bearer 토큰 등)는 평문으로 남는다**, 끄려면 `DEVKIT_RECEIPTS=0`) |
+| Observability | `.devkit/receipts.jsonl` | Bash 명령·출력 기록 (gitignore 대상, **알려진 키 형식 11종만 마스킹 — 그 외(`export K=V`·Bearer 토큰 등)는 평문으로 남는다**, 끄려면 `DEVKIT_RECEIPTS=0`) |
 | Eval | `test/*.test.mjs` | 훅 동작 + 플러그인 무결성 회귀 테스트 — `node --test` |
 | Eval | `evals/README.md` | 에이전트/스킬 행동 시나리오 (수동·반자동) |
 | Doc | `RULES.md` | 팀 개발 규칙 원문 (**규칙 단일 소스**) |

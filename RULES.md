@@ -170,7 +170,8 @@ docs/
 - ⚠ Node는 경로에 `test/` 세그먼트가 있는 파일을 커버리지에서 제외한다. `target`이 `test/` 아래면 항상 `no-data`다.
 - **턴 종료 시 typecheck·lint가 1회 돈다**(`stop-verify`). **보고는 직전 실행 대비 새로 생긴 진단만** — 예전부터 있던 에러는 건수 1줄로 접힌다(고칠 수도 없는 남의 에러가 매 턴 올라오면 경고 전체를 무시하게 된다). 스크립트가 없으면 조용히 넘기지 않고 세션당 한 번 알린다 — 검증되는 줄 알았는데 아무것도 안 도는 상태가 제일 나쁘다. **실행 실패(설정 오류·타임아웃)는 진단으로 세지 않는다.** 끄려면 `DEVKIT_VERIFY=off`.
 - **Bash 실행 기록은 `.devkit/receipts.jsonl`에 남는다**(gitignore 대상). 인용 대조의 근거이고, 지우려면 그냥 `rm`, 아예 끄려면 `DEVKIT_RECEIPTS=0`. 봉인이 시작되기 전 사이클을 소급 검사하면 `no-receipt`가 대량으로 뜨는데 그건 위조가 아니라 기록이 없는 것이다.
-  - 🔑 **마스킹은 `secret-patterns.js`의 알려진 키 형식 9종(AWS·GitHub·Slack·Stripe·Google·private key·JWT 등)뿐이다.** 그 외 — `export DB_PASSWORD=…`, `DATABASE_URL=postgres://user:pw@…`, `Authorization: Bearer …` 같은 형태는 **평문으로 남는다**. 명령·출력 전문이 기록된다는 뜻이므로 시크릿을 다루는 명령을 돌릴 땐 `DEVKIT_RECEIPTS=0`을 쓰거나 기록을 지워라.
+  - 🔑 **마스킹은 `secret-patterns.js`의 알려진 키 형식 11종(AWS·GitHub·Slack·Stripe·Google·Anthropic·private key·JWT·DB URL 비밀번호 등)뿐이다.** 그 외 — `export DB_PASSWORD=…`, `Authorization: Bearer …` 같은 형태는 **평문으로 남는다**. 명령·출력 전문이 기록된다는 뜻이므로 시크릿을 다루는 명령을 돌릴 땐 `DEVKIT_RECEIPTS=0`을 쓰거나 기록을 지워라.
+  - ⚠ 등급이 셋이다. `HIGH`는 **편집 차단**, `SUSPECT`는 관측만, `MASK_ONLY`는 **로그에서 가리기만 한다**. DB URL이 `MASK_ONLY`인 이유는 `postgresql://pop:pop@localhost`가 테스트 픽스처·docker-compose에 정상적으로 들어가기 때문이다 — 차단 등급에 올리면 그런 파일 작성이 통째로 막힌다.
 - **인용 대조는 `evidence.cmd`와 실행 명령이 맞는 receipt에서만 한다.** `cmd`에는 실제로 돌린 명령을 **그대로** 적어라 — 표기가 다르면 대조 후보가 0건이 되어 `no-cmd-match`로 보고된다(게이트는 아니다. 조치는 "그 명령을 그대로 다시 돌려라").
 - **이 층은 러너 종류를 모른다.** 코드에 러너 목록이 없고(화이트리스트는 다음 러너에서 또 샌다) 마커도 안 본다 — 인정 근거는 "실행 로그의 한 줄은 통째로 그 줄이다"라는 형태 하나다. 그래서 pytest·go test·cargo·rspec에서 그대로 성립하고, 마커가 없다는 이유로 조용히 `skipped`가 되던 무검증이 사라진다.
 - ⚠ **검증 도구 자신의 출력에는 `·`가 박혀 있다.** 장식이 아니라 방벽이다 — 인용 조각은 ` · `로 잘려 나오므로 그걸 품은 줄은 어떤 인용과도 같아질 수 없다. 보고서 한 행이 봉인돼 다음 회차에 위조를 입증하는 경로(cross-row 조립)를 그 형태 하나로 막는다. **지우지 마라.**
