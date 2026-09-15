@@ -35,7 +35,10 @@ const PATTERNS = [
   // ⚠ `--force-with-lease`는 뺀다. 그건 원격에 남의 커밋이 새로 생겼으면 **실패하는**
   // 안전한 변형이고, `--force`가 파괴적인 이유(남의 작업을 말없이 덮어씀)가 성립하지 않는다.
   // `\b`만 쓰면 `--force-with-lease`의 하이픈이 경계라서 같이 걸린다(실사용 4건 확인).
-  { re: /\bgit\s+push\b[^;]*\s(--force(?!-with-lease\b)|-f)\b/i, why: 'git push --force' },
+  // ⚠ 플래그는 **push 자기 명령 안에서만** 찾는다 — 줄바꿈·`;`·`|`·`&&`에서 멈춘다. 예전 `[^;]*`는
+  // 그걸 넘어가 `git push origin main` 뒤에 붙은 `rm -f /tmp/…`의 `-f`를 push 플래그로 읽었다(실측).
+  // 단일 `&`는 멈추지 않는다: `2>&1` 뒤에 붙은 `-f`도 같은 명령이라 잡아야 한다(틀리는 방향이 차단 쪽).
+  { re: /\bgit\s+push\b(?:(?!&&)[^;|\n])*\s(--force(?!-with-lease\b)|-f)\b/i, why: 'git push --force' },
   { re: /\bgit\s+reset\s+--hard\b/i, why: 'git reset --hard' },
   { re: /\bgit\s+clean\s+-\S*f/i, why: 'git clean -f (추적 안 된 파일 삭제)' },
   { re: /\b(mkfs\S*|dd)\b[^;]*\bof=\/dev\//i, why: '디스크 직접 쓰기' },

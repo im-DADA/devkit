@@ -54,6 +54,23 @@ test('bash-guard: --force-with-lease는 통과, --force는 여전히 차단', ()
   assert.equal(bash('git push --force-with-leases origin main'), 2);
 });
 
+// 실측(pop-festa-2026, 2026-09-03): `git push origin main` 줄 뒤에 정리용 `rm -f /tmp/...`를
+// 붙였더니 push --force로 차단됐다. 패턴의 `[^;]*`가 줄바꿈·`&&`·`|`를 넘어가 **다른 명령의
+// `-f`**를 push의 플래그로 읽었다. push 뒤에 정리 명령을 붙이면 무조건 막히는 구조였다.
+test('bash-guard: push 뒤에 붙은 다른 명령의 -f를 push 플래그로 읽지 않는다', () => {
+  assert.equal(bash('cd /x\ngit push origin main 2>&1 | tail -3\nrm -f /tmp/a.png'), 0);
+  assert.equal(bash('git push origin main && rm -f /tmp/a.png'), 0);
+  assert.equal(bash('git push origin main 2>&1 | tail -f'), 0);
+  assert.equal(bash('git push origin main || rm -f /tmp/a.png'), 0);
+  // 줄바꿈 경계만으로 끊기는 경우 — push 줄에 `|`·`&&`가 없으면 위 케이스들은 줄바꿈을 검사하지 못한다
+  assert.equal(bash('git push origin main\nrm -f /tmp/a.png'), 0, '다음 줄의 -f');
+  // 경계를 자르다 진짜 강제 푸시를 놓치면 안 된다
+  assert.equal(bash('git push origin main && git push -f origin feat'), 2, '뒤 명령이 진짜 push -f');
+  assert.equal(bash('cd /x\ngit push --force origin main\nrm -f /tmp/a'), 2, '줄 안의 --force');
+  assert.equal(bash('git push origin main \\\n --force'), 2, '백슬래시 줄잇기는 한 명령');
+  assert.equal(bash('git push origin main 2>&1 -f'), 2, '리다이렉트 뒤에 붙은 -f도 같은 명령');
+});
+
 test('bash-guard: 안전 명령 허용(exit 0)', () => {
   assert.equal(bash('ls -la'), 0);
   assert.equal(bash('rm -rf ./dist'), 0);

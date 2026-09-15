@@ -52,12 +52,37 @@ gh pr merge <n> --squash --delete-branch
 - ❌ `Co-Authored-By` 트레일러 금지.
 - `--delete-branch`가 **원격** 브랜치를 지운다. 로컬은 안 지워진다(4번).
 - 실패하면(충돌·권한·브랜치 보호) 원문 에러를 보여주고 멈춘다. 우회하지 않는다.
+- ⚠ **에러가 나도 "머지 실패"라고 말하기 전에 원격 상태부터 본다.** `gh pr merge`는 원격 머지 후
+  로컬 main을 fast-forward하는데, 로컬 main이 어긋나 있으면 **그 로컬 단계만** 실패한다.
+  실측(play-on-the-pitch #50): `Not possible to fast-forward` 에러가 났지만 원격은 `MERGED`였고,
+  세션은 실패로 보고한 채 멈췄다.
+
+  ```bash
+  gh pr view <n> --json state,mergedAt
+  ```
+
+  `MERGED`면 머지는 성공이다 — 보고에 그렇게 쓰고 4번으로 간다.
 
 ## 4. 로컬 정리
 
 ```bash
-git checkout main && git pull
+git checkout main && git pull --ff-only
 ```
+
+**fast-forward가 안 되면 로컬 main에만 있는 커밋이 있다는 뜻이다.** 그걸 말없이 버리면 안 된다.
+
+```bash
+git fetch origin && git log --oneline origin/main..main
+```
+
+나온 커밋 목록을 보여주고 **멈춰서 묻는다.** 승인하면 백업을 남기고 옮긴다.
+
+```bash
+git branch backup/main-$(date +%Y%m%d-%H%M) main && git checkout -B main origin/main
+```
+
+- `git reset --hard origin/main`을 쓰지 않는다 — devkit이 막고, 백업 없이 커밋을 잃는다.
+  위 두 줄은 커밋을 백업 브랜치에 남긴 채 main만 원격에 맞춘다.
 
 여기까지가 무프롬프트 구간이다. **로컬 브랜치 삭제는 여기서 멈추고 묻는다.**
 
