@@ -89,7 +89,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `/ship` | 리뷰 → 커밋 메시지 + PR 초안 (승인 후 실행) |
 | `/merge` `[PR#]` | PR 스쿼시 머지 → 원격 브랜치 삭제 → 로컬 `main` 동기화. 로컬 브랜치 삭제만 확인 |
 | `/improve` | 세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장) |
-| `/kit` `[init\|sync\|audit]` | 도움말 / `init` 레포에 AGENTS.md·settings.json 생성(기존 `CLAUDE.md`가 있으면 옮기기 안 제안) / `sync` 프로젝트 `AGENTS.md`와 전역 `~/.codex/AGENTS.md`의 devkit 구간을 정본으로 갱신 / `audit` 차단 집계 |
+| `/kit` `[init\|sync\|audit]` | 도움말 / `init` 레포에 AGENTS.md·eslint·CI·pre-commit·settings.json 생성(기존 `CLAUDE.md`가 있으면 옮기기 안 제안) / `sync` 프로젝트 `AGENTS.md`와 전역 `~/.codex/AGENTS.md`의 devkit 구간을 정본으로 갱신 / `audit` 차단 집계 |
 
 </details>
 
@@ -198,6 +198,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 - `AGENTS.md` — setup/test/build 명령어 + 스택 + **공통 규칙 인라인** (Cursor·Codex·Copilot도 읽는 표준)
 - `eslint.config.mjs` — 규칙을 lint로 강제 (devDep은 승인 후 직접 설치)
 - `.github/workflows/ci.yml` — PR 머지 게이트
+- `.githooks/pre-commit` — 세션 밖(터미널에서 직접 커밋) 시크릿·lint 방어
 - `.claude/settings.json` — clone 시 자동 활성화
 
 ## Codex와 같이 쓰기 (전역 규칙 한 곳)
