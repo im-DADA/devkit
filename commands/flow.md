@@ -22,7 +22,7 @@ allowed-tools:
 ## 1) Plan — 요구사항 확정 → `docs/{cycle}/PLAN.md`
 
 - 진행 중인 사이클 폴더가 이미 있으면 `PLAN.md`를 Read해서 재사용(사용자에게 "이거 쓸까요?" 확인). 없으면 사이클 폴더를 새로 만든다.
-- 기존 코드 탐색(Glob/Grep) 후, 모호한 지점을 **AskUserQuestion 2~4개**(엣지케이스·범위·데이터 형태)로 확정 → `docs/{cycle}/PLAN.md` 작성(목표·단계별 작업·건드릴 파일·리스크·검증 방법·범위 밖). 요구사항 인터뷰가 더 깊게 필요하면 `/spec`으로 `SPEC.md`를 보조로 둘 수 있다.
+- 모호한 지점을 **AskUserQuestion 2~4개**(엣지케이스·범위·데이터 형태)로 확정한 뒤, **`planner` 에이전트를 Task로 띄워** 탐색과 PLAN 본문 초안을 받고 메인이 `docs/{cycle}/PLAN.md`로 쓴다(목표·단계별 작업·건드릴 파일·behavior·리스크·검증 방법·범위 밖). planner는 Fable·max로 돈다 — 메인이 직접 쓰면 구현용 세션 모델로 계획이 짜인다. 요구사항 인터뷰가 더 깊게 필요하면 `/spec`으로 `SPEC.md`를 보조로 둘 수 있다.
 - **`docs/{cycle}/behaviors.json` 생성** — PLAN의 behavior를 **전부 `passes: false`로** 넣는다(`{version, cycleId, behaviors:[{id, desc, priority, passes, evidence}]}`). 분모를 여기서 고정해야 나중에 항목을 줄여 점수를 올리는 일이 생기지 않는다. 이게 없으면 4) Gap의 `GAP.md` 쓰기가 훅에 차단된다.
 - 상태: `stage:"plan"`, `status:"awaiting-approval"`.
 - **게이트**: PLAN 요약 보여주고 승인 대기.

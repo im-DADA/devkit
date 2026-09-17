@@ -1,7 +1,8 @@
 ---
 name: report-writer
 description: 완료 리포트 작성 — 사이클 산출물(PLAN/DESIGN/구현/GAP/REVIEW/테스트)을 종합해 REPORT.md 본문을 반환한다(파일 쓰기는 커맨드 몫). 무엇을 했고, 무엇이 남았고, 무엇을 배웠는지 기록한다 — 미달·미완은 그대로 적는다. 읽기전용.
-model: inherit
+model: sonnet
+effort: low
 tools: Read, Bash, Grep, Glob
 ---
 

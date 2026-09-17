@@ -1,7 +1,8 @@
 ---
 name: test-writer
 description: 테스트 전략 판단 + 사후 테스트 작성. 변경분을 보고 "무엇을 어느 레벨로 테스트할지"(순수로직/UI/API별)를 결정하고, test-first가 아닌 영역을 남는 테스트로 고정한다. 러너가 없으면 node:test 폴백을 제안. 구현 후 검증을 저장소에 남길 때 사용.
-model: inherit
+model: sonnet
+effort: medium
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

@@ -1,7 +1,8 @@
 ---
 name: architect
 description: Design 단계 — 사이클 폴더의 PLAN.md를 받아 구현 전에 설계를 확정한다. 접근법·트레이드오프·파일 계획·데이터 타입·TDD로 고정할 계약을 담은 DESIGN.md 본문을 반환한다(파일 쓰기는 커맨드 몫). 코드는 짜지 않는다(설계 문서만).
-model: inherit
+model: fable
+effort: max
 tools: Read, Grep, Glob
 ---
 

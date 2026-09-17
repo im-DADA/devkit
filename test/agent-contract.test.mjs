@@ -593,3 +593,59 @@ test('B4: 테스트를 쓰는 에이전트는 인용 가능성·관측점 규칙
     assert.match(src, /바깥 관측점/, `${a}: 관측점 규칙 누락`);
   }
 });
+
+// ── M1: 단계별 모델·effort 배분 ─────────────────────────────────────
+// 사용자 요청(2026-09-17): 계획·설계는 Fable 최고 effort, 구현은 Opus medium, 나머지는 성격에 맞게.
+// hook은 메인 세션 모델을 바꿀 수 없다(공식 문서) — 그래서 단계를 **에이전트로 넘기고**
+// 에이전트 frontmatter에 모델을 박는다. `inherit`로 두면 세션 모델을 따라가 배분이 무의미해진다.
+// ⚠ `ultracode`는 effort 값이 아니다 — CLI 2.1.273 `--effort`는 low·medium·high·xhigh·max만 받는다.
+const MODEL_PLAN = {
+  planner: ['fable', 'max'],
+  architect: ['fable', 'max'],
+  'feature-builder': ['opus', 'medium'],
+  'tdd-driver': ['opus', 'medium'],
+  'code-reviewer': ['opus', 'high'],
+  'gap-detector': ['sonnet', 'high'],
+  'test-writer': ['sonnet', 'medium'],
+  'report-writer': ['sonnet', 'low'],
+};
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+test('M1: 모든 에이전트가 모델·effort를 명시한다 (inherit 금지)', () => {
+  for (const a of ALL_AGENTS) {
+    const fm = frontmatter(read(`agents/${a}.md`));
+    const model = (fm.match(/^model:\s*(\S+)/m) || [])[1];
+    const effort = (fm.match(/^effort:\s*(\S+)/m) || [])[1];
+    assert.ok(model && model !== 'inherit', `${a}: model이 없거나 inherit — 배분이 세션 모델에 끌려간다`);
+    assert.ok(EFFORTS.includes(effort), `${a}: effort가 없거나 허용값 밖(${effort})`);
+  }
+});
+
+test('M1: 배분표와 frontmatter가 일치한다 (에이전트 추가 시 표도 갱신)', () => {
+  assert.deepEqual(Object.keys(MODEL_PLAN).sort(), [...ALL_AGENTS].sort(), '배분표에 없는 에이전트가 있다');
+  for (const [a, [model, effort]] of Object.entries(MODEL_PLAN)) {
+    const fm = frontmatter(read(`agents/${a}.md`));
+    assert.match(fm, new RegExp(`^model:\\s*${model}\\s*$`, 'm'), `${a}: model ${model} 아님`);
+    assert.match(fm, new RegExp(`^effort:\\s*${effort}\\s*$`, 'm'), `${a}: effort ${effort} 아님`);
+  }
+});
+
+// planner는 architect와 같은 계약이다 — 서브에이전트는 문서를 파일로 못 쓰니(B14) 본문을 반환한다.
+test('M1: planner는 PLAN.md 본문을 반환하고 파일을 쓰지 않는다', () => {
+  const src = read('agents/planner.md');
+  const tools = (frontmatter(src).match(/^tools:.*$/m) || [''])[0];
+  assert.ok(tools, 'planner: tools 줄 없음');
+  assert.doesNotMatch(tools, /\b(Write|Edit)\b/, 'planner: 쓰기 도구가 있다');
+  assert.doesNotMatch(frontmatter(src), /\bWrite\b/, 'planner: description이 Write를 주장');
+  for (const re of [/PLAN\.md 본문 텍스트를 반환/, /track/, /behavior/, /NEEDS CLARIFICATION/, /코드는.*짜지 않/]) {
+    assert.match(src, re, `planner: 핵심 지침 누락 ${re}`);
+  }
+});
+
+// 에이전트만 만들고 진입점이 메인 세션에서 PLAN을 직접 쓰면 planner는 한 번도 안 불린다.
+// 진입점은 셋이다: /plan · /flow · 프롬프트 감지 KICKOFF(“플랜 짤까?” 흐름이 여기다).
+test('M1: PLAN 작성 진입점 3곳이 전부 planner에 위임한다', () => {
+  for (const f of ['commands/plan.md', 'commands/flow.md', 'hooks/pdca-detect.js']) {
+    assert.match(read(f), /planner/, `${f}: planner 위임이 없다 — 세션 모델로 PLAN을 쓴다`);
+  }
+});

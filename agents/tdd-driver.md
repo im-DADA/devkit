@@ -1,7 +1,8 @@
 ---
 name: tdd-driver
 description: Drives a strict TDD red-green-refactor loop. Writes ONE failing test first, runs it to confirm RED, writes the minimal code to reach GREEN, runs to confirm, then refactors — repeating per behavior. Never writes implementation before a failing test exists. Use for test-first feature development.
-model: inherit
+model: opus
+effort: medium
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

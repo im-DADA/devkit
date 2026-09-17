@@ -2,7 +2,7 @@
 
 Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제하고, "다 됐습니다"를 실행 흔적 없이는 인정하지 않는다.**
 
-개인 개발 워크플로우와 팀 컨벤션을 커맨드 13개 · 에이전트 7개 · 스킬 3개 · 훅 12개로 묶었다.
+개인 개발 워크플로우와 팀 컨벤션을 커맨드 13개 · 에이전트 8개 · 스킬 3개 · 훅 12개로 묶었다.
 
 ## 왜 만들었나
 
@@ -96,10 +96,11 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 </details>
 
 <details>
-<summary><b>에이전트 7개 · 스킬 3개</b></summary>
+<summary><b>에이전트 8개 · 스킬 3개</b></summary>
 
 | 종류 | 이름 | 용도 |
 |---|---|---|
+| Agent | `planner` | Plan 단계 — 읽기전용 탐색 → PLAN.md 본문 (코드 X) |
 | Agent | `architect` | Design 단계 — 설계 확정 → DESIGN.md (코드 X) |
 | Agent | `feature-builder` | 웹 기능 구현 (feature 구조) |
 | Agent | `tdd-driver` | 테스트 우선 red-green-refactor 구현 |
@@ -110,6 +111,18 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | Skill | `convention-check` | 팀 컨벤션 준수 점검 (린터가 못 잡는 것 중심) |
 | Skill | `pr-description` | diff → PR 설명 생성 |
 | Skill | `visual-verify` | 웹 UI 스크린샷 vision 검증 (브라우저 MCP 필요) |
+
+**단계별 모델·effort** — 에이전트 frontmatter에 고정돼 있다. hook은 메인 세션 모델을 못 바꾸므로 계획·설계를 에이전트로 떼어냈다. 평소 대화·구현은 세션 기본값(권장 `opus` · `medium`)을 따른다.
+
+| 단계 | 에이전트 | 모델 | effort |
+|---|---|---|---|
+| Plan | `planner` | fable | max |
+| Design | `architect` | fable | max |
+| 구현 | `feature-builder` · `tdd-driver` | opus | medium |
+| Review | `code-reviewer` | opus | high |
+| Gap | `gap-detector` | sonnet | high |
+| 테스트 보강 | `test-writer` | sonnet | medium |
+| Report | `report-writer` | sonnet | low |
 
 </details>
 

@@ -1,7 +1,8 @@
 ---
 name: code-reviewer
 description: Reviews the current git diff (or specified files) for correctness bugs, security issues, and team-convention violations. Read-only — reports findings with file:line, does not edit. Use after implementing a feature and before commit/PR.
-model: inherit
+model: opus
+effort: high
 tools: Read, Bash, Grep, Glob
 ---
 

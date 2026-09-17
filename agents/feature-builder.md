@@ -1,7 +1,8 @@
 ---
 name: feature-builder
 description: Implements a web feature (React/Next/TS) following the team's feature-based structure defined in RULES.md. Use when building a new component, page, or feature slice. Reuses existing code before writing new.
-model: inherit
+model: opus
+effort: medium
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
