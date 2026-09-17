@@ -5,6 +5,7 @@
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { findProjectRoot } = require('./lib/project-root');
 const { readState, isActive } = require('./lib/pdca-state');
@@ -144,18 +145,52 @@ function driftBlock(summary, agentsMd) {
   ].join('\n');
 }
 
-function extractSummary() {
+/**
+ * RULES.md의 `<!-- {name}:START -->` ~ `<!-- {name}:END -->` 블록 원문.
+ * @throws 마커가 없으면 — 호출자가 블록별로 degrade를 정한다(SUMMARY는 FALLBACK, CODEX는 침묵)
+ */
+function extractBlock(name) {
   const rulesPath = path.join(__dirname, '..', 'RULES.md');
   const md = fs.readFileSync(rulesPath, 'utf8');
-  const m = md.match(/<!-- SUMMARY:START -->\n([\s\S]*?)\n<!-- SUMMARY:END -->/);
-  if (!m) throw new Error('SUMMARY markers not found in RULES.md');
+  const m = md.match(new RegExp(`<!-- ${name}:START -->\\n([\\s\\S]*?)\\n<!-- ${name}:END -->`));
+  if (!m) throw new Error(`${name} markers not found in RULES.md`);
   return m[1].trim();
+}
+
+/** 홈 기준 파일을 읽되, 없으면 null. `os.homedir()`는 POSIX에서 $HOME을 따른다(테스트 격리 근거) */
+function readFromHome(rel) {
+  try {
+    return fs.readFileSync(path.join(os.homedir(), rel), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 전역 Codex 규칙 사본(`~/.codex/AGENTS.md`)이 정본(RULES.md CODEX 블록)과 다른지 알린다.
+ *
+ * 전역 `~/.claude/CLAUDE.md`를 devkit으로 흡수하면서(2026-09-17) Codex가 받는 규칙은 이 파일의
+ * 마커 구간 하나가 됐다. Codex에는 devkit 훅이 없어 거기서는 낡음을 알 길이 없으므로,
+ * 원본을 고치는 자리인 Claude 세션 시작에서 본다.
+ *
+ * ⚠ **stale일 때만** 말한다. 파일 없음·마커 없음·custom은 전부 침묵 — 프로젝트 AGENTS.md와 달리
+ * 여기엔 마커 이식 안내(unmarked)도 없다. 사용자 전역 파일에 참견하지 않는다.
+ */
+function codexDriftBlock(canonical, codexMd) {
+  if (typeof canonical !== 'string' || typeof codexMd !== 'string') return '';
+  const r = compareRules(canonical, codexMd);
+  if (r.state !== 'stale') return '';
+  return [
+    '',
+    `⚠ ~/.codex/AGENTS.md의 devkit 규칙이 플러그인 RULES와 ${r.diffLines}줄 다르다 (Codex가 낡은 규칙을 읽고 있다).`,
+    '  최신으로 맞추기: `/kit sync`  ·  의도한 커스터마이즈면 마커를 `mode=custom` 으로 바꾼다.',
+  ].join('\n');
 }
 
 let summary;
 let summaryIsCanonical = true;
 try {
-  summary = extractSummary();
+  summary = extractBlock('SUMMARY');
 } catch (e) {
   process.stderr.write(`[devkit] session-start: RULES.md 요약 로드 실패 — ${e.message}\n`);
   summary = FALLBACK;
@@ -178,5 +213,20 @@ if (summaryIsCanonical) {
   }
 }
 
+// Codex 정본을 못 읽으면(블록 없음) 침묵한다 — 정본을 못 읽은 우리 잘못을 사용자 파일이 낡았다고
+// 보고하면 안 된다(위 FALLBACK과 같은 이유). 판정이 터져도 리마인드는 나가야 한다.
+let codexDrift = '';
+try {
+  let codexCanon = null;
+  try {
+    codexCanon = extractBlock('CODEX');
+  } catch {
+    codexCanon = null;
+  }
+  codexDrift = codexDriftBlock(codexCanon, readFromHome(path.join('.codex', 'AGENTS.md')));
+} catch (e) {
+  process.stderr.write(`[devkit] session-start: Codex 규칙 동기화 검사 실패 — ${e.message}\n`);
+}
+
 // 재개 블록은 생략 대상이 아니다 — 그 정보는 AGENTS.md에 없다.
-process.stdout.write((skipSummary ? '' : summary) + drift + resumeBlock() + '\n');
+process.stdout.write((skipSummary ? '' : summary) + drift + codexDrift + resumeBlock() + '\n');

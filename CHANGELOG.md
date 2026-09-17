@@ -2,6 +2,29 @@
 
 [Keep a Changelog](https://keepachangelog.com/) 형식. 버전은 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### 규칙 원본을 devkit 하나로 — 전역 CLAUDE.md 흡수 (`docs/2026-09-17-rules-single-source/`)
+
+Claude Code와 Codex를 같이 쓰면서 규칙 원본이 셋(`~/.claude/CLAUDE.md` · `RULES.md` · 손으로 만든
+`~/.codex/AGENTS.md`)으로 흩어져 있었다. 한쪽만 고치면 어긋나고, 폴더 구조 규칙은 이미 두 가지로
+적혀 매 세션 함께 주입되고 있었다.
+
+- **전역 개인 규칙을 `RULES.md`로 흡수.** 세션 요약은 항목을 늘리지 않고 기존 줄에 합쳤다
+  (톤·흐린 표현·YAGNI·`any`·빈 catch·`console.log`·200줄). 흡수 전 3,757B·15항목 → 110% 이하를 테스트로 고정.
+  피드백 대응·세션 관리는 본문 새 절 `## 세션 & 피드백`.
+- **언어는 규칙이 아니라 사용자 설정(`language`)으로.** 공개 플러그인에 특정 언어를 박지 않는다.
+  언어 지시 문장은 "설정·지시에 지정된 언어 우선".
+- **Codex판 정본 `CODEX:START~END` 블록**을 `RULES.md`에 두고, `~/.codex/AGENTS.md`의 `devkit:rules`
+  구간이 그 사본이다. 다르면 세션 시작 때 2줄 경고, `/kit sync`가 diff 승인 후 구간만 갱신.
+  파일 없음·마커 없음·custom은 침묵.
+- **`/kit init`**: 이미 `CLAUDE.md`가 있는 레포면 `AGENTS.md`를 바로 만들지 않고 옮기기 안을 제안한다 —
+  AGENTS.md가 생기면 Codex가 `CLAUDE.md`를 더 이상 읽지 않아 프로젝트 규칙이 조용히 빠진다.
+- **`convention-observe`가 위반을 Claude에게 알린다**(예전엔 기록만). "LLM에게 린터 일을 시키지 마라"를
+  devkit 범위 안에서 지키기 위해서다 — 린터는 레포 안 설정이라 전역 플러그인의 수단이 아니고, 실측한
+  프로젝트 7개 전부 해당 lint 규칙이 없었다. 소음 방지로 이번 편집이 넣은 것만 알린다.
+- 테스트의 세션 훅 실행이 **HOME을 격리**한다 — 실제 홈의 개인 파일에 따라 결과가 달라지지 않게.
+
 ## [0.20.0] - 2026-08-12
 
 ### 검증 보고를 "내가 만든 것"으로 좁힌다

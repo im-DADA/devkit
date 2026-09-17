@@ -19,6 +19,7 @@ allowed-tools:
 
 1. **프로젝트 감지**: `package.json`을 Read. `scripts`(dev/build/test/lint/typecheck)와 `packageManager`, 주요 의존성(next/react/vite 등)을 파악. 없으면 사용자에게 스택을 한 번 물어본다.
 2. **`AGENTS.md` 생성** (이미 있으면 덮어쓰지 말고 diff만 제안). 명령어는 실제 `scripts`에서 가져온 것만, 추측 금지. 비어있으면 그 줄 생략. **팀 공통 규칙은 링크가 아니라 `AGENTS.md`에 인라인**한다 — 그래야 Claude Code뿐 아니라 Cursor·Codex·Copilot도 읽는다. 플러그인 `RULES.md`의 `SUMMARY:START~END` 블록을 Read해서 "## 공통 규칙"으로 그대로 붙여넣는다.
+   ⚠ **이미 `CLAUDE.md`가 있고 `@AGENTS.md` import가 없는 레포에서는 AGENTS.md를 바로 만들지 않는다.** Codex는 폴더당 규칙 파일 하나만 읽고, `AGENTS.md`가 없을 때만 `CLAUDE.md`를 대신 읽는다(`project_doc_fallback_filenames`). AGENTS.md가 생기는 순간 **CLAUDE.md의 프로젝트 규칙(운영 DB 경고 같은 것)이 Codex에서 조용히 빠진다.** 대신 **이전안을 diff로 제안**한다 — CLAUDE.md 본문을 분류하지 않고 통째로 AGENTS.md의 `## This repo only` 자리로 옮기고, CLAUDE.md는 `이 레포 지침은 @AGENTS.md 를 따른다.` 한 줄로 바꾼다. 합친 크기가 32KiB(Codex 기본 읽기 한도)를 넘으면 제안문에 적는다. **거절하면 AGENTS.md를 만들지 않고** 나머지 단계만 진행한다.
    ⚠ **인라인 구간을 `devkit:rules` 마커로 감싼다 (필수).** 이 사본은 devkit이 규칙을 바꿔도 자동으로 갱신되지 않는다 — 마커가 있어야 `session-start` 훅이 낡음을 탐지하고 `/kit sync`가 그 구간만 안전하게 교체할 수 있다. 마커가 없으면 사본은 조용히 낡고, 에이전트는 낡은 사본을 정본보다 **우선** 읽는다(결함로그 D26).
    ```markdown
    # AGENTS.md
@@ -77,6 +78,16 @@ allowed-tools:
 5. 교체 전 **diff를 보여주고 승인**을 받는다. `AGENTS.md`는 사용자 소유 파일이라 무단 덮어쓰기 금지.
 
 > 규칙을 devkit과 다르게 유지하고 싶으면 마커를 `mode=custom`으로 바꾼다 → 이후 탐지·동기화 대상에서 완전히 빠진다.
+
+### 전역 Codex 규칙 (`~/.codex/AGENTS.md`)
+
+Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정본은 플러그인 `RULES.md`의 `CODEX:START~END` 블록이다. `session-start`가 "`~/.codex/AGENTS.md`의 devkit 규칙이 … 다르다"를 알렸거나 사용자가 요청하면, 위 프로젝트 단계와 **따로** 한다(프로젝트 `AGENTS.md`가 없어도 이 단계는 할 수 있다).
+
+1. `~/.codex/AGENTS.md`를 Read. **없으면 만들지 않는다** — 사용자 전역 파일이라 생성은 사용자가 요청할 때만.
+2. `devkit:rules` 마커를 찾는다. **마커가 없으면 교체하지 않고** 마커를 넣을 위치만 제안한다. `mode=custom`이면 아무것도 하지 않고 보고만.
+3. 플러그인 `RULES.md`의 `CODEX:START~END` 블록을 Read.
+4. **마커 사이만** 교체한다. 마커 밖(머리말 — 응답 언어 1줄 등)은 한 글자도 건드리지 않는다. Codex에는 응답 언어 설정이 없어서 언어는 사용자가 머리말에 둔다 — devkit은 공개 플러그인이라 특정 언어를 정본에 넣지 않는다.
+5. 교체 전 **diff를 보여주고 승인**을 받는다.
 
 ## `audit` — 관측성 조회
 

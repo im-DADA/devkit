@@ -7,13 +7,13 @@
 <!-- SUMMARY:START -->
 ## devkit 팀 규칙 리마인드
 
-- `CLAUDE.md`에 언어가 지정돼 있으면 **그게 우선**, 없으면 사용자 언어. 간결히, 결론부터.
-- ❌ 금지: 추측 답변, **확신에 찬 부정**("없다/안 된다"는 긍정보다 훨씬 비싸다 — 말하기 전에 "내가 틀리려면 뭐가 있어야 하지? 그걸 봤나?", 조회 가능하면 조회, 단정 대신 "어디까지 봤는데 안 나왔다"), **한 파일만 보고 동작 단정**(진입점→실행지점을 순서대로 말할 수 있어야 파악한 것), 요청 안 한 코드·문서 생성(PDCA 산출물은 예외).
+- 언어는 **설정(`language`)·`CLAUDE.md` 등 지시에 지정된 것이 우선**, 없으면 사용자 언어. 결론부터 · 1줄이면 1줄 · 옵션 2~3개 · 이모지 최소 · 캐주얼 존댓말 OK.
+- ❌ 금지: 추측 답변, **확신에 찬 부정**("없다/안 된다"는 긍정보다 훨씬 비싸다 — 말하기 전에 "내가 틀리려면 뭐가 있어야 하지? 그걸 봤나?", 조회 가능하면 조회, 단정 대신 "어디까지 봤는데 안 나왔다"), **한 파일만 보고 동작 단정**(진입점→실행지점을 순서대로 말할 수 있어야 파악한 것), 요청 안 한 코드·문서 생성(PDCA 산출물은 예외), 흐린 표현(확신 없으면 "모름"), YAGNI. 코드: `any`·빈 catch·커밋 전 `console.log`·200줄 초과.
 - 🟡 확인 필요: 브랜치 삭제, 커밋·푸시·PR, 외부 게시. **운영 DB 수정·쓰기·삭제는 요청했을 때만**(조회는 자유).
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
 - 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REVIEW→REPORT를 남긴다. PLAN 첫머리 `- **track**: Quick|Full` 1줄로 트랙을 정한다 — **멈춤점은 Full 2곳(PLAN·DESIGN), Quick 1곳(PLAN만, DESIGN 생략)**. Quick도 behaviors.json·Gap·Review·REPORT는 전부 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
 - ✅ 검증 무결성: `behaviors.json`이 Gap의 분모. **`passes:true`는 evidence(실행 흔적)가 있어야 유효** — 없으면 자동 강등된다. 통과 기준은 `unproven==0`이지 Match Rate 숫자가 아니다. 상세는 RULES "PDCA 사이클".
-- Feature 구조: `features/{f}/`에 components(.tsx) · hooks·api·data·types·utils(.ts). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만(page에 붙이면 metadata를 잃는다).
+- Feature 구조: `features/{f}/`에 components(.tsx) · hooks·api·data·types·utils(.ts) · contexts(필요 시). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만(page에 붙이면 metadata를 잃는다).
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
 - 네이밍(린터가 못 잡는 것만): 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 파일·폴더 kebab-case. 축약어/부정boolean 금지.
 - 📝 주석 두 종류: 몸통 안 `//`는 **why만**(코드가 what을 말한다). export 시그니처 위 `/** */`는 **호출부에서 안 보이는 계약**을 적는다 — 부수효과 · `@security`(권한 검증 책임) · 단위/경계 · `@throws` · 반환 예시. ⚠ TS에서 `@param {number}`처럼 **타입 재기술 금지**(시그니처와 어긋나면 거짓말한다). 전부 다는 게 아니라 **시그니처만 봐서 못 쓰는 것**에만.
@@ -26,12 +26,70 @@
 커맨드: /plan · /gap · /cycles · /review · /ship · /kit — 상세 규칙은 플러그인 RULES.md
 <!-- SUMMARY:END -->
 
+> ⚠ 위 SUMMARY는 Claude Code용, 아래 CODEX 블록은 Codex용(`~/.codex/AGENTS.md`의 `devkit:rules` 구간 정본)이다. **한쪽을 고치면 다른 쪽도 같이 고친다** — 기계는 사본이 정본과 다른 것만 잡고, 두 블록의 의미 차이는 못 잡는다. 사본 갱신은 `/kit sync`.
+
+<!-- CODEX:START -->
+# devkit 규칙 (Codex용)
+
+Claude Code에서는 devkit 플러그인이 hook으로 강제하지만 **Codex에는 그 hook이 없으므로 아래를 스스로 지킨다.**
+역할 분담: 계획(PLAN·DESIGN)과 검증(Gap·Review·REPORT)은 Claude Code가 한다. **Codex는 받은 문서대로 구현한다.**
+
+## 공통
+
+- 결론부터, 간결하게 — 1줄이면 1줄. 옵션은 2~3개, 확인이 필요하면 질문 하나만.
+- 추측으로 답하지 않는다. 흐린 표현("아마도") 대신 확신 없으면 "모름". 대강 훑고 "없다/안 된다"고 단정하지 않는다 — 진입점 → 실행 지점까지 따라가 확인하고, 못 찾았으면 어디까지 봤는지 말한다.
+- 에러 메시지·로그는 번역하지 않고 원문 유지. 기술 용어는 영문 그대로.
+- 요청하지 않은 리팩토링·파일 생성 금지. YAGNI. 새 유틸·함수 작성 전 같은 역할의 기존 것을 검색해 재사용.
+- 커밋: Conventional Commits, `Co-Authored-By` 금지. 커밋·푸시·PR은 요청했을 때만.
+
+## PDCA 사이클 — 구현자로서 할 일
+
+- 작업 폴더 `docs/{YYYY-MM-DD}-{slug}/`가 주어지면 **PLAN.md를 먼저 읽고, DESIGN.md가 있으면 그것도 읽고** 그대로 구현한다. 문서와 다르게 가야 할 이유가 생기면 구현 전에 멈추고 묻는다.
+- `behaviors.json`이 분모다. behavior를 통과시킬 때마다 `passes`와 `evidence`를 갱신한다.
+  - **`passes: true`는 실행 흔적이 있어야 유효하다.** `evidence`는 `{kind, ref, cmd, output, at}` — 실제로 돌린 명령(`cmd`)과 그 출력(`output`)을 그대로 넣는다. 출력 없이 통과로 적지 않는다.
+  - behavior를 지우거나 합쳐서 분모를 줄이지 않는다.
+  - Claude Code 쪽 Gap 분석이 테스트를 다시 돌려 대조한다 — 부풀린 통과는 강등된다.
+- `GAP.md`·`REVIEW.md`·`REPORT.md`는 쓰지 않는다(Claude Code 담당).
+
+## 파일을 지키는 규칙 (Claude Code에서는 hook이 막는 것)
+
+- `.env`류는 **통째로 덮어쓰지 않는다**(`>` 리다이렉트·전체 재작성 금지). 값 한 줄 수정·추가만. `.env.example` 같은 템플릿은 예외.
+- lockfile(`pnpm-lock.yaml` 등)은 직접 편집하지 않는다. 패키지 매니저가 관리한다.
+- `.git/`·`node_modules/` 안은 건드리지 않는다.
+- `git push --force`(`--force-with-lease`는 괜찮음)·`reset --hard`·`clean -f`·`rm -rf`(위험 경로)·`curl … | sh`는 실행하지 않는다.
+- 새 의존성 추가(`pnpm add` 등)는 먼저 묻는다. `pnpm install`(lockfile 복원)은 괜찮다. **승인이 필요하다는 이유로 라이브러리 없는 설계로 조용히 우회하지 않는다** — 선택지가 있었다는 걸 사용자가 모르게 된다.
+- **운영 DB 수정·쓰기·삭제는 사용자가 요청했을 때만.** 조회는 자유. "확인해봐"는 쓰기 요청이 아니다 — 고칠 게 보이면 SQL을 보여주고 묻는다.
+
+## 코드 규칙
+
+- 🧪 새 순수함수·명확한 계약(멱등성·경계값·격리·대소문자·금액 계산)은 **테스트 먼저(TDD)**: 실패하는 테스트 작성 → 실패 확인 → 최소 구현 → 통과 확인. DESIGN.md의 "TDD로 고정할 계약"이 테스트 목록이다. 테스트 러너가 없으면 조용히 넘기지 말고 묻는다.
+- 코드: `any` 금지(→ `unknown` + 좁히기) · 빈 catch 금지(에러는 throw·전파) · 커밋 전 `console.log` 제거 · 파일이 200줄을 넘으면 분리.
+- Feature 구조(프로젝트 규칙 파일이 다르게 정하면 그걸 따른다): `features/{f}/`에 `components/`(.tsx) · `hooks/`·`api/`·`data/`·`types/`·`utils/`(.ts) · `contexts/`(React Context, 필요 시). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만.
+- 🔒 `.tsx`엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 `.ts`(커스텀 훅/유틸)로 분리.
+- 네이밍: 훅 `use*` · 핸들러 `handle*`/`on*` · boolean `is`/`has`/`can*` · 파일·폴더 kebab-case. 축약어·부정 boolean 금지.
+- 📝 주석 두 종류: 함수 몸통 안 `//`는 **why만**. export 시그니처 위 `/** */`는 **호출부에서 안 보이는 계약**(부수효과 · `@security` 권한 검증 책임 · 단위/경계 · `@throws` · 반환 예시)만. TS에서 `@param {number}`처럼 타입 재기술 금지.
+- 라이브러리·프레임워크 존재를 가정하지 않는다 — 쓰기 전 `package.json`으로 확인.
+- 🎨 UI 작업 전 앱 루트에 `DESIGN.md`(디자인 언어 문서 — `docs/{cycle}/DESIGN.md` 설계 문서와 다른 것)가 있으면 읽고 따른다(특히 `Don't`).
+<!-- CODEX:END -->
+
 ## 언어 & 톤
 
-- **`CLAUDE.md` 등 지시에 언어가 지정돼 있으면 그게 우선.** 없을 때만 사용자가 직접 입력한 메시지의 언어를 따른다(툴 출력·로그는 언어 신호가 아니다). 기술 용어는 영문 그대로.
+- **설정(`language`)·`CLAUDE.md` 등 지시에 언어가 지정돼 있으면 그게 우선.** 없을 때만 사용자가 직접 입력한 메시지의 언어를 따른다(툴 출력·로그는 언어 신호가 아니다). 기술 용어는 영문 그대로.
+  - ⚠ **개인 언어는 규칙 파일이 아니라 사용자 설정에 둔다**(2026-09-17). 전역 `~/.claude/CLAUDE.md`를 devkit으로 흡수하면서 "한국어로 답변" 선언을 `~/.claude/settings.json`의 `"language"`로 옮겼다 — 공개 플러그인에 특정 언어를 박으면 설치자에게 강제된다. CLI는 이 설정이 있으면 "Always respond in {언어}. Use {언어} for all explanations, comments, and communications with the user"를 주입한다(2.1.274 실측, 설치된 바이너리 문자열).
   - ⚠ **선언이 있으면 추론하지 않는다.** "훅이 언어를 박지 마라"는 훅이 *추측한* 언어 얘기였는데(`claude mcp add …` 한 줄에 English를 박는 사고), 그게 "언어 이름을 절대 쓰지 마라"로 일반화되면서 **사용자가 직접 선언한 언어까지 버려졌다.** 그러면 "한국어로 답변"(판단 불필요)이 "매 턴 언어를 추론하라"(판단 필요)로 격하된다. 실측(2026-09-09): 격하 후 영문 툴 출력이 쌓인 턴 후반에서 추론이 밀렸다 — 같은 턴에서 앞 3줄 한국어·뒤 2줄 영어. **선언은 증거에 안 흔들리고 추론은 흔들린다.**
   - ⚠ **최종 답변만이 아니라 툴 호출 사이의 한 줄 설명까지 전부** 대상이다. 실측(2026-09-08): 답변은 한국어인데 "Plan is written. Here it is for approval before I implement." 같은 진행 설명만 영어로 나갔고, **그 둘이 같은 턴에 붙어 있었다** — 컨텍스트 거리가 같으니 드리프트가 아니라 "출력 = 사용자에게 주는 답변"으로 좁게 읽은 **분류** 문제다. 거리를 줄이는 장치를 더 만들 게 아니라 적용 범위를 밝혀야 한다.
 - 결론부터. 서두/요약 반복 생략.
+
+## 세션 & 피드백
+
+- 사용자 반응별 대응:
+  - "왜 이래?" → 원인 분석 → 한 줄 진단 → 해결.
+  - "이상해" → 검증 로그 추가 또는 롤백 제안.
+  - "됐다/잘된다" → 정리·커밋 제안 또는 다음 단계.
+  - "잠깐만" → 즉시 멈추고 이유를 기다린다.
+  - "나도 몰라" → 웹검색·탐색으로 정보를 모아 제안.
+  - "왜 이거 했어" → 즉시 의도를 설명하고, 과도했으면 롤백.
+- 세션이 길어지면 큰 작업 단위로 나눈다. 다음 세션에 필요한 결정·맥락은 **지금** 적는다 — 사이클 중이면 `PROGRESS.md`, 아니면 `docs/HANDOFF.md`.
 
 ## 절대 금지
 
@@ -261,7 +319,7 @@ docs/
   - 여러 라우트가 같은 화면을 쓰거나 인터셉트 라우트로 재사용해도 **`components/`의 큰 조각 하나**면 된다. 층 이름을 따로 만들 이유가 아니다.
   - 🔎 **"엔트리가 껍데기다"는 대개 위층이 아니라 아래층의 증상이다.** 화면 파일이 200줄을 넘겼으면 조립이 아니라 **구현**이라 위층에 남길 게 없어 보이는 것이다. 판단 순서: 위층이 비었나? → **먼저 아래층 줄 수를 봐라.** 폼은 섹션 단위로 쪼갠다(`signup-account-section.tsx` · `signup-profile-section.tsx`).
 - **Feature-based 구조** (엄격):
-  - `src/features/{feature}/` → `components/`(.tsx feature 전용 조각) · `hooks/`(.ts 상태·로직·핸들러) · `api/`(.ts 외부호출) · `data/`(.ts 정적 데이터·상수) · `types/`(.ts) · `utils/`(.ts 순수함수). **`views/`는 두지 않는다** — 화면 조립은 `app/**/page.tsx`가 한다(위 App Router 항목).
+  - `src/features/{feature}/` → `components/`(.tsx feature 전용 조각) · `hooks/`(.ts 상태·로직·핸들러) · `api/`(.ts 외부호출) · `data/`(.ts 정적 데이터·상수) · `types/`(.ts) · `utils/`(.ts 순수함수) · `contexts/`(.tsx React Context — 여러 컴포넌트가 공유하는 상태가 있을 때만). **`views/`는 두지 않는다** — 화면 조립은 `app/**/page.tsx`가 한다(위 App Router 항목).
   - `src/shared/` → 여러 feature가 공유하거나 도메인 무관 범용: `ui/`(Button·Input 등) · `hooks/` · `utils/`.
   - **page vs components**: 화면 조립·레이아웃은 `app/**/page.tsx`, 분리한 조각은 `features/*/components/`. 화면 하나를 통째로 담는 `views/`·`screens/`·`containers/` 층은 만들지 않는다.
   - **shared vs feature**: 특정 feature 전용이면 `features/*/`, 공유·범용이면 `shared/`. 개발 중 공통이 되면 `features/*/` → `shared/`로 승격(두 번째 feature가 쓰는 순간이 신호), 반대면 강등. 애매하면 YAGNI로 feature에 두고 실제 재사용될 때 옮긴다.

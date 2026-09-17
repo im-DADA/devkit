@@ -91,7 +91,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `/design-md` | 프로젝트 디자인 언어를 `DESIGN.md`로 고정 — 코드·git 수정이력·Figma에서 **관측한 것만** 추출 |
 | `/merge` `[PR#]` | PR 스쿼시 머지 → 원격 브랜치 삭제 → 로컬 `main` 동기화. 로컬 브랜치 삭제만 확인 |
 | `/improve` | 세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장) |
-| `/kit` `[init]` | 도움말 / `init` 시 레포에 AGENTS.md·settings.json 생성 |
+| `/kit` `[init\|sync\|audit]` | 도움말 / `init` 레포에 AGENTS.md·settings.json 생성(기존 `CLAUDE.md`가 있으면 옮기기 안 제안) / `sync` 프로젝트 `AGENTS.md`와 전역 `~/.codex/AGENTS.md`의 devkit 구간을 정본으로 갱신 / `audit` 차단 집계 |
 
 </details>
 
@@ -140,7 +140,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `PreToolUse(Write\|Edit)` | `pdca-gate` | **PDCA 게이트** — ① 선행 산출물 없이 `GAP.md`·`REPORT.md` 쓰기 **차단**(`REVIEW.md` 없이 REPORT 불가) · 실행 흔적이 가리키는 파일이 없으면 REPORT **차단** ② 상태 파일 스키마는 **경고만** ③ 사이클 폴더에 `.md`/`.json` 아닌 파일은 **경고만**(시안·목업·PNG → 대안 경로 안내) |
 | `PostToolUse(Write\|Edit)` | `post-edit-format` | 자동 prettier 포맷 |
 | `PostToolUse(Write\|Edit)` | `tsc-on-edit` | 타입체크 (opt-in — `DEVKIT_TSC_ON_EDIT=1`). `stop-verify`와 **같은 실행 계약**을 쓴다 |
-| `PostToolUse(Write\|Edit)` | `convention-observe` | 통과한 규칙 위반(no-any·console.log·`.tsx` 로직) 관측 기록 |
+| `PostToolUse(Write\|Edit)` | `convention-observe` | 편집 직후 규칙 위반(`any`·`console.log`·빈 catch·`.tsx` 로직·200줄)을 **그 자리에서 Claude에게 알린다**(차단 아님). Edit은 **이번에 넣은 코드만**, 200줄은 **이번 편집으로 넘었을 때만** — 기존 코드의 옛 위반으로 매번 경고하지 않는다. 레포 안 린터가 없어도 전역으로 동작 |
 | `PostToolUse(Bash)` | `bash-receipt` | 실행 receipt 봉인 — evidence 인용 대조의 근거 |
 | `Stop` | `stop-verify` | 종료 시 typecheck/lint 실행·보고. 패키지 매니저·스크립트명을 **감지**하고, **실행 실패와 진단을 구분**하며(설정 오류·타임아웃을 "타입 에러"라고 말하지 않는다), 단일 tsc 스크립트는 `--incremental`로 돌린다. **보고는 직전 실행 대비 새로 생긴 진단만** — 기존 에러는 건수 1줄로 접힌다. 끄려면 `DEVKIT_VERIFY=off` |
 

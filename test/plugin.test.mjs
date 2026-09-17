@@ -99,3 +99,25 @@ test('hooks.json에 UserPromptSubmit 등록(PDCA 자동 발동)', () => {
 test('RULES.md에 PDCA 사이클 절 존재(규약 단일 소스)', () => {
   assert.match(read('RULES.md'), /^## PDCA 사이클$/m, 'PDCA 사이클 절 없음');
 });
+
+// ── 규칙 단일 소스 (2026-09-17-rules-single-source) ──────────────────
+// 전역 ~/.claude/CLAUDE.md를 흡수하면서 Codex판 정본이 RULES.md 안으로 들어왔다.
+test('RULES.md CODEX 마커 존재(session-start.js·/kit sync 의존)', () => {
+  const md = read('RULES.md');
+  assert.match(md, /<!-- CODEX:START -->/, 'CODEX:START 없음');
+  assert.match(md, /<!-- CODEX:END -->/, 'CODEX:END 없음');
+});
+
+// 흡수했다고 세션에 들어가는 규칙이 늘면 안 된다 — 최신 모델이 안정적으로 지키는 지시는
+// 150~200개이고 기본 시스템 프롬프트가 이미 약 50개를 쓴다(HumanLayer). 기준: 흡수 전 3,757B·15항목.
+test('B1: 세션 요약은 15항목·기준의 110% 이하이면서 흡수한 규칙을 담는다', () => {
+  const s = read('RULES.md').match(/<!-- SUMMARY:START -->\n([\s\S]*?)\n<!-- SUMMARY:END -->/)[1].trim();
+  const items = s.split('\n').filter((l) => /^- /.test(l)).length;
+  const bytes = Buffer.byteLength(s);
+  assert.ok(items <= 15, `요약 항목 ${items}개 — 줄에 합쳐야 한다`);
+  assert.ok(bytes <= Math.floor(3757 * 1.1), `요약 ${bytes}B — 예산 ${Math.floor(3757 * 1.1)}B 초과`);
+  for (const [re, why] of [
+    [/옵션/, '옵션 2~3개'], [/이모지/, '이모지 최소'], [/모름/, '흐린 표현 대신 모름'], [/YAGNI/, 'YAGNI'],
+    [/`any`/, 'any 금지'], [/console\.log/, 'console.log'], [/catch/, '빈 catch'], [/200줄/, '200줄'],
+  ]) assert.match(s, re, `요약에 흡수한 규칙 없음: ${why}`);
+});

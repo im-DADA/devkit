@@ -180,7 +180,15 @@ function makeProject(agentsMd) {
   return root;
 }
 
-const runHook = (cwd) => execFileSync('node', [hook], { cwd, encoding: 'utf8' });
+// ⚠ HOME을 격리한다. 훅이 `~/.codex/AGENTS.md`도 읽게 되면서(2026-09-17), 실제 홈을 쓰면
+// 테스트 결과가 이 기계의 개인 파일 상태에 따라 달라진다 — 초록이어도 아무것도 증명하지 못한다.
+function emptyHome() {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-home-'));
+  tmpRoots.push(h);
+  return h;
+}
+const runHook = (cwd, home = emptyHome()) =>
+  execFileSync('node', [hook], { cwd, encoding: 'utf8', env: { ...process.env, HOME: home } });
 
 /** 플러그인의 현재 SUMMARY 원문 — 사본을 만들 때 정본으로 쓴다 */
 function canonicalSummary() {
@@ -318,4 +326,93 @@ test('B8: CLAUDE.md가 깨져 있어도 세션 시작을 막지 않는다', () =
     const out = runHook(makeProjectWith(wrap(canonicalSummary()), cm));
     assert.ok(out.length > 0, '출력이 비었다');
   }
+});
+
+// ── 전역 Codex 사본 (2026-09-17-rules-single-source) ─────────────────
+// 전역 ~/.claude/CLAUDE.md를 devkit으로 흡수하면서 Codex가 받는 규칙은 `~/.codex/AGENTS.md`의
+// 마커 구간 하나가 됐다. 그 정본은 RULES.md의 CODEX 블록이다. 이 축은 레포에서 관측되지 않으므로
+// 가짜 HOME 대조군으로만 검증한다.
+function canonicalCodex() {
+  const md = fs.readFileSync(path.join(dir, '..', 'RULES.md'), 'utf8');
+  const m = md.match(/<!-- CODEX:START -->\n([\s\S]*?)\n<!-- CODEX:END -->/);
+  assert.ok(m, 'RULES.md에 CODEX 블록이 없다');
+  return m[1].trim();
+}
+/** 가짜 HOME에 .codex/AGENTS.md를 만든다. content가 null이면 파일 없음 */
+function homeWithCodex(content) {
+  const h = emptyHome();
+  if (content !== null) {
+    fs.mkdirSync(path.join(h, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(h, '.codex', 'AGENTS.md'), content);
+  }
+  return h;
+}
+/** 머리말(마커 밖 — 사용자 영역) + devkit 구간 */
+const codexFile = (body, mode = 'managed') => [
+  '# 머리말 — 사용자가 쓴 영역',
+  '- 한국어로 답한다.',
+  '',
+  `<!-- devkit:rules:start mode=${mode} -->`,
+  body,
+  '<!-- devkit:rules:end -->',
+  '',
+].join('\n');
+const CODEX_WARN = /~\/\.codex\/AGENTS\.md/;
+
+test('C-B3: 전역 Codex 사본이 정본과 같으면 침묵한다(공통 들여쓰기 차이 포함)', () => {
+  const indented = canonicalCodex().split('\n').map((l) => (l ? `  ${l}` : l)).join('\n');
+  const out = runHook(makeProject(null), homeWithCodex(codexFile(indented)));
+  assert.doesNotMatch(out, CODEX_WARN, `최신 사본에 경고가 떴다:\n${out}`);
+});
+
+test('C-B4: 다르면 경고는 정확히 2줄이고 고치는 방법을 준다', () => {
+  const out = runHook(makeProject(null), homeWithCodex(codexFile(`${canonicalCodex()}\n- 사본에만 있는 줄`)));
+  const ls = out.split('\n');
+  const i = ls.findIndex((l) => CODEX_WARN.test(l));
+  assert.ok(i >= 0, `탐지 실패:\n${out}`);
+  assert.match(ls[i], /\d+줄 다르다/, '"N줄 다르다"여야 행동을 유발한다');
+  assert.match(ls[i + 1], /\/kit sync/, '최신화 방법이 없다');
+  assert.match(ls[i + 1], /mode=custom/, '의도한 커스터마이즈 탈출구가 없다');
+  assert.equal(ls.filter((l) => CODEX_WARN.test(l)).length, 1, '경고가 두 번 이상 나온다');
+});
+
+test('C-B4: 프로젝트 AGENTS.md 경고와 서로 독립이다', () => {
+  const project = makeProject(wrap(`${canonicalSummary()}\n- 프로젝트 사본에만 있는 줄`));
+  const out = runHook(project, homeWithCodex(codexFile(`${canonicalCodex()}\n- Codex 사본에만 있는 줄`)));
+  assert.match(out, /AGENTS\.md의 공통 규칙이 플러그인 RULES와 \d+줄 다르다/, '프로젝트 경고가 사라졌다');
+  assert.match(out, CODEX_WARN, 'Codex 경고가 사라졌다');
+});
+
+test('C-B5: 파일 없음·마커 없음·mode=custom이면 침묵한다 — 사용자 전역 파일에 참견하지 않는다', () => {
+  for (const [label, content] of [
+    ['파일 없음', null],
+    ['마커 없음(손으로 쓴 파일)', '# 내 Codex 규칙\n\n## 공통 규칙\n- 뭔가 다름'],
+    ['mode=custom', codexFile('- 완전히 다른 내용', 'custom')],
+  ]) {
+    const out = runHook(makeProject(null), homeWithCodex(content));
+    assert.doesNotMatch(out, CODEX_WARN, `${label}인데 경고가 떴다`);
+    assert.doesNotMatch(out, /\.codex/, `${label}인데 .codex 언급이 있다`);
+  }
+});
+
+test('C-B6: 기본 헬퍼는 실제 홈을 읽지 않는다(HOME 격리) — 명시한 홈만 읽는다', () => {
+  const staleHome = homeWithCodex(codexFile('- 전혀 다른 규칙'));
+  const project = makeProject(null);
+  assert.doesNotMatch(runHook(project), CODEX_WARN, '격리된 기본 HOME인데 경고가 떴다');
+  assert.match(runHook(project, staleHome), CODEX_WARN, '명시한 HOME을 읽지 않는다');
+});
+
+test('C-B2: RULES.md에 CODEX 블록이 없어도 리마인드는 나가고 Codex 경고는 침묵한다', () => {
+  const plugin = fs.mkdtempSync(path.join(os.tmpdir(), 'devkit-plugin-copy-'));
+  tmpRoots.push(plugin);
+  fs.cpSync(path.join(dir, '..', 'hooks'), path.join(plugin, 'hooks'), { recursive: true });
+  const rules = fs.readFileSync(path.join(dir, '..', 'RULES.md'), 'utf8')
+    .replace(/<!-- CODEX:START -->[\s\S]*?<!-- CODEX:END -->\n?/, '');
+  fs.writeFileSync(path.join(plugin, 'RULES.md'), rules);
+  const out = execFileSync('node', [path.join(plugin, 'hooks', 'session-start.js')], {
+    cwd: makeProject(null), encoding: 'utf8',
+    env: { ...process.env, HOME: homeWithCodex(codexFile('- 전혀 다른 규칙')) },
+  });
+  assert.match(out, /devkit 팀 규칙 리마인드/, '정본 블록 하나가 없다고 리마인드까지 잃었다');
+  assert.doesNotMatch(out, CODEX_WARN, '정본을 못 읽었는데 사용자 파일을 낡았다고 보고했다');
 });
