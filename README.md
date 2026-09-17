@@ -2,7 +2,7 @@
 
 Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제하고, "다 됐습니다"를 실행 흔적 없이는 인정하지 않는다.**
 
-개인 개발 워크플로우와 팀 컨벤션을 커맨드 13개 · 에이전트 8개 · 스킬 3개 · 훅 12개로 묶었다.
+개인 개발 워크플로우와 팀 컨벤션을 커맨드 14개 · 에이전트 8개 · 스킬 5개 · 훅 12개. Claude Code가 주 무대이고, Codex에는 같은 규칙의 사본이 들어간다로 묶었다.
 
 ## 왜 만들었나
 
@@ -17,7 +17,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 ## 빠른 시작
 
 ```
-/plugin marketplace add <이-레포-git-url>
+/plugin marketplace add https://github.com/im-DADA/devkit
 /plugin install devkit@devkit-marketplace
 ```
 
@@ -37,7 +37,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 
 | 층 | 수단 | 성격 |
 |---|---|---|
-| 1. 리마인드 | `SessionStart` 훅이 `RULES.md`의 요약 블록을 매 세션 주입 | 안내 — 잊는 것을 막는다 |
+| 1. 리마인드·알림 | `SessionStart` 훅이 `RULES.md`의 요약 블록을 매 세션 주입 · 편집 직후 위반(`any`·빈 catch·200줄 등)을 그 자리에서 알림 | 안내 — 잊는 것을 막는다 |
 | 2. 차단·확인·경고 | `PreToolUse` 훅이 되돌릴 수 없는 것(위험 명령·`.env` 덮어쓰기·`.git`·시크릿·리뷰 없는 REPORT)은 **거부**(exit 2), 확인만 필요한 것(새 의존성·lockfile·`node_modules`·`chmod -R 777`)은 **사용자 확인 창**(ask — 자동 모드에서도 뜬다), 절차 형식은 **경고만** | 강제는 사고만 — 나머지는 사용자가 정한다 |
 | 3. CI 게이트 | ESLint + GitHub Actions가 PR에서 막음 | 최종 방어 — 세션 밖도 잡는다 |
 
@@ -66,13 +66,13 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 
 받쳐주는 것들:
 - **receipt 봉인** — 실행한 명령과 출력을 남겨, evidence의 인용을 실제 실행과 대조한다(파일·마스킹 범위는 아래 표).
-- **무결성 매니페스트** — `INTEGRITY.sha256`이 `hooks/`·`scripts/`의 실행 파일 32개를 해싱한다. 훅이 몰래 바뀌면 `verify-integrity`가 잡는다.
+- **무결성 매니페스트** — `INTEGRITY.sha256`이 `hooks/`·`scripts/`의 실행 파일 45개를 해싱한다. 훅이 몰래 바뀌면 `verify-integrity`가 잡는다.
 - **감사 로그** — 차단·통과위반·검증실패가 `.devkit/audit.jsonl`에 남는다.
 
 ## 구성
 
 <details>
-<summary><b>커맨드 13개</b></summary>
+<summary><b>커맨드 14개</b></summary>
 
 | 이름 | 용도 |
 |---|---|
@@ -87,8 +87,6 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | `/cycles` | PDCA 사이클 목록·열람 (진행 중 + 아카이브) |
 | `/commit` | Conventional Commit (Co-Author 없이, 푸시 X) |
 | `/ship` | 리뷰 → 커밋 메시지 + PR 초안 (승인 후 실행) |
-| `/web-interface-audit` | UI 코드를 Vercel Web Interface Guidelines(규칙 100+)로 감사 — 규칙은 원격에서 매번 fetch |
-| `/design-md` | 프로젝트 디자인 언어를 `DESIGN.md`로 고정 — 코드·git 수정이력·Figma에서 **관측한 것만** 추출 |
 | `/merge` `[PR#]` | PR 스쿼시 머지 → 원격 브랜치 삭제 → 로컬 `main` 동기화. 로컬 브랜치 삭제만 확인 |
 | `/improve` | 세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장) |
 | `/kit` `[init\|sync\|audit]` | 도움말 / `init` 레포에 AGENTS.md·settings.json 생성(기존 `CLAUDE.md`가 있으면 옮기기 안 제안) / `sync` 프로젝트 `AGENTS.md`와 전역 `~/.codex/AGENTS.md`의 devkit 구간을 정본으로 갱신 / `audit` 차단 집계 |
@@ -96,7 +94,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 </details>
 
 <details>
-<summary><b>에이전트 8개 · 스킬 3개</b></summary>
+<summary><b>에이전트 8개 · 스킬 5개</b></summary>
 
 | 종류 | 이름 | 용도 |
 |---|---|---|
@@ -111,6 +109,8 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | Skill | `convention-check` | 팀 컨벤션 준수 점검 (린터가 못 잡는 것 중심) |
 | Skill | `pr-description` | diff → PR 설명 생성 |
 | Skill | `visual-verify` | 웹 UI 스크린샷 vision 검증 (브라우저 MCP 필요) |
+| Skill | `web-interface-audit` | UI 코드를 Vercel Web Interface Guidelines(규칙 100+)로 감사 — 규칙은 원격에서 매번 fetch (`/web-interface-audit`로도 호출) |
+| Skill | `design-md` | 프로젝트 디자인 언어를 `DESIGN.md`로 고정 — 코드·git 수정이력·Figma에서 **관측한 것만** 추출 (`/design-md`로도 호출) |
 
 **단계별 모델·effort** — 에이전트 frontmatter에 고정돼 있다. hook은 메인 세션 모델을 못 바꾸므로 계획·설계를 에이전트로 떼어냈다. 평소 대화·구현은 세션 기본값(권장 `opus` · `medium`)을 따른다.
 
@@ -177,7 +177,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | Observability | `.devkit/receipts.jsonl` | Bash 명령·출력 기록 (gitignore 대상, **알려진 키 형식 11종만 마스킹 — 그 외(`export K=V`·Bearer 토큰 등)는 평문으로 남는다**, 끄려면 `DEVKIT_RECEIPTS=0`) |
 | Eval | `test/*.test.mjs` | 훅 동작 + 플러그인 무결성 회귀 테스트 — `node --test` |
 | Eval | `evals/README.md` | 에이전트/스킬 행동 시나리오 (수동·반자동) |
-| Doc | `RULES.md` | 팀 개발 규칙 원문 (**규칙 단일 소스**) |
+| Doc | `RULES.md` | 개발 규칙 원문 (**규칙 단일 소스** — Claude용 `SUMMARY`·Codex용 `CODEX` 블록이 여기서 나간다) |
 
 </details>
 
@@ -188,7 +188,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 ```json
 {
   "extraKnownMarketplaces": {
-    "devkit-marketplace": { "source": { "source": "github", "repo": "<owner>/devkit" } }
+    "devkit-marketplace": { "source": { "source": "github", "repo": "im-DADA/devkit" } }
   },
   "enabledPlugins": { "devkit@devkit-marketplace": true }
 }
@@ -199,6 +199,24 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 - `eslint.config.mjs` — 규칙을 lint로 강제 (devDep은 승인 후 직접 설치)
 - `.github/workflows/ci.yml` — PR 머지 게이트
 - `.claude/settings.json` — clone 시 자동 활성화
+
+## Codex와 같이 쓰기 (전역 규칙 한 곳)
+
+개인 규칙은 `~/.claude/CLAUDE.md`에 따로 두지 않고 devkit `RULES.md` 하나로 관리한다.
+
+| 도구 | 규칙이 들어가는 길 |
+|---|---|
+| Claude Code | 세션 시작 hook이 `SUMMARY` 블록을 주입 + hook이 강제 |
+| Codex | `~/.codex/AGENTS.md`에 `CODEX` 블록 사본 — **hook이 없으므로 문구만으로 지킨다** |
+| 응답 언어 | `~/.claude/settings.json`의 `"language": "korean"` (Codex는 `AGENTS.md` 머리말 한 줄) |
+
+처음 한 번:
+1. `~/.codex/AGENTS.md`에 마커 두 줄을 넣는다 — `<!-- devkit:rules:start mode=managed -->` / `<!-- devkit:rules:end -->`
+2. Claude Code에서 `/kit sync` → diff 확인 후 승인하면 마커 안만 채워진다(머리말은 그대로).
+
+이후 `RULES.md`가 바뀌어 사본이 낡으면 세션 시작 때 2줄 경고가 뜬다 → `/kit sync`. 일부러 고쳐 쓰는 사본이면 마커를 `mode=custom`으로 바꾸면 경고가 멈춘다.
+
+> Orca 등에서 Codex를 승인·샌드박스 없이 띄우면 `.env` 덮어쓰기·운영 DB 쓰기를 막는 장치는 `AGENTS.md` 문구뿐이다. 실행 권한 설정을 확인할 것.
 
 ## 설계 원칙
 
@@ -211,9 +229,9 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 
 ## 수정하는 법
 
-- **규칙 바꾸기 → 네 자리를 함께 본다.** `RULES.md` 본문 → 같은 파일의 `SUMMARY:START~END` 블록 → `agents/*.md` → `skills/*/SKILL.md`·`commands/*.md`.
-  - `hooks/session-start.js`는 **고치지 않는다** — SUMMARY 블록을 읽어갈 뿐이라 `RULES.md`만 고치면 된다.
-  - ⚠ 본문만 고치면 새 규칙이 배포 시점에 꺼진다 — 세션에 주입되는 건 SUMMARY뿐이다. 문서 두 곳을 다 고쳐도 `agents/`가 옛 규칙대로 코드를 만든다. **기준은 "읽히는 곳"이 아니라 "지시가 실제로 소비되는 곳"이다.**
+- **규칙 바꾸기 → 다섯 자리를 함께 본다.** `RULES.md` 본문 → 같은 파일의 `SUMMARY:START~END` 블록(Claude) → `CODEX:START~END` 블록(Codex) → `agents/*.md` → `skills/*/SKILL.md`·`commands/*.md`.
+  - `hooks/session-start.js`는 **고치지 않는다** — 두 블록을 읽어갈 뿐이라 `RULES.md`만 고치면 된다. CODEX 블록을 고쳤으면 `/kit sync`로 `~/.codex/AGENTS.md` 사본도 맞춘다.
+  - ⚠ 본문만 고치면 새 규칙이 배포 시점에 꺼진다 — Claude 세션에 주입되는 건 SUMMARY뿐이고, Codex가 읽는 건 CODEX 사본뿐이다. 문서 두 곳을 다 고쳐도 `agents/`가 옛 규칙대로 코드를 만든다. **기준은 "읽히는 곳"이 아니라 "지시가 실제로 소비되는 곳"이다.**
   - 바꾼 뒤 `grep -rn "<옛 표현>" RULES.md agents/ commands/ skills/`로 잔존 확인.
 - 에이전트 추가 → `agents/<이름>.md` (frontmatter + 본문)
 - 커맨드 추가 → `commands/<이름>.md`
@@ -229,7 +247,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 ## 로컬에서 바로 써보기 (배포 전)
 
 ```
-/plugin marketplace add ~/devkit
+/plugin marketplace add <clone한 경로>
 /plugin install devkit@devkit-marketplace
 ```
 
