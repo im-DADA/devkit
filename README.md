@@ -38,7 +38,7 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 | 층 | 수단 | 성격 |
 |---|---|---|
 | 1. 리마인드 | `SessionStart` 훅이 `RULES.md`의 요약 블록을 매 세션 주입 | 안내 — 잊는 것을 막는다 |
-| 2. 하드 차단 | `PreToolUse` 훅이 위험 명령·새 의존성·보호 파일·시크릿·사이클 규약 위반을 **거부**(exit 2) | 강제 — 어길 수 없다 |
+| 2. 차단·확인·경고 | `PreToolUse` 훅이 되돌릴 수 없는 것(위험 명령·`.env` 덮어쓰기·`.git`·시크릿·리뷰 없는 REPORT)은 **거부**(exit 2), 확인만 필요한 것(새 의존성·lockfile·`node_modules`·`chmod -R 777`)은 **사용자 확인 창**(ask — 자동 모드에서도 뜬다), 절차 형식은 **경고만** | 강제는 사고만 — 나머지는 사용자가 정한다 |
 | 3. CI 게이트 | ESLint + GitHub Actions가 PR에서 막음 | 최종 방어 — 세션 밖도 잡는다 |
 
 **"이 경고가 그 상황에 실제로 뜨는가"를 물어야 하는 규칙은 1층에 두지 않는다.** 안내 채널은 저마다 발동 조건이 있고, 그게 규칙이 필요한 상황과 배타적일 수 있다 — 실제로 그래서 새어나간 적이 있다.
@@ -133,11 +133,11 @@ Claude Code 플러그인. **규칙을 문서로 두지 않고 훅으로 강제�
 |---|---|---|
 | `SessionStart` | `session-start` | 팀 규칙 요약 주입 + 진행 중 PDCA 사이클 재개 안내 |
 | `UserPromptSubmit` | `pdca-detect` | 기능 요청 감지 → 사이클 규약 안내 (차단 없이 주입만) |
-| `PreToolUse(Bash)` | `bash-guard` | 위험 명령 차단 |
-| `PreToolUse(Bash)` | `dep-guard` | 새 의존성 설치 차단 |
-| `PreToolUse(Write\|Edit)` | `protected-file` | 보호 파일(.env·lockfile·.git) 편집 차단. **`.env`는 통째 덮어쓰기만 막는다** — Edit·신규 생성·`>>` 추가는 통과 |
+| `PreToolUse(Bash)` | `bash-guard` | 위험 명령 차단(`rm -rf` 위험 경로·`push --force`·`reset --hard`·`curl \| sh` 등). `chmod -R 777`과 lockfile 리다이렉트는 **확인 창**. 한 명령에 섞이면 차단이 이긴다 |
+| `PreToolUse(Bash)` | `dep-guard` | 새 의존성 설치 → **확인 창**(막지 않음). 거절돼도 라이브러리 없는 설계로 몰래 우회하지 말라고 Claude에게 따로 알린다 |
+| `PreToolUse(Write\|Edit)` | `protected-file` | `.env` 통째 덮어쓰기·`.git` 내부는 차단, lockfile·`node_modules`는 **확인 창**. `.env`의 Edit·신규 생성·`>>` 추가는 통과 |
 | `PreToolUse(Write\|Edit)` | `secret-guard` | 시크릿 감지 차단 |
-| `PreToolUse(Write\|Edit)` | `pdca-gate` | **PDCA 게이트** — ① 선행 산출물 없이 `GAP.md`·`REPORT.md` 쓰기 차단(`REVIEW.md` 없이 REPORT 불가) ② 상태 파일 스키마 강제 ③ 사이클 폴더에 `.md`/`.json` 아닌 파일 차단(시안·목업·PNG → **대안 경로 안내와 함께**) |
+| `PreToolUse(Write\|Edit)` | `pdca-gate` | **PDCA 게이트** — ① 선행 산출물 없이 `GAP.md`·`REPORT.md` 쓰기 **차단**(`REVIEW.md` 없이 REPORT 불가) · 실행 흔적이 가리키는 파일이 없으면 REPORT **차단** ② 상태 파일 스키마는 **경고만** ③ 사이클 폴더에 `.md`/`.json` 아닌 파일은 **경고만**(시안·목업·PNG → 대안 경로 안내) |
 | `PostToolUse(Write\|Edit)` | `post-edit-format` | 자동 prettier 포맷 |
 | `PostToolUse(Write\|Edit)` | `tsc-on-edit` | 타입체크 (opt-in — `DEVKIT_TSC_ON_EDIT=1`). `stop-verify`와 **같은 실행 계약**을 쓴다 |
 | `PostToolUse(Write\|Edit)` | `convention-observe` | 통과한 규칙 위반(no-any·console.log·`.tsx` 로직) 관측 기록 |

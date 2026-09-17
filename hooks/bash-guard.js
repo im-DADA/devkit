@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// PreToolUse(Bash): 위험 명령 차단. 매칭되면 exit 2 (stderr에 사유) → 도구 실행 거부됨.
+// PreToolUse(Bash): 위험 명령 감시. 되돌릴 수 없으면 차단(exit 2), 사고는 아니지만 확인이 필요하면
+// 사용자 확인 창(ask). 한 명령에 둘이 섞이면 차단이 이긴다.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { record } = require('./lib/audit');
 const { blockedFor } = require('./lib/protected-patterns');
+const { deny, ask } = require('./lib/decision');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -43,14 +45,16 @@ const PATTERNS = [
   { re: /\bgit\s+clean\s+-\S*f/i, why: 'git clean -f (추적 안 된 파일 삭제)' },
   { re: /\b(mkfs\S*|dd)\b[^;]*\bof=\/dev\//i, why: '디스크 직접 쓰기' },
   { re: />\s*\/dev\/sd[a-z]/i, why: '블록 디바이스 덮어쓰기' },
-  { re: /\bchmod\s+-R\s+777\b/i, why: 'chmod -R 777' },
+  // 권한을 되돌리기는 번거롭지만 가능하다 → 막지 않고 확인받는다. 나머지는 decision 생략 = deny.
+  { re: /\bchmod\s+-R\s+777\b/i, why: 'chmod -R 777', decision: 'ask' },
   { re: /\bcurl\b[^|]*\|\s*(sudo\s+)?(sh|bash)\b/i, why: 'curl | sh (원격 스크립트 실행)' },
   { re: /\bwget\b[^|]*\|\s*(sudo\s+)?(sh|bash)\b/i, why: 'wget | sh (원격 스크립트 실행)' },
   { re: /\bbase64\b\s+-\S*d[^|]*\|\s*(sh|bash)\b/i, why: 'base64 디코드 | sh (난독 실행)' },
   { re: /:\s*\(\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;/, why: 'fork bomb' },
 ];
 
-// 리다이렉트/tee로 보호 파일(.env·lockfile·.git)에 쓰는 것 차단 (protected-file 훅의 Bash 우회 방지).
+// 리다이렉트/tee로 보호 파일(.env·lockfile·.git)에 쓰는 것 감시 (protected-file 훅의 Bash 우회 방지).
+// 차단인지 확인 창인지는 protected-patterns의 `decision`을 그대로 따른다.
 // ⚠ 자르기(`>`·`tee`)와 덧붙이기(`>>`·`tee -a`)를 가른다 — `.env`는 통째 대체만 막는다.
 const REDIRECT = /(>>?|\btee\b(?:\s+-a\b)?)\s*([^\s;|&>]+)/g;
 
@@ -73,33 +77,42 @@ function resolveTarget(target, c) {
   return path.resolve(process.cwd(), target);
 }
 
-function redirectToProtected(c) {
+/** 명령 안의 모든 보호 파일 리다이렉트. 하나만 보고 끝내면 뒤쪽의 deny 대상을 놓친다 */
+function redirectsToProtected(c) {
+  const hits = [];
   for (const m of c.matchAll(REDIRECT)) {
     const append = m[1] === '>>' || /-a\b/.test(m[1]);
     const target = m[2].replace(/^["']|["']$/g, '');
     const resolved = resolveTarget(target, c);
     const exists = resolved === null ? true : fs.existsSync(resolved);
     // 없는 파일에 `>`는 소실이 아니라 생성이다. lockfile 등 overwriteOnly가 아닌 규칙은
-    // blockedFor가 이 값과 무관하게 막으므로 여기서 따로 가르지 않는다.
+    // blockedFor가 이 값과 무관하게 걸리므로 여기서 따로 가르지 않는다.
     const p = blockedFor(target, { overwrite: !append && exists });
-    if (p) return p.why;
+    if (p) hits.push(p);
   }
-  return null;
+  return hits;
 }
 
-let hit = null;
-if (dangerousRm(cmd)) hit = { why: 'rm -rf (위험 경로)' };
-else {
-  const redir = redirectToProtected(cmd);
-  if (redir) hit = { why: `보호 파일에 리다이렉트 쓰기: ${redir}` };
-  else hit = PATTERNS.find((p) => p.re.test(cmd)) || null;
+// ⚠ 판정을 **전부 모은 뒤** deny → ask 순으로 고른다. 예전처럼 처음 찾은 하나로 끝내면
+// `chmod -R 777 . && git reset --hard`가 확인 창 한 번으로 통과한다(공식 우선순위도 deny > ask).
+const hits = [];
+if (dangerousRm(cmd)) hits.push({ why: 'rm -rf (위험 경로)', decision: 'deny' });
+for (const p of redirectsToProtected(cmd)) {
+  hits.push({ why: `보호 파일에 리다이렉트 쓰기: ${p.why}`, decision: p.decision });
 }
+for (const p of PATTERNS) if (p.re.test(cmd)) hits.push({ why: p.why, decision: p.decision || 'deny' });
 
-if (hit) {
-  record({ hook: 'bash-guard', action: 'blocked', reason: hit.why, command: rawCmd });
-  process.stderr.write(
-    `[devkit] 위험 명령 차단: ${hit.why}\n대상: ${rawCmd}\n정말 필요하면 사용자가 직접 실행하세요.\n`
+const denied = hits.find((h) => h.decision === 'deny');
+if (denied) {
+  record({ hook: 'bash-guard', action: 'blocked', reason: denied.why, command: rawCmd });
+  deny(`[devkit] 위험 명령 차단: ${denied.why}\n대상: ${rawCmd}\n정말 필요하면 사용자가 직접 실행하세요.\n`);
+}
+const asked = hits.find((h) => h.decision === 'ask');
+if (asked) {
+  record({ hook: 'bash-guard', action: 'asked', reason: asked.why, command: rawCmd });
+  ask(
+    `[devkit] ${asked.why} — 실행할까요?\n${rawCmd}`,
+    `[devkit] "${asked.why}"라 사용자 확인 창을 띄웠다. 거절되면 같은 효과를 내는 다른 명령으로 우회하지 마라.`,
   );
-  process.exit(2);
 }
 process.exit(0);

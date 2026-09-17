@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-// PreToolUse(Write|Edit): 시크릿/생성물/버전관리 파일 편집 차단. exit 2 → 거부.
+// PreToolUse(Write|Edit): 보호 파일 편집. 되돌릴 수 없으면 차단(exit 2), 다시 만들 수 있으면 사용자 확인 창.
+// 어느 쪽인지는 lib/protected-patterns.js의 `decision`이 정한다.
 const fs = require('node:fs');
 const { record } = require('./lib/audit');
 const { blockedFor } = require('./lib/protected-patterns');
+const { deny, ask } = require('./lib/decision');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -19,14 +21,19 @@ const isEdit = input?.tool_name === 'Edit';
 const overwrite = !isEdit && fs.existsSync(file);
 
 const hit = blockedFor(file, { overwrite });
+if (hit && hit.decision === 'ask') {
+  record({ hook: 'protected-file', action: 'asked', reason: hit.why, file });
+  ask(
+    `[devkit] ${hit.why} 직접 수정 — ${file}`,
+    `[devkit] ${file}은 보통 직접 고치지 않는다(${hit.why}). 사용자 확인 창을 띄웠다. ` +
+      '거절되면 패키지 매니저 명령(install 등)으로 다시 만드는 방법을 제안하라.',
+  );
+}
 if (hit) {
   record({ hook: 'protected-file', action: 'blocked', reason: hit.why, file });
   const how = hit.overwriteOnly
     ? `기존 파일을 통째로 덮어쓰려 합니다. 값을 고치는 거라면 Write 대신 Edit을 쓰세요.\n`
     : `이 파일은 직접 편집 대신 사용자가 처리하거나, 필요하면 명시 허가를 받으세요.\n`;
-  process.stderr.write(
-    `[devkit] 보호된 파일 편집 차단: ${hit.why}\n대상: ${file}\n${how}`
-  );
-  process.exit(2);
+  deny(`[devkit] 보호된 파일 편집 차단: ${hit.why}\n대상: ${file}\n${how}`);
 }
 process.exit(0);

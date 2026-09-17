@@ -361,9 +361,11 @@ test('D2: architect가 승인 비용을 트레이드오프로 쓰지 못하게 �
   assert.match(src, /대가/, 'architect.md: 의존성 없이 갈 때의 대가를 적으라는 문장 없음');
 });
 
-test('D3: dep-guard 차단 메시지가 우회를 막는다', () => {
+// 차단에서 확인 창으로 바뀌어도(2026-09-17) 우회 금지 안내는 남아야 한다 — 거절당한 뒤
+// 라이브러리 없는 설계로 몰래 가는 것이 이 훅이 생긴 이유였다. 문구는 Claude에게 가는 쪽에 있다.
+test('D3: dep-guard 안내가 우회를 막는다', () => {
   const src = read('hooks/dep-guard.js');
-  assert.match(src, /라이브러리 없는 설계로 돌아가지/, 'dep-guard.js: 우회 금지 문장 없음');
+  assert.match(src, /라이브러리 없는 설계로 조용히 바꾸지/, 'dep-guard.js: 우회 금지 문장 없음');
 });
 
 // 문서에 박힌 상태값이 코드 enum 밖으로 흘러나가면 훅이 정상 작업을 차단한다.

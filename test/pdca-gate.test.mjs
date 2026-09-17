@@ -38,6 +38,15 @@ function run(input) {
   }
 }
 
+// 사이클 폴더 파일 종류·상태 파일 형식은 **막지 않고 경고만** 한다(2026-09-17 차단 축소).
+// 경고는 exit 0 + additionalContext(판정 없음)로 Claude에게 간다. 없으면 null.
+function warning(stdout) {
+  if (!stdout || !stdout.trim()) return null;
+  const h = JSON.parse(stdout).hookSpecificOutput;
+  return h && !h.permissionDecision && typeof h.additionalContext === 'string' ? h.additionalContext : null;
+}
+const warned = (r) => r.code === 0 && warning(r.stdout) !== null;
+
 /**
  * 사이클 폴더를 만들고 지정한 산출물만 채운다. 반환값은 사이클 폴더 절대경로.
  * contents로 특정 파일의 내용을 지정할 수 있다(behaviors.json 판정 테스트용).
@@ -183,9 +192,10 @@ function stateEdit(newString) {
   });
 }
 
-test('B5: 4필드 밖 키를 쓰면 차단 + 정확한 형식 안내 (D8)', () => {
-  const { code, stderr } = stateWrite({ ...OK_STATE, slug: 'x', artifacts: {} });
-  assert.equal(code, 2);
+test('B5: 4필드 밖 키를 쓰면 경고 + 정확한 형식 안내 (D8)', () => {
+  const r = stateWrite({ ...OK_STATE, slug: 'x', artifacts: {} });
+  assert.ok(warned(r), '막지 않고 경고해야 한다');
+  const stderr = warning(r.stdout);
   assert.match(stderr, /slug/);
   assert.match(stderr, /artifacts/);
   for (const f of ['version', 'cycleId', 'stage', 'status']) {
@@ -193,19 +203,21 @@ test('B5: 4필드 밖 키를 쓰면 차단 + 정확한 형식 안내 (D8)', () =
   }
 });
 
-test('B5: bkit 스키마를 쓰면 차단 + bkit임을 알려준다 (D6)', () => {
-  const { code, stderr } = stateWrite({ cycle: '2026-07-25-x', phase: 'plan', gates: {} });
-  assert.equal(code, 2);
+test('B5: bkit 스키마를 쓰면 경고 + bkit임을 알려준다 (D6)', () => {
+  const r = stateWrite({ cycle: '2026-07-25-x', phase: 'plan', gates: {} });
+  assert.ok(warned(r), '막지 않고 경고해야 한다');
+  const stderr = warning(r.stdout);
   assert.match(stderr, /bkit/);
 });
 
-test('B6: 허용값 밖 status·stage는 차단 (D14)', () => {
-  assert.equal(stateWrite({ ...OK_STATE, status: 'complete' }).code, 2);
-  assert.equal(stateWrite({ ...OK_STATE, stage: 'check' }).code, 2);
+test('B6: 허용값 밖 status·stage는 경고 (D14)', () => {
+  assert.ok(warned(stateWrite({ ...OK_STATE, status: 'complete' })));
+  assert.ok(warned(stateWrite({ ...OK_STATE, stage: 'check' })));
 });
 
 test('B7: 정상 4필드는 통과', () => {
   assert.equal(stateWrite(OK_STATE).code, 0);
+  assert.equal(warning(stateWrite(OK_STATE).stdout), null, '정상 형식에는 경고도 없어야 한다');
   assert.equal(stateWrite({ ...OK_STATE, stage: 'plan', status: 'awaiting-approval' }).code, 0);
   assert.equal(stateWrite({ ...OK_STATE, stage: 'review' }).code, 0);
   assert.equal(stateWrite({ ...OK_STATE, stage: 'done', status: 'done' }).code, 0);
@@ -216,8 +228,8 @@ test('Edit 조각(파싱 불가)은 판정하지 않고 통과 — 오탐이 차
   assert.equal(stateEdit('').code, 0);
 });
 
-test('Edit로 전문을 갈아끼우면 스키마를 강제한다', () => {
-  assert.equal(stateEdit(JSON.stringify({ ...OK_STATE, status: 'complete' })).code, 2);
+test('Edit로 전문을 갈아끼우면 스키마를 경고한다', () => {
+  assert.ok(warned(stateEdit(JSON.stringify({ ...OK_STATE, status: 'complete' }))));
   assert.equal(stateEdit(JSON.stringify(OK_STATE)).code, 0);
 });
 
@@ -305,12 +317,12 @@ function writeAt(root, rel) {
   });
 }
 
-test('B1: 사이클 폴더에 .md/.json이 아닌 파일을 쓰면 차단한다', () => {
+test('B1: 사이클 폴더에 .md/.json이 아닌 파일을 쓰면 경고한다(막지 않음)', () => {
   const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
   for (const name of ['login-mockup.html', 'screenshot.png', 'data.csv', 'Makefile', 'PLAN.md.bak']) {
-    const { code, stderr } = writeArtifact(cycleDir, name);
-    assert.equal(code, 2, `차단해야 함: ${name}\n${stderr}`);
-    assert.match(stderr, new RegExp(name.replace('.', '\\.')), '무엇이 막혔는지 지목해야 한다');
+    const r = writeArtifact(cycleDir, name);
+    assert.ok(warned(r), `경고해야 함: ${name}\n${r.stderr}`);
+    assert.match(warning(r.stdout), new RegExp(name.replace('.', '\\.')), '무엇을 경고하는지 지목해야 한다');
   }
 });
 
@@ -321,24 +333,25 @@ test('B2: 정상 산출물(.md/.json)은 막지 않는다 — 대소문자 무�
   }
 });
 
-test('B3: 차단 메시지는 "그럼 어디에 두라"를 준다 — 대안 없는 금지는 교착이다', () => {
+test('B3: 경고 메시지는 "그럼 어디에 두라"를 준다 — 대안 없는 금지는 교착이다', () => {
   const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
-  const { stderr } = writeArtifact(cycleDir, 'hero.png');
+  const stderr = warning(writeArtifact(cycleDir, 'hero.png').stdout);
+  assert.ok(stderr, '경고가 나가야 한다');
   assert.match(stderr, /design\//, '시안·목업의 대안 위치를 제시해야 한다');
   assert.match(stderr, /public\/|assets\//, '이미지의 대안 위치를 제시해야 한다');
   assert.match(stderr, /경로로 참조|경로로 링크/, '문서에서 어떻게 잇는지까지 알려줘야 한다');
 });
 
-test('B4: 사이클 폴더의 하위 폴더도 차단한다 — mockups/ 를 파서 우회할 수 없다', () => {
+test('B4: 사이클 폴더의 하위 폴더도 경고한다 — mockups/ 를 파서 피할 수 없다', () => {
   const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
-  assert.equal(writeArtifact(cycleDir, 'mockups/login.html').code, 2);
-  assert.equal(writeArtifact(cycleDir, 'assets/img/hero.png').code, 2);
+  assert.ok(warned(writeArtifact(cycleDir, 'mockups/login.html')));
+  assert.ok(warned(writeArtifact(cycleDir, 'assets/img/hero.png')));
   assert.equal(writeArtifact(cycleDir, 'sub/NOTES.md').code, 0, '하위 폴더의 .md는 통과');
 });
 
-test('B5: archive로 옮겨진 사이클 폴더도 동일하게 차단한다', () => {
+test('B5: archive로 옮겨진 사이클 폴더도 동일하게 경고한다', () => {
   const cycleDir = makeCycleDir([], 'archive/2026-07-29/cycle-folder-guard');
-  assert.equal(writeArtifact(cycleDir, 'shot.png').code, 2);
+  assert.ok(warned(writeArtifact(cycleDir, 'shot.png')));
   assert.equal(writeArtifact(cycleDir, 'REPORT.md').code, 0);
 });
 
@@ -358,12 +371,22 @@ test('B6: 사이클 폴더 밖은 건드리지 않는다 — 과잉차단이 더
   }
 });
 
-test('B1: Edit로도 막힌다 — 도구를 바꿔 우회할 수 없다', () => {
+test('B1: Edit로도 경고한다 — 도구를 바꿔 피할 수 없다', () => {
   const cycleDir = makeCycleDir([], '2026-07-29-cycle-folder-guard');
   const r = run({
     tool_name: 'Edit',
     cwd: path.resolve(cycleDir, '..', '..'),
     tool_input: { file_path: path.join(cycleDir, 'mockup.html'), old_string: 'a', new_string: 'b' },
   });
-  assert.equal(r.code, 2);
+  assert.ok(warned(r));
+});
+
+
+// 차단 축소 후에도 **검증 무결성 게이트는 그대로 막는다**(사용자 결정 2026-09-17).
+// REVIEW 없이 REPORT를 쓰는 것은 "리뷰 건너뛰고 완료 보고"라 devkit의 핵심 약속이다.
+test('차단 유지: REVIEW.md 없이 REPORT.md는 여전히 exit 2', () => {
+  const cycleDir = makeCycleDir(['PLAN.md', 'behaviors.json', 'GAP.md'], '2026-09-17-keep-gate');
+  const r = writeArtifact(cycleDir, 'REPORT.md');
+  assert.equal(r.code, 2, '리뷰 순서 게이트는 경고로 내리면 안 된다');
+  assert.match(r.stderr, /REVIEW/);
 });

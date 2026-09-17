@@ -1,5 +1,11 @@
 #!/usr/bin/env node
-// PreToolUse(Write|Edit): PDCA 산출물 선행조건 + 상태 스키마 강제. exit 2 → 거부.
+// PreToolUse(Write|Edit): PDCA 산출물 선행조건 + 상태 스키마 + 사이클 폴더 파일 종류.
+//
+//   차단(exit 2) — 검증 무결성: REVIEW 없이 REPORT 같은 선행조건 위반, 실행 흔적이 가리키는 파일 부재.
+//                  "리뷰 건너뛰고 완료 보고"를 못 하게 하는 것이 devkit의 핵심 약속이다.
+//   경고(막지 않음) — 절차 형식: 상태 파일 스키마, 사이클 폴더에 .md/.json 아닌 파일.
+//                  형식이 틀려도 잃는 것이 없어 막을 정도가 아니다(2026-09-17 차단 축소).
+//
 // ⚠ 훅 자체의 오류(파싱 실패·예상 못한 입력)가 차단으로 이어지면 안 된다 — 판정할 수 없으면 통과시킨다.
 // 판정 로직은 전부 lib/pdca-state.js의 순수함수에 있다. 여기엔 분기 판정을 두지 않는다.
 const fs = require('node:fs');
@@ -11,11 +17,16 @@ const {
 const { readBehaviors } = require('./lib/behaviors');
 const { gateEvidence } = require('./lib/evidence');
 const { findProjectRoot } = require('./lib/project-root');
+const decision = require('./lib/decision');
 
 function deny(reason, file, tag) {
   record({ hook: 'pdca-gate', action: 'blocked', reason: tag, file });
-  process.stderr.write(`[devkit] PDCA 게이트 차단 — ${reason}\n대상: ${file}\n`);
-  process.exit(2);
+  decision.deny(`[devkit] PDCA 게이트 차단 — ${reason}\n대상: ${file}\n`);
+}
+
+function warn(reason, file, tag) {
+  record({ hook: 'pdca-gate', action: 'warned', reason: tag, file });
+  decision.warn(`[devkit] PDCA 형식 경고(막지 않음) — ${reason}\n대상: ${file}\n지금 고치는 것을 권한다.`);
 }
 
 function main() {
@@ -27,8 +38,9 @@ function main() {
   const abs = isAbs ? file : path.resolve(input.cwd || process.cwd(), file);
 
   // 경로만 보는 판정이라 fs 접근이 없다 — 가장 싸고 넓으므로 먼저 본다.
+  // .md/.json이 아닌 파일은 아래 산출물·상태 판정에 해당할 수 없으므로 경고 후 끝나도 빠뜨리는 게 없다.
   const kind = gateCycleFolderFile(abs);
-  if (!kind.ok) deny(kind.reason, file, `kind:${path.extname(kind.name) || 'noext'}`);
+  if (!kind.ok) warn(kind.reason, file, `kind:${path.extname(kind.name) || 'noext'}`);
 
   const hit = matchCycleArtifact(abs);
   if (hit) {
@@ -60,7 +72,7 @@ function main() {
       return; // ④ fail-open — Edit 조각·깨진 JSON은 판정 대상이 아니다
     }
     const v = validateStateWrite(obj);
-    if (!v.ok) deny(v.reason, file, `state:${v.problems.length}`);
+    if (!v.ok) warn(v.reason, file, `state:${v.problems.length}`);
   }
 }
 
