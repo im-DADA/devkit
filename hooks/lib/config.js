@@ -3,7 +3,9 @@
 // 설계: docs/2026-09-21-devkit-config/DESIGN.md §3.1·§4.4
 // 판정·기본값은 전부 config-schema.js(순수)에 있다. 여기엔 분기 판정을 두지 않는다.
 //
-// ⚠ **1급 제약: 설정이 없으면 지금과 100% 동일하게 동작한다.** 그래서 실패는 전부 기본값으로
+// ⚠ **1급 제약: 설정이 없으면 규칙 주입·판정이 지금과 100% 동일하다.** 유일한 예외는
+// 첫 실행 안내 한 블록이고(2026-09-22), 그것도 `session-start` 출력 맨 끝에만 붙는다 —
+// 규칙 블록·드리프트 비교의 정본은 건드리지 않는다. 그래서 실패는 전부 기본값으로
 // degrade한다 — 파일 없음·깨진 JSON·모르는 키·허용값 밖 어느 것도 세션을 막지 않는다.
 // 다만 **조용히 떨어지지는 않는다**: 무엇이 왜 떨어졌는지 stderr에 한 줄 남긴다
 // (bash-receipt.js:23-26과 같은 이유 — 조용한 무시는 오타를 영원히 숨긴다).
@@ -27,6 +29,11 @@ function configPath() {
 // (실수든 아니든) 세션 전체가 느려지거나 멈춘다. 정상적인 설정은 수 KB를 넘지 않는다.
 const MAX_CONFIG_BYTES = 256 * 1024;
 
+// **파일이 아예 없는가**(ENOENT)를 따로 기억한다. "없음"과 "있는데 못 읽음/깨짐"은 다르다 —
+// 전자만 첫 실행 온보딩 대상이고, 후자는 설정을 시도한 사람이라 안내가 아니라 경고를 받아야 한다.
+// `loadConfig`가 이미 하는 stat/read를 재사용하므로 추가 IO는 0이다.
+let missing = false;
+
 /** 설정 파일 본문. 없으면 `null`(정상 — 설정하지 않은 사람이 다수다) */
 function readRaw(p) {
   if (p === null) return null;
@@ -42,7 +49,9 @@ function readRaw(p) {
       return null;
     }
     return fs.readFileSync(p, 'utf8');
-  } catch {
+  } catch (e) {
+    // 여기서만 "없음"을 인정한다. EACCES·EISDIR 등은 **있는데 못 읽는 것**이라 안내 대상이 아니다.
+    if (e && e.code === 'ENOENT') missing = true;
     return null;
   }
 }
@@ -88,4 +97,22 @@ function loadConfig() {
   return cached;
 }
 
-module.exports = { DEFAULTS, AGENTS, mergeConfig, loadConfig, isDefault, configPath };
+/**
+ * 아직 한 번도 설정한 적 없는 사용자인가 — 맞으면 **설정 파일이 놓일 절대 경로**, 아니면 `null`.
+ *
+ * 첫 실행 온보딩(`renderOnboardingNote`)의 유일한 판정점이다. 조건 둘:
+ *   ① `DEVKIT_CONFIG`가 **미정의**일 것 — 그 변수를 아는 사람은 설정을 아는 사람이고,
+ *      기존 테스트의 탈출구(`DEVKIT_CONFIG=`)도 이걸로 보호된다.
+ *   ② 기본 경로가 **ENOENT**일 것 — 깨진 파일·권한 오류·디렉터리는 전부 "있음"으로 본다.
+ *
+ * ⚠ `loadConfig()`를 먼저 부른 뒤에 물어야 한다(그때 파일을 읽으며 `missing`이 정해진다).
+ * 호출 순서가 뒤집히면 항상 `null`이라 **안내가 조용히 사라진다** — 그래서 여기서 직접 부른다.
+ * @returns {string|null}
+ */
+function unconfiguredPath() {
+  if (process.env.DEVKIT_CONFIG !== undefined) return null;
+  loadConfig();
+  return missing ? configPath() : null;
+}
+
+module.exports = { DEFAULTS, AGENTS, mergeConfig, loadConfig, isDefault, configPath, unconfiguredPath };

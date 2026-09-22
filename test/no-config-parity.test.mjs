@@ -1,14 +1,22 @@
-// "설정 안 한 사람은 지금과 100% 동일"을 **프로세스 경계에서** 고정한다.
+// "설정 안 한 사람의 규칙 주입은 지금과 100% 동일"을 **프로세스 경계에서** 고정한다.
 //
 // 설계: docs/2026-09-21-devkit-config/DESIGN.md §8.2
+//       docs/2026-09-22-setup-onboarding/PLAN.md D1 (항등식 재정의)
 //
 // ⚠ **골든 파일을 만들지 않는다.** rules-sync.js:10-13이 적은 대로, 정본이 런타임에 옆에
 // 있는데 지문을 따로 보관하면 그 지문이 또 낡는다. 커밋된 "구현 전 stdout" 텍스트가 정확히
 // 그 지문이고, 한 번 고쳐 쓰면 그만이라 증명력도 약하다. 대신 **항등식**을 쓴다:
 //
-//   설정 파일이 없는 홈  ==  기본값만 적힌 config.json이 있는 홈   (바이트 단위)
+//   설정 파일이 없는 홈 − 첫 실행 안내 1블록  ==  기본값만 적힌 config.json이 있는 홈
+//   표식(`{"version":1}`)만 있는 홈           ==  기본값만 적힌 config.json이 있는 홈  (그대로)
 //
-// 여기에 rules-render.test.mjs의 U6~U8(렌더링 항등)과 기존 27개 테스트 무수정 통과(B17)가
+// ⚠ 2026-09-22에 **왼쪽 항이 바뀌었다.** 원래는 "설정 없는 홈 == 기본값 홈"(바이트 단위)이었는데,
+// 첫 실행 온보딩은 그 둘을 **구분해서 다르게 행동**해야 성립한다(없으면 한 번 묻고, 있으면 안 묻는다).
+// P1이 지키던 것은 "규칙 주입이 같다"이고 바이트 동일은 그 *수단*이었으므로, 수단만 바꿨다 —
+// **안내 한 블록을 벗기면 여전히 바이트 동일**이고, 1바이트라도 다른 차이는 계속 빨개진다.
+// 안내 문자열은 테스트가 박지 않고 `renderOnboardingNote`에서 받는다(골든 문자열을 안 만든다).
+//
+// 여기에 rules-render.test.mjs의 U6~U8(렌더링 항등)과 기존 테스트 무수정 통과가
 // 합쳐져야 "구현 전 == 구현 후"가 성립한다. 셋 중 하나라도 빠지면 보장이 깨진다.
 //
 // ⚠ 이 파일은 **4단계(훅 배선)보다 먼저** 작성돼 현행 코드로 통과했다. 배선 뒤에 쓰면
@@ -26,6 +34,8 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const hooks = path.join(dir, '..', 'hooks');
 const require_ = createRequire(import.meta.url);
 const { DEFAULTS } = require_(path.join(hooks, 'lib', 'config-schema.js'));
+// 안내 문자열은 **같은 순수 함수에서** 얻는다 — 테스트에 골든 문자열을 박으면 그게 또 낡는다.
+const { renderOnboardingNote } = require_(path.join(hooks, 'lib', 'rules-render.js'));
 
 const tmps = [];
 process.on('exit', () => { for (const d of tmps) fs.rmSync(d, { recursive: true, force: true }); });
@@ -64,7 +74,9 @@ function runHook(name, { home: h, cwd = project(), stdin = '' } = {}) {
   const r = spawnSync('node', [path.join(hooks, name)], {
     cwd, input: stdin, encoding: 'utf8', env,
   });
-  return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status };
+  // home을 같이 돌려준다 — 안내 문구가 설정 파일 **절대 경로**를 담아서, 테스트가 그 경로를
+  // 알아야 같은 문자열을 재현할 수 있다.
+  return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status, home: h };
 }
 
 const NO_CONFIG = () => home(null);
@@ -73,15 +85,42 @@ const DEFAULT_CONFIG = () => home(JSON.stringify(DEFAULTS));
 const promptInput = (prompt, cwd) => JSON.stringify({ prompt, cwd });
 
 // ── P1·P2: 항등식 ─────────────────────────────────────────────
-test('P1: session-start는 설정없음과 기본값설정에서 바이트 동일하다', () => {
+//
+// ⚠ **P1의 계약이 재정의됐다**(2026-09-22, 첫 실행 온보딩 사이클 D1).
+// 원래 P1은 "설정 없음"과 "기본값 파일"의 stdout이 **바이트 동일**할 것을 요구했다.
+// 그런데 온보딩은 그 둘을 **구분해서 다르게 행동**해야 성립한다(없으면 한 번 묻고, 있으면 안 묻는다).
+//
+// P1이 지키던 것은 "설정 안 한 사람의 **규칙 주입**이 기본값 설정과 같다"이고,
+// 바이트 동일은 그걸 증명하는 *수단*이었다. 그래서 수단만 바꾼다 —
+// **안내 블록 하나를 빼면 여전히 바이트 동일**이어야 한다. 1바이트라도 다른 차이는 계속 빨개진다.
+// 안내 문자열은 테스트가 박지 않고 **같은 순수 함수에서** 얻는다(골든 문자열을 만들지 않는다).
+const MARKER_CONFIG = () => home('{"version":1}');
+
+test('P1: 안내 한 블록을 빼면 설정없음과 기본값설정이 바이트 동일하다', () => {
   const cwd = project();
   const a = runHook('session-start.js', { home: NO_CONFIG(), cwd });
   const b = runHook('session-start.js', { home: DEFAULT_CONFIG(), cwd });
   assert.equal(a.status, 0);
-  assert.equal(Buffer.compare(Buffer.from(a.stdout), Buffer.from(b.stdout)), 0,
-    '기본값 설정이 동작을 바꿨다 — 설정 안 한 사람의 규칙이 달라진다');
   // 탐지기가 죽어 있으면 빈 문자열끼리도 같다. 맞아야 하는 쪽을 먼저 확인한다.
   assert.match(a.stdout, /devkit 팀 규칙 리마인드/, '규칙 주입 자체가 사라졌다');
+
+  const note = renderOnboardingNote(path.join(a.home, '.devkit', 'config.json'));
+  assert.notEqual(note, '', '설정 없는 홈인데 안내가 비었다');
+  assert.equal(a.stdout.split(note).length - 1, 1, `안내가 ${a.stdout.split(note).length - 1}회 나왔다 — 정확히 1회여야 한다`);
+
+  const stripped = a.stdout.replace(note, '');
+  assert.equal(Buffer.compare(Buffer.from(stripped), Buffer.from(b.stdout)), 0,
+    '안내를 뺐는데도 다르다 — 기본값 설정이 규칙 주입을 바꿨다');
+  assert.equal(/\[devkit 첫 실행\]/.test(b.stdout), false, '설정한 사람에게 안내가 떴다');
+});
+
+test('P1b: 표식만 있는 홈은 기본값 파일과 완전히 동일하고 안내가 없다', () => {
+  const cwd = project();
+  const marker = runHook('session-start.js', { home: MARKER_CONFIG(), cwd });
+  const b = runHook('session-start.js', { home: DEFAULT_CONFIG(), cwd });
+  assert.equal(Buffer.compare(Buffer.from(marker.stdout), Buffer.from(b.stdout)), 0,
+    '표식이 동작을 바꿨다 — 표식은 "물어봤다"만 기록해야 한다');
+  assert.equal(/\[devkit 첫 실행\]/.test(marker.stdout), false, '표식이 있는데 또 묻는다');
 });
 
 test('P2: pdca-detect는 설정없음과 기본값설정에서 바이트 동일하다', () => {
@@ -106,7 +145,10 @@ const BROKEN = [
 for (const [label, raw] of BROKEN) {
   test(`P3: ${label} 설정에서도 훅이 exit 0이고 stdout이 기본과 같다`, () => {
     const cwd = project();
-    const base = runHook('session-start.js', { home: NO_CONFIG(), cwd });
+    // ⚠ 대조군이 **기본값 파일**이다(2026-09-22 D1). 파일이 있는 사람은 설정을 시도한
+    // 사람이라 온보딩 안내 대상이 아니다 — 설정 없는 홈과 비교하면 안내 유무로 갈린다.
+    // P3이 지키던 것("깨진 설정도 세션을 막지 않고 기본 동작")은 그대로다.
+    const base = runHook('session-start.js', { home: DEFAULT_CONFIG(), cwd });
     const broken = runHook('session-start.js', { home: home(raw), cwd });
     assert.equal(broken.status, 0, `${label}이 훅을 죽였다`);
     assert.equal(broken.stdout, base.stdout, `${label}이 주입을 바꿨다`);
@@ -440,11 +482,17 @@ test('P13: 설정을 지우면 동작이 기본으로 돌아온다 (B16)', () =>
   const configured = runHook('session-start.js', { home: h, cwd });
   assert.match(configured.stdout, /\[devkit 설정\]/, '설정이 안 먹었다 — 이 테스트의 전제가 깨졌다');
 
-  fs.rmSync(path.join(h, '.devkit', 'config.json')); // reset이 하는 일
+  // 파일을 지우는 것은 "진짜 처음 상태"다. `/kit setup reset`은 삭제 대신 표식으로 교체하므로
+  // (2026-09-22 D5) 온보딩이 다시 뜨지 않는다 — 여기서 보는 것은 "지우면 기본으로 돌아온다"다.
+  fs.rmSync(path.join(h, '.devkit', 'config.json'));
   const after = runHook('session-start.js', { home: h, cwd });
   const base = runHook('session-start.js', { home: NO_CONFIG(), cwd });
-  assert.equal(Buffer.compare(Buffer.from(after.stdout), Buffer.from(base.stdout)), 0,
+  // ⚠ 첫 실행 안내는 **홈마다 다른 절대 경로**를 담으므로 두 홈에서 문자열이 다르다.
+  // 여기서 보는 것은 "설정을 지우면 기본 동작으로 돌아온다"이지 경로가 같은지가 아니다.
+  const strip = (r) => r.stdout.replace(renderOnboardingNote(path.join(r.home, '.devkit', 'config.json')), '');
+  assert.equal(Buffer.compare(Buffer.from(strip(after)), Buffer.from(strip(base))), 0,
     '설정을 지웠는데 기본 상태로 안 돌아온다');
+  assert.match(after.stdout, /\[devkit 첫 실행\]/, '설정을 지웠으면 다시 물어야 한다');
 });
 
 test('P15: 모델을 바꿨다 되돌리면 파일이 바이트 단위로 원상복구된다 (B20)', () => {

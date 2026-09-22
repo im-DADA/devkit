@@ -12,8 +12,8 @@ const { readState, isActive } = require('./lib/pdca-state');
 const { tail } = require('./lib/progress');
 const { readBehaviors, summarize } = require('./lib/behaviors');
 const { compareRules, importsAgentsMd } = require('./lib/rules-sync');
-const { loadConfig } = require('./lib/config');
-const { renderSummary, renderCodex, renderSettingsNote } = require('./lib/rules-render');
+const { loadConfig, unconfiguredPath } = require('./lib/config');
+const { renderSummary, renderCodex, renderSettingsNote, renderOnboardingNote } = require('./lib/rules-render');
 const { AGENTS } = require('./lib/config-schema');
 const { readModel, modelDriftMessage } = require('./lib/agent-frontmatter');
 
@@ -247,6 +247,46 @@ try {
 const settingsNote = renderSettingsNote(cfg);
 
 /**
+ * 첫 실행 안내 — 설정 파일이 아예 없는 사용자에게만, `startup`류 세션에서만.
+ *
+ * ⚠ **compact·resume에서는 안 띄운다.** 이 훅의 matcher는 `startup|resume|clear|compact`라
+ * 컴팩션마다 다시 도는데, "나중에"를 고른 사용자가 같은 세션 중간에 또 질문받으면 안 된다.
+ *
+ * ⚠ **안내 대상일 때만 stdin을 읽는다.** 설정한 사용자의 경로는 한 글자도 안 바뀐다.
+ * stdin이 비었거나 JSON이 아니면 `startup`으로 본다 — degrade 방향이 "안내가 더 자주"지
+ * "안내가 사라짐"이 아니고, 어차피 표식이 생기면 멈춘다.
+ *
+ * ⚠ **`readFileSync(0)`은 EOF가 오기 전까지 매달린다.** 예외로 떨어지지 않는다 —
+ * TTY나 열린 파이프면 그대로 블로킹이고, 하네스 timeout(5s)에 죽는다. 그래서 TTY는
+ * 아예 읽지 않고, 그래도 남는 위험은 호출부가 "규칙을 먼저 내보내는" 순서로 막는다.
+ */
+function onboardingNote() {
+  try {
+    const p = unconfiguredPath();
+    if (!p) return '';
+    let source = 'startup';
+    // TTY면 읽지 않는다 — 사람이 직접 돌린 경우이고, 읽으면 입력을 기다리며 멈춘다.
+    if (!process.stdin.isTTY) {
+      try {
+        const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+        if (input && typeof input.source === 'string') source = input.source;
+      } catch {
+        // 읽을 수 없으면 startup으로 간주한다(위 주석의 degrade 방향)
+      }
+    }
+    // 실측(CC 2.1.278 바이너리): `source`는 `startup|resume|clear|compact|fork` 5종이다.
+    // ⚠ 단 `fork`는 **지금 이 훅에 오지 않는다** — `hooks/hooks.json`의 matcher가
+    // `startup|resume|clear|compact`라 애초에 실행되지 않는다. matcher가 넓어지면 그때
+    // `fork`는 새 세션이므로 `startup`과 같이 취급된다(틀리는 방향을 "더 자주" 쪽에 둔다).
+    if (source === 'compact' || source === 'resume') return '';
+    return renderOnboardingNote(p);
+  } catch (e) {
+    process.stderr.write(`[devkit] session-start: 첫 실행 안내 판정 실패 — ${e.message}\n`);
+    return '';
+  }
+}
+
+/**
  * 에이전트 모델 설정이 플러그인 업데이트로 풀렸는지 — 경로 A의 **유일한 방어선**이다.
  *
  * `/kit setup`이 `agents/*.md`의 frontmatter를 직접 고치므로, 업데이트가 그 파일을 덮으면
@@ -274,6 +314,15 @@ function modelDrift() {
 }
 
 // 재개 블록은 생략 대상이 아니다 — 그 정보는 AGENTS.md에 없다.
+//
+// ⚠ **규칙 주입을 먼저 내보내고, 첫 실행 안내는 그 뒤에 따로 쓴다.** 한 번의 write로 합치면
+// 인자 평가 중 `onboardingNote()`가 stdin을 읽는데, stdin이 안 닫히면 거기서 매달리고
+// 하네스 timeout(5s, hooks.json)에 죽으면서 **아무것도 못 내보낸다.**
+// 실측(리뷰 1회차): stdin을 열어둔 채 두면 4초 후 죽고 규칙 주입이 **0바이트**였다.
+// 순서를 가르면 최악이 "안내를 잃는다"로 줄어든다 — 규칙은 이미 나갔다.
+// 바이트는 그대로다(같은 문자열을 같은 순서로 쓴다).
 process.stdout.write(
-  (skipSummary ? '' : summary) + settingsNote + drift + codexDrift + modelDrift() + resumeBlock() + '\n',
+  (skipSummary ? '' : summary) + settingsNote + drift + codexDrift + modelDrift() + resumeBlock(),
 );
+process.stdout.write(onboardingNote());
+process.stdout.write('\n');

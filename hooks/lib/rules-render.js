@@ -118,4 +118,48 @@ function renderSettingsNote(cfg) {
   return lines.length ? `\n${lines.join('\n')}` : '';
 }
 
-module.exports = { SUMMARY_MAP, CODEX_MAP, renderBlock, renderSummary, renderCodex, renderSettingsNote };
+/**
+ * 첫 실행 안내 — **설정 파일이 아예 없는 사용자에게만**, 세션 시작 출력의 맨 끝에 한 번.
+ *
+ * 왜 필요한가: 설정 기능을 만들어 놓고 아무 데서도 권하지 않으면 발견 가능성이 0이다
+ * (`/kit` 도움말에만 있었다). 그렇다고 매번 조르면 무시 학습이 되므로, **한 번 묻고
+ * 답을 받으면 끝난다** — "물어봤다"는 사실은 설정 파일에 `{"version":1}`만 써서 남긴다
+ * (동작상 완전 기본값이라 새 상태 파일이 필요 없다).
+ *
+ * ⚠ **훅은 질문을 띄울 수 없다.** SessionStart의 stdout은 컨텍스트 주입일 뿐이고
+ * 권한 창(`ask`)은 PreToolUse의 것이다. 그래서 이 문자열은 **모델에게 주는 지시**이고,
+ * 실제로 묻는 주체는 모델이다. 모델이 무시하면 다음 세션에 다시 뜬다 — 사용자에게는
+ * 아무것도 안 보이므로 무시 학습이 아니라 토큰 비용만 든다.
+ *
+ * ⚠ **이 문자열은 드리프트 비교의 정본에 들어가면 안 된다**(설정 노트와 같은 계약,
+ * §9.3). 소비자 `AGENTS.md` 사본에는 없는 내용이라 섞이면 영구 stale이 된다.
+ *
+ * ⚠ 태그가 `[devkit 설정]`이 **아니라** `[devkit 첫 실행]`인 이유: 기존 테스트가
+ * "기본값 홈에는 `[devkit 설정]`이 없다"를 단언한다. 문구를 피해서 통과시키는 것이
+ * 테스트를 고치는 것보다 낫다.
+ *
+ * @param configPath 설정 파일이 놓일 절대 경로. `null`이면 안내 대상이 아니다.
+ * @returns 안내 블록, 또는 `''`
+ */
+function renderOnboardingNote(configPath) {
+  if (typeof configPath !== 'string' || configPath.trim() === '') return '';
+  // ⚠ 이 값은 `os.homedir()`(=$HOME)에서 온 **경로**이고 아래에서 모델 지시문에 그대로
+  // 보간된다. 개행이 들어가면 안내 블록 한가운데에 임의의 줄을 끼워 넣을 수 있다
+  // (devcontainer·CI 설정처럼 레포에 체크인된 파일이 HOME을 정하는 경로가 있다).
+  // 같은 모듈의 `renderSettingsNote`는 허용값이 좁혀진 값만 찍으므로 여기만 무검증이었다.
+  if (/[\r\n]/.test(configPath)) return '';
+  return [
+    '',
+    `[devkit 첫 실행] devkit 전역 설정 파일이 없다 — 기본값(만든 사람의 취향)으로 동작 중이다. 경로: ${configPath}`,
+    '  이 세션에서 한 번만, 사용자의 첫 요청을 처리하기 전에 AskUserQuestion으로 묻는다: "devkit 설정을 지금 맞출까요?"',
+    '  ① 지금 설정 → `/kit setup`을 안내한다(직접 실행 가능하면 실행)',
+    '  ② 기본값으로 쓰고 다시 묻지 않기 → 위 경로에 `{"version":1}` 한 줄만 Write한다'
+      + '(보호 파일이라 확인 창이 뜬다 — 정상이고 우회하지 마라)',
+    '  ③ 나중에 → 아무것도 쓰지 않는다(다음 세션에 다시 묻는다).',
+    '  ⚠ 묻지 않고 파일을 쓰지 마라. 대화에 이미 답이 있거나 사용자가 `/kit setup`을 실행 중이면 묻지 않는다.',
+  ].join('\n');
+}
+
+module.exports = {
+  SUMMARY_MAP, CODEX_MAP, renderBlock, renderSummary, renderCodex, renderSettingsNote, renderOnboardingNote,
+};
