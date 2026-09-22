@@ -13,6 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { record } = require('./lib/audit');
+const { loadConfig } = require('./lib/config');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -27,23 +28,42 @@ let src;
 try { src = fs.readFileSync(file, 'utf8'); } catch { process.exit(0); } // 파일 없으면 관측 스킵(비차단)
 
 const isTsx = /\.(tsx|jsx)$/.test(file);
-const MAX_LINES = 200;
+const cfg = loadConfig();
+// 0이면 줄 수 경고를 끈다(설정 스키마가 음수를 막으므로 여기서 다시 막지 않는다)
+const MAX_LINES = cfg.rules.maxLines;
 
+// `key`는 설정 스위치의 이름이다. 규칙을 추가할 때 key를 빼먹으면 `cfg.rules[undefined]`가
+// undefined라 **끌 수 없는 규칙**이 되므로, 새 규칙에는 반드시 key를 준다.
 const RULES = [
   // 꺾쇠 형태를 `\s*`로 풀어 쓰는 이유: 꺾쇠 안에 any를 붙여 쓰면 이 정의 줄 자체가 위반으로 잡힌다(실측).
-  { rule: 'no-any', label: '`any` (→ `unknown` + 좁히기)', re: /:\s*any\b|as\s+any\b|<\s*any\s*>/ },
-  { rule: 'no-console-log', label: '`console.log` (커밋 전 제거)', re: /console\.log\s*\(/ },
-  { rule: 'empty-catch', label: '빈 catch — 에러 삼키기 (→ throw·전파)', re: /\bcatch\s*(\([^)]*\))?\s*\{\s*\}/ },
-  { rule: 'tsx-side-effect', label: '.tsx 안 useEffect 등 (→ 커스텀 훅 .ts로)', re: /\buse(Effect|LayoutEffect|Reducer)\s*\(/, tsxOnly: true },
-  { rule: 'tsx-fetch', label: '.tsx 안 fetch (→ api .ts로)', re: /\bfetch\s*\(/, tsxOnly: true },
+  { key: 'noAny', rule: 'no-any', label: '`any` (→ `unknown` + 좁히기)', re: /:\s*any\b|as\s+any\b|<\s*any\s*>/ },
+  { key: 'noConsoleLog', rule: 'no-console-log', label: '`console.log` (커밋 전 제거)', re: /console\.log\s*\(/ },
+  { key: 'noEmptyCatch', rule: 'empty-catch', label: '빈 catch — 에러 삼키기 (→ throw·전파)', re: /\bcatch\s*(\([^)]*\))?\s*\{\s*\}/ },
+  { key: 'tsxLogic', rule: 'tsx-side-effect', label: '.tsx 안 useEffect 등 (→ 커스텀 훅 .ts로)', re: /\buse(Effect|LayoutEffect|Reducer)\s*\(/, tsxOnly: true },
+  { key: 'tsxLogic', rule: 'tsx-fetch', label: '.tsx 안 fetch (→ api .ts로)', re: /\bfetch\s*\(/, tsxOnly: true },
 ];
+
+// 주석·문자열을 지운 뒤 대조한다. 기록만 하던 때는 오탐이 감사 로그에 남고 끝났지만, 지금은
+// "지금 고친다"와 함께 Claude에게 가므로 **주석을 고치러 간다**(리뷰 실측: `// any 타입이 아니다`,
+// `"예시: any 값"`, `/catch {}/` 3건 오탐). 파서를 쓰지 않는 이상 완벽하지 않으므로, 틀리는 방향을
+// 미탐 쪽에 둔다 — 놓친 위반은 Stop 훅의 lint·리뷰가 다시 잡지만, 오탐은 멀쩡한 코드를 망친다.
+function stripNoise(line) {
+  return line
+    .replace(/\\['"`]/g, '')                       // 이스케이프된 따옴표가 짝을 깨지 않게
+    .replace(/(['"`])(?:(?!\1).)*\1/g, '$1$1')     // 문자열 리터럴 비우기
+    .replace(/\/(?![/*])(?:\\.|[^/\n])+\//g, '//') // 정규식 리터럴 비우기(나눗셈은 //로 남아 무해)
+    .replace(/\/\/.*$/, '')                        // 줄 주석
+    .replace(/\/\*.*?\*\//g, '');                  // 한 줄 안의 블록 주석
+}
 
 /** text의 각 줄을 규칙에 대조한다. startLine은 파일 기준 첫 줄 번호, 모르면 null */
 function scan(text, startLine) {
   const out = [];
-  text.split('\n').forEach((ln, i) => {
+  text.split('\n').forEach((raw, i) => {
+    const ln = stripNoise(raw);
     for (const r of RULES) {
       if (r.tsxOnly && !isTsx) continue;
+      if (cfg.rules[r.key] === false) continue; // 설정으로 끈 규칙
       if (r.re.test(ln)) out.push({ rule: r.rule, line: startLine === null ? null : startLine + i });
     }
   });
@@ -51,11 +71,13 @@ function scan(text, startLine) {
 }
 
 const countNewlines = (s) => (typeof s === 'string' ? (s.match(/\n/g) || []).length : 0);
-const afterLines = src.split('\n').length;
+// 끝 개행을 한 줄로 세면 정확히 200줄인 파일이 "201줄"로 경고된다(리뷰 실측)
+const countLines = (s) => { const a = s.split('\n'); if (a[a.length - 1] === '') a.pop(); return a.length; };
+const afterLines = countLines(src);
 
 // ── 기록(파일 전체) — 예전과 같은 의미 ──
 const findings = scan(src, 1);
-if (afterLines > MAX_LINES) findings.push({ rule: 'file-too-long', line: afterLines });
+if (MAX_LINES > 0 && afterLines > MAX_LINES) findings.push({ rule: 'file-too-long', line: afterLines });
 
 // ── 알림(이번 편집이 넣은 것만) ──
 let notify = [];
@@ -65,16 +87,17 @@ if (input?.tool_name === 'Edit' && typeof ti.new_string === 'string') {
   const startLine = at < 0 ? null : countNewlines(src.slice(0, at)) + 1;
   notify = scan(ti.new_string, startLine);
   const beforeLines = afterLines - (countNewlines(ti.new_string) - countNewlines(ti.old_string));
-  if (beforeLines <= MAX_LINES && afterLines > MAX_LINES) notify.push({ rule: 'file-too-long', line: afterLines });
+  if (MAX_LINES > 0 && beforeLines <= MAX_LINES && afterLines > MAX_LINES) notify.push({ rule: 'file-too-long', line: afterLines });
 } else if (input?.tool_name === 'Write') {
   notify = scan(src, 1);
-  if (afterLines > MAX_LINES) notify.push({ rule: 'file-too-long', line: afterLines });
+  if (MAX_LINES > 0 && afterLines > MAX_LINES) notify.push({ rule: 'file-too-long', line: afterLines });
 }
 
 // ── 넛지: 순수로직 파일인데 대응 테스트가 없으면 리마인드 ──
 // 대상: .ts(.tsx 제외), 테스트/타입/설정 파일 아님, utils·validation·format·helpers·lib 등 로직 위치,
 //       export된 함수가 있음. 옆에 같은 이름의 *.test.* / *.spec.* 없으면 넛지.
 function needsTestNudge() {
+  if (!cfg.rules.testNudge) return false;
   if (isTsx || !/\.(ts|js)$/.test(file)) return false;
   const base = path.basename(file);
   if (/\.(test|spec)\./.test(base)) return false;         // 테스트 파일 자체
@@ -114,8 +137,12 @@ if (notify.length) {
   const byRule = new Map();
   for (const f of notify) byRule.set(f.rule, [...(byRule.get(f.rule) || []), f.line]);
   const MAX_ROWS = 6;
+  const MAX_LINES_SHOWN = 8;
   const rows = [...byRule].map(([rule, ls]) => {
-    const where = rule === 'file-too-long' ? '' : ` ${ls.map((l) => (l === null ? 'L?' : `L${l}`)).join(', ')}`;
+    // 줄 번호도 잘라야 한다 — console.log 300개짜리 파일이 1,700자를 한 번에 주입했다(리뷰 실측)
+    const shownLines = ls.slice(0, MAX_LINES_SHOWN).map((l) => (l === null ? 'L?' : `L${l}`));
+    if (ls.length > MAX_LINES_SHOWN) shownLines.push(`외 ${ls.length - MAX_LINES_SHOWN}곳`);
+    const where = rule === 'file-too-long' ? '' : ` ${shownLines.join(', ')}`;
     return `- ${LABEL[rule]}${where}`;
   });
   const shown = rows.slice(0, MAX_ROWS);

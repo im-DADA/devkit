@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const { findProjectRoot } = require('./lib/project-root');
 const { readState, isActive } = require('./lib/pdca-state');
 const { shouldTriggerPdca } = require('./lib/pdca-patterns');
+const { loadConfig } = require('./lib/config');
 
 function readInput() {
   try {
@@ -103,23 +104,36 @@ const LANG =
 const FORMAT =
   '[devkit] 출력 서식: 답이 3문단을 넘거나 항목이 여럿이면 구조를 준다 — ### 소제목 · 문단 사이 빈 줄 · 결론과 수치·파일명은 **굵게** · 주제가 바뀌는 자리에만 ---. 한두 문장으로 끝날 답은 그대로 짧게 둔다(짧은 답에 헤더·디바이더 금지).';
 
+// 민감도 → 점수 임계. 낮을수록 자주 발동한다(기본 3은 pdca-patterns.js의 SCORE_THRESHOLD).
+// 상수를 그대로 노출하지 않는 이유: 숫자는 의미를 말하지 않고, 범위를 열면 0을 넣어
+// 모든 프롬프트에 사이클을 거는 설정이 가능해진다.
+const THRESHOLD = { low: 4, default: 3, high: 2 };
+
 function main() {
   const input = readInput();
   if (!input || typeof input.prompt !== 'string') return; // 조용히 통과
 
+  const cfg = loadConfig();
   const root = findProjectRoot(input.cwd || process.cwd());
   const state = readState(root);
 
   const parts = [];
-  // 진행 중 사이클이 우선 — 감지 로직 자체를 건너뛴다
+  // 진행 중 사이클이 우선 — 감지 로직 자체를 건너뛴다.
+  // ⚠ `pdca.enabled:false`여도 **진행 중 사이클의 재개 안내는 끄지 않는다.** 설정을 끄기
+  // 전에 연 사이클이 남아 있으면 그건 아직 진행 중인 작업이고, 안내가 사라지면 사용자는
+  // 어디까지 했는지 잃는다. 설정이 끄는 것은 "새 사이클을 권하는 것"뿐이다.
   if (isActive(state)) parts.push(resumeContext(state));
-  else if (shouldTriggerPdca(input.prompt).trigger) parts.push(KICKOFF);
+  else if (cfg.pdca.enabled
+    && shouldTriggerPdca(input.prompt, { threshold: THRESHOLD[cfg.pdca.sensitivity] }).trigger) {
+    parts.push(KICKOFF);
+  }
 
   // 언어 지시가 **맨 뒤** — 가장 가까운 자리가 가장 세고, 드리프트가 제일 심한 게 언어다.
   // 서식은 그 앞. (KICKOFF 머리말이 첫 줄이어야 하는 계약도 이 순서로 지켜진다)
-  parts.push(FORMAT);
-  parts.push(LANG);
+  if (cfg.format === 'on') parts.push(FORMAT);
+  if (cfg.language !== 'off') parts.push(LANG);
 
+  if (!parts.length) return; // 전부 껐으면 빈 주입을 내보내지 않는다
   emit(parts.join('\n\n'));
 }
 

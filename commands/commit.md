@@ -12,12 +12,12 @@ allowed-tools:
 현재 변경분을 커밋한다. (푸시는 하지 않음)
 
 1. `git status` / `git diff`로 변경 확인.
-2. 변경 성격 파악 → **Conventional Commit** 메시지 작성:
+2. 변경 성격 파악 → **Conventional Commit** 메시지 작성 (세션 리마인드에 `[devkit 설정] 커밋 규약: 자유 형식`이 있으면 형식을 강제하지 않는다):
    - `<type>(<scope>): <subject>`
    - type: feat | fix | docs | style | refactor | perf | test | chore | ci | build | revert
    - subject: 한국어 OK, 50자 이내, 마침표 X
 3. 성격이 뚜렷이 다른 변경이 섞였으면 **나눠서 커밋** 제안.
 4. `git add` + `git commit`. 
-   - ❌ **`Co-Authored-By` 트레일러 붙이지 않음.**
+   - ❌ **`Co-Authored-By` 트레일러 붙이지 않음** (리마인드에 `[devkit 설정] Co-Authored-By: 허용`이 있으면 예외).
    - 현재 브랜치가 main/master면 커밋 전에 알리고 확인.
 5. 커밋 결과(해시·메시지) 보고. **푸시는 사용자가 별도 요청 시에만.**

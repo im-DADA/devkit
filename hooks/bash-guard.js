@@ -7,6 +7,7 @@ const path = require('node:path');
 const { record } = require('./lib/audit');
 const { blockedFor } = require('./lib/protected-patterns');
 const { deny, ask } = require('./lib/decision');
+const { loadConfig } = require('./lib/config');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -40,8 +41,15 @@ const PATTERNS = [
   // ⚠ 플래그는 **push 자기 명령 안에서만** 찾는다 — 줄바꿈·`;`·`|`·`&&`에서 멈춘다. 예전 `[^;]*`는
   // 그걸 넘어가 `git push origin main` 뒤에 붙은 `rm -f /tmp/…`의 `-f`를 push 플래그로 읽었다(실측).
   // 단일 `&`는 멈추지 않는다: `2>&1` 뒤에 붙은 `-f`도 같은 명령이라 잡아야 한다(틀리는 방향이 차단 쪽).
-  { re: /\bgit\s+push\b(?:(?!&&)[^;|\n])*\s(--force(?!-with-lease\b)|-f)\b/i, why: 'git push --force' },
-  { re: /\bgit\s+reset\s+--hard\b/i, why: 'git reset --hard' },
+  //
+  // ⚠ `reversible`은 "사고가 나도 되돌릴 길이 남는가"다 — `guards.level: minimal`에서 이
+  // 표시가 붙은 것만 확인 창으로 내려간다. 강제 푸시와 히스토리 되감기는 reflog·원격
+  // reflog에 흔적이 남아 복구 경로가 있다. **이 표시를 붙일 때는 복구 경로를 실제로
+  // 말할 수 있어야 한다** — "보통 괜찮다"는 근거가 아니다.
+  { re: /\bgit\s+push\b(?:(?!&&)[^;|\n])*\s(--force(?!-with-lease\b)|-f)\b/i, why: 'git push --force', reversible: true },
+  { re: /\bgit\s+reset\s+--hard\b/i, why: 'git reset --hard', reversible: true },
+  // ⚠ clean에는 reversible을 주지 않는다 — 추적된 적 없는 파일은 reflog에도 없어서
+  // 되돌릴 데가 없다. minimal에서도 차단이다.
   { re: /\bgit\s+clean\s+-\S*f/i, why: 'git clean -f (추적 안 된 파일 삭제)' },
   { re: /\b(mkfs\S*|dd)\b[^;]*\bof=\/dev\//i, why: '디스크 직접 쓰기' },
   { re: />\s*\/dev\/sd[a-z]/i, why: '블록 디바이스 덮어쓰기' },
@@ -87,10 +95,32 @@ function redirectsToProtected(c) {
     const exists = resolved === null ? true : fs.existsSync(resolved);
     // 없는 파일에 `>`는 소실이 아니라 생성이다. lockfile 등 overwriteOnly가 아닌 규칙은
     // blockedFor가 이 값과 무관하게 걸리므로 여기서 따로 가르지 않는다.
-    const p = blockedFor(target, { overwrite: !append && exists });
+    const p = blockedFor(target, { overwrite: !append && exists }, cfg.guards.protectedFiles);
     if (p) hits.push(p);
   }
   return hits;
+}
+
+const cfg = loadConfig();
+
+/**
+ * 가드 강도를 반영한 최종 판정.
+ *
+ * - `strict`  — **패턴 판정에 한해** 확인으로 끝나던 것까지 차단한다. 리다이렉트 판정은
+ *               `protected-patterns`의 `decision`을 따르므로 이 강도가 적용되지 않는다
+ *               (그쪽은 `guards.protectedFiles`로 따로 조절한다).
+ * - `default` — 현행. 패턴이 정한 값을 그대로 쓴다.
+ * - `minimal` — **되돌릴 수 있는 것만**(`reversible`) 확인 창으로 내린다.
+ *
+ * ⚠ 되돌릴 수 없는 것은 **어떤 설정에서도 차단이다** — `rm -rf` 위험경로 · 디스크 직접 쓰기 ·
+ * fork bomb · 원격 스크립트 실행 · 추적 안 된 파일 삭제. 이건 취향이 아니라 복구 가능성의
+ * 문제라 설정에 열지 않았다(DESIGN §J).
+ */
+function decisionFor(p) {
+  const base = p.decision || 'deny';
+  if (cfg.guards.level === 'strict') return 'deny';
+  if (cfg.guards.level === 'minimal' && p.reversible) return 'ask';
+  return base;
 }
 
 // ⚠ 판정을 **전부 모은 뒤** deny → ask 순으로 고른다. 예전처럼 처음 찾은 하나로 끝내면
@@ -100,7 +130,7 @@ if (dangerousRm(cmd)) hits.push({ why: 'rm -rf (위험 경로)', decision: 'deny
 for (const p of redirectsToProtected(cmd)) {
   hits.push({ why: `보호 파일에 리다이렉트 쓰기: ${p.why}`, decision: p.decision });
 }
-for (const p of PATTERNS) if (p.re.test(cmd)) hits.push({ why: p.why, decision: p.decision || 'deny' });
+for (const p of PATTERNS) if (p.re.test(cmd)) hits.push({ why: p.why, decision: decisionFor(p) });
 
 const denied = hits.find((h) => h.decision === 'deny');
 if (denied) {

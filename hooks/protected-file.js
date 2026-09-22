@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const { record } = require('./lib/audit');
 const { blockedFor } = require('./lib/protected-patterns');
 const { deny, ask } = require('./lib/decision');
+const { loadConfig } = require('./lib/config');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -20,7 +21,7 @@ if (!file || typeof file !== 'string') process.exit(0);
 const isEdit = input?.tool_name === 'Edit';
 const overwrite = !isEdit && fs.existsSync(file);
 
-const hit = blockedFor(file, { overwrite });
+const hit = blockedFor(file, { overwrite }, loadConfig().guards.protectedFiles);
 if (hit && hit.decision === 'ask') {
   record({ hook: 'protected-file', action: 'asked', reason: hit.why, file });
   ask(

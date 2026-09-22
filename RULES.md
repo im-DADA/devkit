@@ -13,7 +13,7 @@
 - 📋 플랜 우선: 파일 3개+·여러 화면/단계 걸리는 기능은 "그냥 해줘"라도 바로 구현 X → 플랜 짜겠다 밝히거나 "플랜부터? 바로 구현?" 한 번 묻는다. 한 줄 수정은 예외.
 - 🔄 PDCA 사이클: 기능 작업은 `docs/{날짜}-{slug}/`에 PLAN→DESIGN→(구현)→GAP→REVIEW→REPORT를 남긴다. PLAN 첫머리 `- **track**: Quick|Full` 1줄로 트랙을 정한다 — **멈춤점은 Full 2곳(PLAN·DESIGN), Quick 1곳(PLAN만, DESIGN 생략)**. Quick도 behaviors.json·Gap·Review·REPORT는 전부 필수(미달 시 /iterate). 완료 후 `docs/archive/`로 이동. slug는 영문, 문서 본문은 사용자 언어.
 - ✅ 검증 무결성: `behaviors.json`이 Gap의 분모. **`passes:true`는 evidence(실행 흔적)가 있어야 유효** — 없으면 자동 강등된다. 통과 기준은 `unproven==0`이지 Match Rate 숫자가 아니다. 상세는 RULES "PDCA 사이클".
-- Feature 구조: `features/{f}/`에 components(.tsx) · hooks·api·data·types·utils(.ts) · contexts(필요 시). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만(page에 붙이면 metadata를 잃는다).
+- Feature 구조: `features/{f}/`에 components(.tsx) · hooks·api·data·types·utils(.ts) · contexts(.tsx, 필요 시). **`views/` 층 없음** — 화면 조립·`metadata`·서버 fetch는 `app/**/page.tsx`가 직접 한다. `"use client"`는 폼·토글 같은 조각에만(page에 붙이면 metadata를 잃는다).
 - 🔒 .tsx엔 로직 금지 — 상태(useState/useEffect)·핸들러·계산·페칭은 무조건 .ts(커스텀 훅/유틸)로 분리.
 - 네이밍(린터가 못 잡는 것만): 훅 use* · 핸들러 handle*/on* · boolean is/has/can* · 파일·폴더 kebab-case. 축약어/부정boolean 금지.
 - 📝 주석 두 종류: 몸통 안 `//`는 **why만**(코드가 what을 말한다). export 시그니처 위 `/** */`는 **호출부에서 안 보이는 계약**을 적는다 — 부수효과 · `@security`(권한 검증 책임) · 단위/경계 · `@throws` · 반환 예시. ⚠ TS에서 `@param {number}`처럼 **타입 재기술 금지**(시그니처와 어긋나면 거짓말한다). 전부 다는 게 아니라 **시그니처만 봐서 못 쓰는 것**에만.
@@ -439,6 +439,43 @@ export function formatCurrency(value: number): string {
 - **pre-commit**(`/kit init`)으로 Claude 세션 밖에서 사람이 직접 커밋해도 시크릿·lint가 걸린다. CI(`ci.yml`)는 시크릿 스캔·`pnpm audit`을 push 시점에 재확인.
 - ⚠️ `.devkit/audit.jsonl`은 **로컬 관측용**이라 위변조 가능하다. 규정 준수/거버넌스 근거로 쓰려면 CI나 원격으로 수집해 append-only로 보관할 것.
 - 훅/스크립트는 설치자 머신에서 실행되므로 공급망 위험이 있다. 신뢰된 커밋에서 설치 후 `node scripts/verify-integrity.mjs`로 변조를 조기 확인한다(서명은 아니므로 완전 방어는 아님).
+
+## 설정 (`~/.devkit/config.json`)
+
+이 문서의 기본값은 **만든 사람의 취향**이다. 설치한 사람이 자기 취향으로 맞출 수 있도록 전역 설정 파일 하나를 둔다. **파일이 없으면 위 규칙이 전부 그대로 적용된다** — 설정은 순수한 opt-in이고, 안 한 사람의 동작은 한 글자도 바뀌지 않는다(`test/no-config-parity.test.mjs`가 바이트 단위로 고정한다).
+
+- **만들기·고치기는 `/kit setup`**(대화형). `setup show`로 현재 값, `setup reset`으로 완전 복구.
+- **스키마와 기본값의 정본은 `hooks/lib/config-schema.js`의 `DEFAULTS`다.** 여기에 값을 다시 적지 않는다 — 적으면 그 사본이 낡는다(D23·D26이 기록한 실패).
+- **우선순위는 `환경변수 > 설정 파일 > 기본값`.** `DEVKIT_VERIFY`·`DEVKIT_TIMEOUT_*`·`DEVKIT_TSC_ON_EDIT`·`DEVKIT_RECEIPTS`는 이미 문서화된 탈출구라 설정보다 세다. `DEVKIT_CONFIG`는 값이 아니라 **설정 파일의 위치**를 바꾼다(빈 문자열이면 "설정 없음").
+- **잘못된 설정은 세션을 막지 않는다.** 없음·깨진 JSON·모르는 키·허용값 밖은 전부 그 키만 기본값으로 떨어지고, **무엇이 왜 떨어졌는지 stderr에 한 줄** 남는다(조용한 무시는 오타를 영원히 숨긴다).
+
+### 설정이 규칙 주입에 반영되는 방식
+
+- 설정은 위 SUMMARY·CODEX 블록에서 **해당 줄을 빼는 것**으로만 반영된다. **코드가 규칙 문장을 새로 쓰지 않는다** — 쓰기 시작하면 정본이 둘이 된다.
+- 제거로 표현할 수 없는 것(머지 전략처럼 애초에 주입 규칙에 없는 항목)은 **값만** 한 줄로 알린다: `- [devkit 설정] 머지 전략: merge`. 규칙을 설명하지 않으므로 커맨드의 절차 정본과 경쟁하지 않는다.
+- ⚠ **한 줄에 여러 규칙이 섞인 항목은 부분 제거가 안 된다.** SUMMARY는 항목 수 상한(15)이 차 있어 줄을 쪼갤 수 없다. 그래서 `rules.noAny:false`를 설정해도 훅만 조용해지고 SUMMARY의 금지 문장은 남는다 — **비대칭이 남아 있다는 것을 알고 쓴다.**
+- `/kit init`이 심은 소비자 `AGENTS.md` 사본은 설정을 모른다. 설정을 바꿨으면 **`/kit sync`를 돌려야** 사본이 따라온다. 안 돌리면 `session-start`가 낡음을 알리는데, 그건 오탐이 아니라 **정탐**이다.
+
+### 설정으로 열지 않는 것
+
+시크릿 차단 · evidence 규칙(`unproven==0`) · 상태 파일 스키마 · 승인 멈춤점 · 브랜치 삭제와 외부 행동 승인 · 되돌릴 수 없는 명령의 차단(`rm -rf` 위험경로·디스크 직접 쓰기·fork bomb·원격 스크립트 실행·추적 안 된 파일 삭제) · 에이전트 `tools`.
+
+근거는 하나로 묶인다 — **막는 쪽과 만드는 쪽의 판정 근거는 대칭이어야 한다**(`hooks/lib/track.js:3-7`). 설정 한 줄이 검증 층을 끄는 경로가 되면 devkit이 보증하는 것이 사라진다.
+
+**예외가 하나 있고, 그 예외가 규칙을 설명한다**: `pdca.docs: "lite"`는 GAP·REVIEW를 REPORT의 선행조건에서 뺀다. 이것이 정당한 이유는 **누가 쓰는가**가 다르기 때문이다 — 위 원칙이 막는 것은 *AI가 세션 중에 스스로 쓰는 한 줄*(설계가 어려워지자 검증을 회피하는 경로)이고, `/kit setup`으로 **사람이 정하는 전역 설정**은 도구 주인의 운영 결정이다. 그 구분이 성립하려면 두 장치가 **함께** 있어야 한다:
+
+1. **설정 파일은 보호 파일이다.** AI가 Write·Edit·리다이렉트로 바꾸려 하면 확인 창이 뜬다. 이 보호는 **설정으로 끌 수 없다**(자기 보호를 자기 설정으로 끄는 순환을 막는다).
+2. **켜져 있으면 매 세션 보인다.** `- [devkit 설정] 검증 문서 게이트: lite`가 리마인드에 뜬다. 조용히 꺼져 있는 상태를 만들지 않는다 — devkit이 가장 싫어하는 것은 차단이 아니라 침묵이다.
+
+`behaviors.json`은 어느 설정에서도 필수다. 그게 없으면 Gap의 분모가 없어 검증이 성립하지 않는다.
+
+### 에이전트 모델 배분
+
+`models`는 플러그인 `agents/*.md`의 frontmatter **두 줄(`model`·`effort`)을 `/kit setup`이 직접 고쳐** 반영한다. 사용자 디렉터리 사본은 오버라이드가 아니다 — 플러그인 에이전트는 `devkit:architect`처럼 이름이 갈려서 별개 에이전트가 된다(2026-09-21 실측, CC 2.1.278).
+
+- **대가: 플러그인을 업데이트하면 설정이 풀린다.** 풀리는 방향이 기본값이라 안전하지만 조용하다. `session-start`가 어긋남을 탐지해 `/kit setup --reapply`를 안내하는 것이 **유일한 방어선**이다.
+- `INTEGRITY.sha256`은 `hooks/`·`scripts/`만 덮으므로 이 변경의 대상이 아니다. **`/kit setup`은 매니페스트를 재생성하지 않는다** — 재생성하면 그 시점 `hooks/`의 상태를 무조건 정당화해 변조 탐지의 기준선을 말없이 다시 긋게 된다.
+- `effort` 허용값은 `low|medium|high|xhigh|max` 또는 양의 정수다. 허용값 밖이면 그 에이전트는 **건너뛴다**(파일을 열지 않는다).
 
 ## 커밋 메시지
 

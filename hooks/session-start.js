@@ -12,6 +12,10 @@ const { readState, isActive } = require('./lib/pdca-state');
 const { tail } = require('./lib/progress');
 const { readBehaviors, summarize } = require('./lib/behaviors');
 const { compareRules, importsAgentsMd } = require('./lib/rules-sync');
+const { loadConfig } = require('./lib/config');
+const { renderSummary, renderCodex, renderSettingsNote } = require('./lib/rules-render');
+const { AGENTS } = require('./lib/config-schema');
+const { readModel, modelDriftMessage } = require('./lib/agent-frontmatter');
 
 const FALLBACK = `## devkit 팀 규칙 리마인드
 상세 규칙은 플러그인 RULES.md 참조 (/kit).`;
@@ -187,10 +191,17 @@ function codexDriftBlock(canonical, codexMd) {
   ].join('\n');
 }
 
+// 설정은 여기서 **한 번만** 읽는다. 없으면 기본값이고, 기본값이면 아래 렌더링이 항등이라
+// 출력이 원문과 바이트 단위로 같다(test/rules-render.test.mjs U6·U7, no-config-parity P1).
+const cfg = loadConfig();
+
 let summary;
 let summaryIsCanonical = true;
 try {
-  summary = extractBlock('SUMMARY');
+  // ⚠ 렌더링 결과가 이후 **드리프트 비교의 정본**이 된다(:209·:124). 원문으로 비교하면
+  // 설정한 사용자 전원이 매 세션 stale 경고를 받고 `/kit sync`가 사본을 원문으로 덮어
+  // 설정이 무의미해진다 — 이 사이클의 1순위 리스크다(DESIGN §9).
+  summary = renderSummary(extractBlock('SUMMARY'), cfg);
 } catch (e) {
   process.stderr.write(`[devkit] session-start: RULES.md 요약 로드 실패 — ${e.message}\n`);
   summary = FALLBACK;
@@ -219,7 +230,9 @@ let codexDrift = '';
 try {
   let codexCanon = null;
   try {
-    codexCanon = extractBlock('CODEX');
+    // SUMMARY와 **같은 설정으로** 렌더링한다 — 두 블록이 갈라지면 Claude와 Codex가 서로
+    // 다른 규칙을 받는다(RULES.md:29가 경계하는 바로 그 어긋남).
+    codexCanon = renderCodex(extractBlock('CODEX'), cfg);
   } catch {
     codexCanon = null;
   }
@@ -228,5 +241,39 @@ try {
   process.stderr.write(`[devkit] session-start: Codex 규칙 동기화 검사 실패 — ${e.message}\n`);
 }
 
+// 설정 노트는 **비교 대상이 아니다.** 소비자 AGENTS.md 사본에는 없는 내용이라, 위
+// `compareRules`의 정본에 섞으면 설정한 사용자 전원이 영구 stale이 된다(DESIGN §9.3).
+// 그래서 정본(`summary`)을 만든 **뒤에** 이어 붙인다 — 이 순서가 계약이다.
+const settingsNote = renderSettingsNote(cfg);
+
+/**
+ * 에이전트 모델 설정이 플러그인 업데이트로 풀렸는지 — 경로 A의 **유일한 방어선**이다.
+ *
+ * `/kit setup`이 `agents/*.md`의 frontmatter를 직접 고치므로, 업데이트가 그 파일을 덮으면
+ * 설정이 조용히 기본값으로 돌아간다. 방향은 안전하지만(기본값) 사용자는 최고 모델로 계획이
+ * 도는 줄 알고 아니다. 그 침묵을 없애는 것이 이 블록의 전부다.
+ *
+ * 기본값이면 파일을 **열지도 않는다** — 설정 안 한 사람에게 8번의 디스크 읽기를 물리지 않는다.
+ */
+function modelDrift() {
+  try {
+    if (JSON.stringify(cfg.models) === JSON.stringify(require('./lib/config-schema').DEFAULTS.models)) return '';
+    const current = {};
+    for (const name of AGENTS) {
+      try {
+        current[name] = readModel(fs.readFileSync(path.join(__dirname, '..', 'agents', `${name}.md`), 'utf8'));
+      } catch {
+        current[name] = null; // 못 읽은 것은 "풀렸다"가 아니다 — 거짓 경고를 만들지 않는다
+      }
+    }
+    return modelDriftMessage(cfg, current);
+  } catch (e) {
+    process.stderr.write(`[devkit] session-start: 모델 설정 검사 실패 — ${e.message}\n`);
+    return '';
+  }
+}
+
 // 재개 블록은 생략 대상이 아니다 — 그 정보는 AGENTS.md에 없다.
-process.stdout.write((skipSummary ? '' : summary) + drift + codexDrift + resumeBlock() + '\n');
+process.stdout.write(
+  (skipSummary ? '' : summary) + settingsNote + drift + codexDrift + modelDrift() + resumeBlock() + '\n',
+);

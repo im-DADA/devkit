@@ -191,10 +191,18 @@ function hasContent(filePath) {
  * 파일을 만들게 강제하는 대신, 없으면 다음 단계가 안 열리게 한다(spec-kit 패턴).
  * @param {string} cycleDir 사이클 폴더 절대경로
  * @param {'gap'|'report'} [stage='gap'] 미지정이면 기존 behaviors.json 판정(하위호환)
+ * @param {'full'|'lite'} [docsMode='full'] 검증 문서 범위. `'lite'`면 report에서
+ *   `GAP.md`·`REVIEW.md`를 선행조건에서 뺀다. **`behaviors.json`은 어느 모드에서도 남는다** —
+ *   그게 없으면 Gap의 분모 자체가 없어 검증이 성립하지 않는다.
+ *   ⚠ 이 값은 **사람이 `/kit setup`으로 정한 전역 설정**에서만 온다. AI가 세션 중에 쓰는
+ *   문서(PLAN.md 등)가 이 인자에 닿으면 안 된다 — 그러면 AI가 자기 검증을 끄는 경로가 된다.
+ *   설정 파일 자체는 `protected-patterns.js`의 `devkitConfig` 규칙(SG1)이 지킨다.
+ *   **인자를 안 주면 현행과 완전히 동일하다.**
  * @returns {{ok:true} | {ok:false, missing:string[], reason:string}}
  */
-function gatePrerequisite(cycleDir, stage = 'gap') {
-  const required = STAGE_REQUIREMENTS[stage];
+function gatePrerequisite(cycleDir, stage = 'gap', docsMode = 'full') {
+  const base = STAGE_REQUIREMENTS[stage];
+  const required = base && docsMode === 'lite' ? base.filter((f) => f === 'behaviors.json') : base;
   if (!required) return { ok: true }; // 게이트를 정의하지 않은 단계는 통과
   const missing = required.filter((f) => !hasContent(path.join(cycleDir, f)));
   if (missing.length === 0) return { ok: true };

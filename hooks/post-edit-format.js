@@ -12,6 +12,9 @@ const file = readInput()?.tool_input?.file_path;
 if (!file || !/\.(ts|tsx|js|jsx|mjs|cjs|json|css|scss|md)$/.test(file)) process.exit(0);
 if (!fs.existsSync(file)) process.exit(0);
 
+// 설정은 **조기 종료 뒤에** 읽는다 — 포맷 대상이 아닌 편집에까지 홈 파일 읽기를 물리지 않는다.
+if (require('./lib/config').loadConfig().formatOnEdit !== true) process.exit(0);
+
 function findBin(startDir, bin) {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 6; i++) {

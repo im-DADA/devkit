@@ -41,7 +41,9 @@ gh pr checks <n>
 
 diff를 읽고 판단해야 할 것 같으면 `/review`를 먼저 쓰라고 제안한다(자동으로 돌리지 않는다).
 
-## 3. 스쿼시 머지
+## 3. 머지 (기본: 스쿼시)
+
+⚠ 세션 리마인드에 `[devkit 설정] 머지 전략`이 있으면 **그 값을 따른다**(`merge`면 `--merge`, `rebase`면 `--rebase`). 없으면 아래 스쿼시가 기본이다.
 
 ```bash
 gh pr merge <n> --squash --delete-branch

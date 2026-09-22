@@ -15,7 +15,8 @@ const path = require('node:path');
 const { record } = require('./lib/audit');
 const { warn } = require('./lib/diag');
 const { runVerification } = require('./lib/verify-runner');
-const { TIMEOUTS, SCRIPT_CANDIDATES, shouldNotify, clipDiagnostics } = require('./lib/verify-classify');
+const { TIMEOUTS, timeoutFor, SCRIPT_CANDIDATES, shouldNotify, clipDiagnostics } = require('./lib/verify-classify');
+const { loadConfig } = require('./lib/config');
 const { backstopMessage } = require('./lib/behaviors');
 const { scopeFor } = require('./lib/verify-scope');
 const { fingerprintOf, readBaseline, writeBaseline } = require('./lib/verify-baseline');
@@ -30,8 +31,9 @@ const OFF = ['off', '0', 'false', 'no'];
  * 그게 이 사이클이 죽이려는 침묵 no-op이다. (시크릿 유출이 걸린 bash-receipt는 반대로
  * 닫는 게 맞다. 각자 더 비싼 쪽을 피하는 방향으로 연다.)
  */
-function enabledKinds(raw) {
-  if (raw === undefined || raw === null) return { kinds: KINDS, unknown: null };
+function enabledKinds(raw, fallback = KINDS) {
+  // env 미설정일 때만 설정이 말한다(env > config > 기본값). 이 한 줄이 우선순위의 전부다.
+  if (raw === undefined || raw === null) return { kinds: fallback, unknown: null };
   const v = String(raw).trim().toLowerCase();
   if (ON.includes(v)) return { kinds: KINDS, unknown: null };
   if (OFF.includes(v)) return { kinds: [], unknown: null };
@@ -51,7 +53,8 @@ try {
 // 재진입 시 검증을 반복할 이유가 없으므로 조기 종료한다.
 if (input && input.stop_hook_active) process.exit(0);
 
-const { kinds, unknown } = enabledKinds(process.env.DEVKIT_VERIFY);
+const cfg = loadConfig();
+const { kinds, unknown } = enabledKinds(process.env.DEVKIT_VERIFY, cfg.verify.kinds);
 if (unknown !== null) {
   warn(`DEVKIT_VERIFY="${unknown}" is not a recognized value — verification stays ON (off: 0|false|off|no)`);
 }
@@ -91,7 +94,7 @@ for (const kind of (isNodeProject ? kinds : [])) {
   try {
     scope = scopeFor(root, kind);
     if (!scope.run) continue; // 완전 침묵
-    r = runVerification(root, { kind, timeoutMs: TIMEOUTS[kind] });
+    r = runVerification(root, { kind, timeoutMs: timeoutFor(kind, cfg.verify.timeouts[kind]) });
   } catch (e) {
     warn(`verify(${kind}) failed to run: ${e.message}`);
     continue;

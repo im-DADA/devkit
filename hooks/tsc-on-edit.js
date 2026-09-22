@@ -9,11 +9,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { warn } = require('./lib/diag');
 const { runVerification } = require('./lib/verify-runner');
+const { loadConfig } = require('./lib/config');
 
 const OFF = ['off', '0', 'false', 'no'];
 // 상위 스위치가 꺼져 있으면 하위도 꺼진다 — "다 껐는데 하나가 계속 돈다"가 없어야 한다
 const verifyOff = OFF.includes(String(process.env.DEVKIT_VERIFY ?? '').trim().toLowerCase());
-if (verifyOff || process.env.DEVKIT_TSC_ON_EDIT !== '1') process.exit(0);
+// env가 정의돼 있으면 env가 전부 결정한다('1'이 아니면 끈다). 미정의일 때만 설정을 본다.
+const envSwitch = process.env.DEVKIT_TSC_ON_EDIT;
+const on = envSwitch !== undefined ? envSwitch === '1' : loadConfig().verify.tscOnEdit === true;
+if (verifyOff || !on) process.exit(0);
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }

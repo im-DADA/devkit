@@ -18,7 +18,12 @@ const { findProjectRoot } = require('./lib/project-root');
 // 사용자는 껐다고 믿고 시크릿 명령을 돌린다 — 그 실수의 대가가 평문 유출이다.
 const ON = new Set(['', '1', 'true', 'on']);
 const OFF = new Set(['0', 'false', 'off', 'no']);
-const receipts = (process.env.DEVKIT_RECEIPTS ?? '').trim().toLowerCase();
+// env가 정의돼 있으면 위 fail-safe 해석이 전부 결정한다. **미정의일 때만** 설정을 본다 —
+// 설정을 env 자리에 끼워 넣으면 "껐다고 믿었는데 켜져 있다"가 생기고, 그 대가가 평문 유출이다.
+const envReceipts = process.env.DEVKIT_RECEIPTS;
+const receipts = envReceipts !== undefined
+  ? envReceipts.trim().toLowerCase()
+  : (require('./lib/config').loadConfig().receipts === false ? '0' : '');
 if (!ON.has(receipts)) {
   // 조용히 끄지 않는다 — 오타로 꺼진 것과 의도적으로 끈 것은 사용자만 구분할 수 있다.
   if (!OFF.has(receipts)) {

@@ -18,6 +18,7 @@ const { readBehaviors } = require('./lib/behaviors');
 const { gateEvidence } = require('./lib/evidence');
 const { findProjectRoot } = require('./lib/project-root');
 const decision = require('./lib/decision');
+const { loadConfig } = require('./lib/config');
 
 function deny(reason, file, tag) {
   record({ hook: 'pdca-gate', action: 'blocked', reason: tag, file });
@@ -49,7 +50,7 @@ function main() {
     // Write 도구는 절대경로를 요구하므로 절대경로의 폴더 부재는 "선행 산출물 0개"일 뿐이다.
     // 절대경로까지 통과시키면 "폴더를 안 만들고 바로 REPORT.md를 쓴다"로 게이트가 무력화된다.
     if (!isAbs && !fs.existsSync(cycleDir)) return;
-    const g = gatePrerequisite(cycleDir, hit.stage);
+    const g = gatePrerequisite(cycleDir, hit.stage, loadConfig().pdca.docs);
     if (!g.ok) deny(g.reason, file, `prereq:${hit.stage}:${g.missing.join(',')}`);
 
     // ⑤ fail-open — GAP.md는 "unresolved가 있다"를 보고하는 것이 정상 산출이라 게이트하지 않는다

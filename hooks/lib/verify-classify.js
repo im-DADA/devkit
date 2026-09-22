@@ -31,6 +31,21 @@ const TIMEOUTS = {
   lint: envTimeoutMs('DEVKIT_TIMEOUT_LINT', 15000),
 };
 
+/**
+ * 이 kind에 쓸 상한(ms). **env가 이긴다** — 이미 문서화된 탈출구라 뒤집으면 회귀다.
+ *
+ * ⚠ 이 모듈은 설정 파일을 읽지 않는다(fs require 금지 — test/verify-classify.test.mjs:279-286).
+ * 호출자가 설정값을 **초 단위로** 넘긴다. env와 같은 5~600s 클램프를 쓰는 이유는 대칭이다:
+ * config에만 새 제약을 발명하면 같은 값이 경로에 따라 다르게 동작한다.
+ * @param cfgSeconds 설정의 초 단위 값. 없거나 이상하면 env·기본값으로 떨어진다.
+ */
+function timeoutFor(kind, cfgSeconds) {
+  const envRaw = kind === 'typecheck' ? process.env.DEVKIT_TIMEOUT_TYPECHECK : process.env.DEVKIT_TIMEOUT_LINT;
+  if (envRaw) return TIMEOUTS[kind];
+  if (!Number.isFinite(cfgSeconds) || cfgSeconds <= 0) return TIMEOUTS[kind];
+  return Math.min(Math.max(cfgSeconds, MIN_TIMEOUT_S), MAX_TIMEOUT_S) * 1000;
+}
+
 // `types`는 .d.ts emit인 경우가 흔해 제외한다(매 턴 부작용 있는 emit 금지).
 // `check`는 프로젝트마다 CI 전체 파이프라인(build+test)을 뜻해 제외한다.
 const SCRIPT_CANDIDATES = {
@@ -211,7 +226,7 @@ function shouldNotify(state, key, kind) {
 }
 
 module.exports = {
-  SCRIPT_CANDIDATES, LOCKFILES, TIMEOUTS, CLIP_DEFAULTS,
+  SCRIPT_CANDIDATES, LOCKFILES, TIMEOUTS, timeoutFor, CLIP_DEFAULTS,
   stripAnsi, detectRunner, pickScript, parseTscDiagnostics,
   classify, clipDiagnostics, shouldNotify,
   ...require('./verify-body'),

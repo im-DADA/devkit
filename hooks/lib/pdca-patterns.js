@@ -31,9 +31,12 @@ const LONG_PROMPT = 120;
 
 /**
  * 이 프롬프트가 PDCA 사이클을 시작할 만한 기능 요청인가?
+ *
+ * @param opts.threshold 발동 임계(기본 `SCORE_THRESHOLD`). 낮을수록 자주 발동한다.
+ *   **기본 인자라 1인자 호출은 현행과 동일하다** — 설정을 안 한 사람의 동작이 안 바뀐다.
  * @returns {{ trigger: boolean, reason: string, score?: number }}
  */
-function shouldTriggerPdca(prompt) {
+function shouldTriggerPdca(prompt, opts = {}) {
   if (typeof prompt !== 'string') return { trigger: false, reason: 'invalid' };
   const trimmed = prompt.trim();
 
@@ -53,7 +56,8 @@ function shouldTriggerPdca(prompt) {
   if (SCOPE_NOUN_RE.test(trimmed)) score += 1;
   if (trimmed.length >= LONG_PROMPT) score += 1;
 
-  if (score < SCORE_THRESHOLD) return { trigger: false, reason: 'low-score', score };
+  const threshold = Number.isInteger(opts.threshold) ? opts.threshold : SCORE_THRESHOLD;
+  if (score < threshold) return { trigger: false, reason: 'low-score', score };
   return { trigger: true, reason: 'match', score };
 }
 

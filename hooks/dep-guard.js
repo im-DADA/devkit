@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const { record } = require('./lib/audit');
 const { ask } = require('./lib/decision');
+const { loadConfig } = require('./lib/config');
 
 function readInput() {
   try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -41,6 +42,11 @@ const stripRedirects = (c) => c
   .replace(/\d*>>?\s*&\s*\d*/g, ' ')    // 2>&1, >&2
   .replace(/\d*>>?\s*[^\s;|&]+/g, ' ')  // > out.txt, 2> err.log
   .replace(/<\s*[^\s;|&]+/g, ' ');      // < in.txt
+
+// 설정으로 **끌 수는 있지만 차단으로 올릴 수는 없다**(스키마에 'deny'가 없다) — 차단은
+// 2026-09-17에 "Claude가 라이브러리 없는 설계로 몰래 우회"를 유발해 폐기한 값이고,
+// 폐기한 값을 설정으로 되살리면 그 사고가 그대로 돌아온다(위 주석 참조).
+if (loadConfig().guards.newDependency === 'off') process.exit(0);
 
 if (ADD.some((re) => re.test(stripRedirects(cmd)))) {
   record({ hook: 'dep-guard', action: 'asked', reason: 'new dependency', command: cmd });

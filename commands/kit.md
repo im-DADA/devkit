@@ -1,17 +1,66 @@
 ---
 name: kit
-description: devkit 도움말·초기화·규칙 동기화. 인자 없으면 도움말, `init`이면 AGENTS.md + settings.json 생성, `sync`면 AGENTS.md의 공통 규칙 사본을 정본으로 갱신, `audit`이면 차단 이벤트 집계.
-argument-hint: "[init|sync|audit]"
+description: devkit 도움말·초기화·설정·규칙 동기화. 인자 없으면 도움말, `setup`이면 전역 설정 마법사, `init`이면 AGENTS.md + settings.json 생성, `sync`면 AGENTS.md의 공통 규칙 사본을 정본으로 갱신, `audit`이면 차단 이벤트 집계.
+argument-hint: "[setup|init|sync|audit]"
 user-invocable: true
 allowed-tools:
   - Read
   - Write
+  - Edit
   - Bash
+  - AskUserQuestion
 ---
 
 # /kit
 
 인자에 따라 분기한다.
+
+## `setup` — 전역 설정 마법사
+
+`$ARGUMENTS`가 `setup`으로 시작하면 `~/.devkit/config.json`을 만들거나 고친다. **전역 하나뿐이고 프로젝트별 설정은 없다.**
+
+> **왜 있나**: devkit의 기본값은 만든 사람의 취향(한국어·PDCA·`features/` 구조·스쿼시 머지 등)이다. 설치한 사람이 자기 취향으로 맞출 수 있어야 한다. **설정 파일이 없으면 지금까지와 100% 동일하게 동작한다** — 스키마·기본값의 정본은 `hooks/lib/config-schema.js`의 `DEFAULTS`이고, 이 문서에 값을 다시 적지 않는다(적으면 그 사본이 낡는다).
+
+### 하위 명령
+
+| 인자 | 하는 일 |
+|---|---|
+| `setup` | 마법사 실행 |
+| `setup show` | 현재 값 · 기본값과 다른 항목 · frontmatter 일치 여부 |
+| `setup reset` | 설정 삭제 + `agents/*.md`를 기본값으로 복구 |
+| `setup --reapply` | 업데이트로 풀린 모델 설정을 다시 적용(12단계만) |
+
+### 마법사 절차
+
+1. **현재 상태 먼저 보여준다.** `~/.devkit/config.json`을 Read — 있으면 기본값과 다른 항목만, 없으면 `설정 없음 — 기본값으로 동작 중`. 기본값은 `hooks/lib/config-schema.js`를 Read해서 가져온다.
+2. **프리셋 4지선다**(AskUserQuestion). 프리셋을 고르면 3~9를 건너뛴다.
+   - `기본값 그대로` · `최소 간섭`(가드 minimal · PDCA 끔 · 코드 규칙 전부 끔) · `엄격`(가드 strict · 편집마다 타입체크) · `직접 고르기`
+3. 언어·톤·서식 (`language`·`tone`·`format`)
+4. PDCA (`pdca.enabled` → 켜면 `sensitivity`·`defaultTrack`·`docs`)
+   - ⚠ `docs: "lite"`는 **GAP·REVIEW를 REPORT의 선행조건에서 뺀다.** 고르기 전에 그 뜻을 한 줄로 말하고 확인받는다 — "리뷰 없이 완료 보고"가 가능해지는 것이 이 값의 의미다. `behaviors.json`은 어느 값에서도 필수다.
+5. 폴더 구조·테스트 정책 (`structure`·`testing`)
+6. 코드 규칙 6토글 + `rules.maxLines`
+7. 커밋·머지 (`commit.*`·`merge.strategy`)
+8. 가드 (`guards.level`·`newDependency`·`protectedFiles` 4종)
+9. 검증 (`verify.*`·`receipts`·`formatOnEdit`)
+10. **모델 배분** — 8종을 하나씩 묻지 않는다. 프리셋 3종(`기본` / `절약`: 전부 sonnet 이하 / `최대`: 계획·설계·리뷰를 최고 모델) 중에 고르고, 원하면 개별 조정. **effort 선택지는 `low`·`medium`·`high`·`xhigh`·`max` 다섯뿐**으로 제시한다(정수도 유효하지만 고르게 하지 않는다).
+11. **diff를 보여주고 승인받는다.** 기존 파일이 있으면 같은 폴더에 `config.backup-{ISO}.json`을 **먼저** 남기고 그 경로를 보고한다. 승인 후 `~/.devkit/config.json`을 Write.
+    - ⚠ 이 파일은 **보호 파일**이라 Write 시 확인 창이 뜬다. 정상이다 — 거절되면 우회하지 말고 사용자가 직접 고치도록 경로와 내용을 보여준다.
+12. **모델 설정을 `agents/*.md`에 적용한다** — `cfg.models`가 기본값과 **다른 에이전트만** 연다. 기본값과 같으면 파일을 **열지 않는다**(무변경이 곧 기본값 보장).
+    - 적용은 `hooks/lib/agent-frontmatter.js`의 `applyModel`로 한다. 직접 정규식을 짜지 말 것 — 그 모듈이 "두 줄만 바꾼다·없는 줄은 만들지 않는다"를 보장하고 테스트가 고정한다.
+    - `{ok:false}`가 오면 그 에이전트는 **건너뛰고** 사유를 보고한다. 값을 고쳐 넣지 않는다.
+    - 성공하면 설정의 `_appliedAt`을 ISO 시각으로 기록한다.
+    - **`gen-integrity.mjs`를 돌리지 않는다.** `INTEGRITY.sha256`은 `hooks/`·`scripts/`만 덮고 `agents/`는 애초에 대상이 아니다(재생성하면 agents에는 무의미하고, 그 시점 `hooks/`의 상태를 무조건 정당화해 변조 탐지의 기준선을 말없이 다시 긋는다). 보고에 한 줄로 그 사실을 적는다.
+    - ⚠ **대상 디렉터리에 `.git`이 있으면 멈추고 확인받는다.** devkit 소스 레포일 수 있고, 그 경우 `test/agent-contract.test.mjs`의 모델 계약 테스트가 RED가 된다. 거절하면 설정만 저장하고 `_appliedAt`은 `null`로 둔다.
+13. **마무리 보고 3줄**: ① 바뀐 항목 수 + 백업 경로 ② 규칙 주입이 바뀌었으면 **"새 세션부터 적용된다"**(`session-start`는 세션 시작에만 돈다) ③ `/kit init`을 돌린 프로젝트가 있으면 **`/kit sync` 안내** — 사본이 설정 이전 텍스트라 낡음으로 뜬다.
+
+### `setup show`
+
+현재 값 · 기본값과 다른 항목 · `agents/*.md`가 설정과 맞는지(`readModel`로 대조) · 설정 파일 경로 · `DEVKIT_CONFIG`가 설정돼 있으면 그 사실.
+
+### `setup reset`
+
+① 백업을 남기고 설정 파일 삭제 ② `_appliedAt`이 있었으면 `agents/*.md`를 `DEFAULTS.models`로 되돌림 ③ `node "${CLAUDE_PLUGIN_ROOT}/scripts/verify-integrity.mjs"` 실행 결과 보고 ④ "새 세션부터 완전 기본값" 안내.
 
 ## `init` — 현재 프로젝트 초기화
 
@@ -65,11 +114,24 @@ allowed-tools:
 
 ## `sync` — 공통 규칙 사본을 정본에 맞춘다
 
-`$ARGUMENTS`가 `sync`면 프로젝트 `AGENTS.md`의 공통 규칙 구간을 플러그인 정본으로 갱신한다.
+`$ARGUMENTS`가 `sync`면 규칙 사본을 플러그인 정본으로 갱신한다. 대상이 **둘**이다.
+
+- **프로젝트** `AGENTS.md` (아래 "프로젝트 규칙")
+- **전역** `~/.codex/AGENTS.md` (아래 "전역 Codex 규칙")
+
+⚠ **두 대상은 서로 독립이다.** 먼저 어느 쪽이 낡았는지 보고 **해당하는 절만** 수행한다. 프로젝트 `AGENTS.md`가 없다고 해서 전역 단계를 건너뛰면, 전역 경고는 매 세션 뜨는데 고칠 길이 없어진다(경고는 프로젝트와 무관하게 전역 파일을 보고 뜬다).
 
 **왜 필요한가**: `init`이 심은 사본은 devkit이 규칙을 바꿔도 자동 갱신되지 않는데, 에이전트는 그 사본을 정본보다 **우선** 읽는다. `session-start` 훅이 낡음을 탐지하면 이 명령을 안내한다.
 
-1. `AGENTS.md`를 Read. **없으면** `/kit init`을 안내하고 끝낸다.
+⚠ **정본은 "설정을 반영한 블록"이다.** `~/.devkit/config.json`이 있으면 그 설정대로 줄이 빠진 블록이 정본이고, `session-start`도 같은 기준으로 낡음을 판정한다. 그래서 아래 절차는 **설정을 먼저 읽는다**:
+
+- 설정이 없거나 **전부 기본값이면** `RULES.md`의 블록 원문을 그대로 쓴다 → 설정 안 한 사람에게 이 명령은 한 글자도 달라지지 않는다.
+- 기본값이 아니면 `hooks/lib/rules-render.js`의 `SUMMARY_MAP`·`CODEX_MAP`을 Read해서 **해당 줄을 뺀 채로** 붙여넣는다. **문장을 새로 쓰지 않는다** — 지우기만 한다(쓰기 시작하면 정본이 둘이 된다).
+- ⚠ 설정 노트(`- [devkit 설정] …`)는 **사본에 넣지 않는다.** 그건 매 세션 주입되는 것이고 사본에 들어가면 영구 낡음으로 뜬다.
+
+### 프로젝트 규칙 (`AGENTS.md`)
+
+1. `AGENTS.md`를 Read. **없으면** `/kit init`을 안내하고 **이 절만** 끝낸다(전역 절은 계속 진행한다).
 2. `<!-- devkit:rules:start ... -->` / `<!-- devkit:rules:end -->` 마커를 찾는다.
    - **마커 없음** = `init` 이전 버전으로 만든 파일이다. 공통 규칙 절을 **자동으로 찾아 감싸지 마라** — 어디까지가 devkit 사본인지 추측하는 순간 사용자가 쓴 줄을 삼킨다. 대신 마커를 넣을 위치를 **제안**하고 승인을 받는다.
    - **`mode=custom`** = 사용자 소유다. **아무것도 하지 않고** 그대로 보고한다.
@@ -93,13 +155,14 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
 
 `$ARGUMENTS`가 `audit`이면 `.devkit/audit.jsonl`을 Read해서 `action`별로 집계한다. 파일 없으면 "이벤트 없음". 세 종류:
 - `blocked` — 가드 훅이 **차단**한 위험 명령/의존성/보호파일.
-- `warn` — convention-observe가 관측한 **통과한 규칙 위반**(no-any·console.log·`.tsx` 로직·200줄). 차단은 안 됐지만 남은 것.
-- `verify-fail` — 종료 시 typecheck/lint 실패.
+- `asked` — 확인 창을 띄운 것(새 의존성·lockfile·`node_modules`·`chmod -R 777`). 사용자가 승인했는지는 로그에 없다.
+- `warn`·`warned` — 통과한 규칙 위반(`no-any`·`console.log`·빈 catch·`.tsx` 로직·200줄)과 절차 경고. 차단은 안 됐지만 남은 것.
+- `verify-ok`·`verify-failed`·`verify-*` — 종료 시 검증 결과. 실패만 보려면 `verify-failed`를 센다(`verify-fail`이라는 값은 없다).
 
 예:
 ```
 관측 요약 (총 24건)
-  차단(blocked) 12 · 통과위반(warn) 9 · 검증실패(verify-fail) 3
+  차단(blocked) 12 · 확인창(asked) 4 · 통과위반(warn) 9 · 검증실패(verify-failed) 3
 통과 위반 rule별: no-any 5 · tsx-side-effect 3 · console.log 1
 최근:
   2026-07-13T… blocked      bash-guard    git reset --hard
@@ -122,18 +185,22 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
   /tdd      TDD 레드-그린-리팩터 루프
   /commit   Conventional Commit (Co-Author 없이, 푸시 X)
   /gap      PLAN/DESIGN 대비 구현 일치도 — 통과 기준은 unproven==0. 사이클 필수 단계
-  /iterate  Gap 목표(90%)까지 자동 보완-재분석 루프
+  /iterate  unproven==0까지 자동 보완-재분석 루프 (최대 5회)
   /review   현재 diff 리뷰 (버그·보안·컨벤션) → REVIEW.md — 사이클 필수 단계
   /report   완료 리포트 REPORT.md → 사이클 아카이빙
   /cycles   PDCA 사이클 목록·열람 (진행 중 + 아카이브)
   /ship     리뷰 → 커밋 메시지 + PR 초안 (승인 후)
+  /merge    PR 스쿼시 머지 → 원격 브랜치 삭제 → 로컬 main 동기화
   /improve  세션 교훈 추출 → 규칙/에이전트 개선 제안 (자기성장)
   /kit      이 도움말
+  /kit setup 전역 설정 마법사 (~/.devkit/config.json) — 언어·가드 강도·PDCA·구조·
+             코드 규칙·커밋/머지·검증·에이전트 모델. 설정 없으면 기본값으로 동작
   /kit init 현재 프로젝트에 AGENTS.md + eslint + CI + settings.json 생성
-  /kit sync  AGENTS.md의 공통 규칙 사본을 플러그인 정본으로 갱신 (마커 구간만)
+  /kit sync  프로젝트 AGENTS.md·전역 ~/.codex/AGENTS.md의 규칙 사본 갱신 (마커 구간만)
   /kit audit 차단 이벤트(.devkit/audit.jsonl) 집계 조회
 
 에이전트 (자동 위임 또는 요청 시)
+  planner           Plan 단계 — 탐색 → PLAN.md 본문
   architect         Design 단계 — 설계 확정 → DESIGN.md
   feature-builder   웹 기능 구현 (feature 구조)
   tdd-driver        테스트 우선 red-green-refactor 구현
@@ -146,13 +213,15 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
   convention-check  팀 컨벤션 준수 점검
   pr-description    diff → PR 설명 생성
   visual-verify     웹 UI 스크린샷 vision 검증 (브라우저 MCP)
+  web-interface-audit  UI 코드를 Web Interface Guidelines로 감사
+  design-md         디자인 언어를 DESIGN.md로 고정 (관측한 것만)
 
 훅 (자동)
   SessionStart      팀 규칙 리마인드 + 진행 중 PDCA 사이클 재개 안내
   UserPromptSubmit  기능 요청 감지 → PDCA 사이클 규약 안내 (차단 없음)
-  PreToolUse    위험 bash 차단 · 새 의존성 차단 · 보호파일(.env/lock) 차단
-                PDCA 게이트 — GAP/REPORT 선행 산출물 없으면 쓰기 거부 · 상태 4필드 스키마 강제
-  PostToolUse   자동 prettier 포맷 · 통과 위반 관측(convention-observe) (+ opt-in tsc)
+  PreToolUse    위험 bash 거부 · 새 의존성·lockfile은 확인 창 · .env 덮어쓰기·.git 거부
+                PDCA 게이트 — GAP/REPORT 선행 산출물 없으면 거부 · 상태 스키마는 경고
+  PostToolUse   prettier 포맷(있을 때) · 규칙 위반을 그 자리에서 알림(convention-observe) (+ opt-in tsc)
   Stop          종료 시 typecheck/lint 실행·보고
   관측성        차단·통과위반·검증실패를 .devkit/audit.jsonl 기록 (/kit audit)
   품질(eval)    node --test (정적) · evals/README.md (행동 시나리오)
@@ -164,5 +233,6 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
 
 요구: Node 20+ (훅·검증 스크립트가 전부 node — 프로젝트 러너와 무관하게 필요)
 규칙: RULES.md (규칙 단일 소스, 세션 시작 시 요약 리마인드)
+설정: ~/.devkit/config.json (없으면 전부 기본값) — 만들려면 /kit setup
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
