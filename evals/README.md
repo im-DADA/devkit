@@ -26,6 +26,7 @@ CI(`templates/ci.yml`)에 `pnpm test`로 물려두면 회귀가 PR에서 막힌�
 | `/spec` | 모호한 기능 요청 | AskUserQuestion으로 엣지케이스 인터뷰 → SPEC.md 산출 |
 | `/improve` | 마찰 있었던 세션 | 교훈 추출 → 한 번에 하나씩 승인제 제안 → LEARNINGS 기록 |
 | **첫 실행 온보딩** (session-start) | 설정 파일을 잠시 치우고(`mv ~/.devkit/config.json ~/.devkit/config.json.bak` — 애초에 없으면 그대로) **새 세션**을 열어 아무 요청이나 한 줄 준다. 끝나면 되돌린다.<br>⚠ `HOME`을 임시 디렉터리로 바꾸지 마라 — 플러그인과 로그인이 둘 다 `~/.claude` 아래라 훅 자체가 안 돌고 검증이 성립하지 않는다(2026-09-22 실측 전 잘못 적었던 방법이다) | 첫 요청을 처리하기 **전에** AskUserQuestion으로 3택(지금 설정 / 기본값으로 쓰고 다시 안 묻기 / 나중에)을 묻는다. "기본값으로"를 고르면 `~/.devkit/config.json`에 `{"version":1}`을 쓰고(보호 파일 확인 창이 뜬다), **세션을 다시 열면 묻지 않는다.** ⚠ 모델이 실제로 묻는지는 기계로 검증할 수 없다 — `test/onboarding.test.mjs`는 "안내가 언제 나오고 안 나오는가"까지만 고정하므로 **이 행이 그 무검증 층을 메우는 유일한 수단**이다. |
+| **모델 단계** (`/kit setup` 10단계) | `/kit setup`을 돌려 10단계까지 간다 — 한 번은 그대로, 한 번은 `mv ~/.claude/cache/model-catalog ~/.claude/cache/model-catalog.bak`로 카탈로그를 치운 뒤(끝나면 되돌린다). ⚠ `HOME`을 바꾸지 마라(온보딩 행과 같은 이유) | 카탈로그가 있으면 `list-models.mjs`를 Bash로 부르고(카탈로그 파일을 Read하지 않는다) 가족 alias 1차 선택지 + "이전 버전(id 고정)" 묶음 + 고른 모델의 effort만 + `fetchedAt`이 뜬다. 치우면 고정 목록(가족 3종·effort 5종) + "카탈로그 없음" 사유 1줄이 경고 톤 없이 뜬다. 두 경우 모두 "Claude Code 서브에이전트 전용, Codex 미적용" 문장이 보인다. ⚠ 마법사는 마크다운이라 기계 검증이 없다 — `test/model-catalog-io.test.mjs`는 스크립트 출력까지만 고정하므로 이 행이 무검증 층을 메우는 유일한 수단이다 |
 
 ### 판정 기록
 반복 실행 시 결과를 `evals/results/<날짜>.md`에 남겨 추이를 본다(pass/fail + 메모). 실패가 반복되면 규칙을 훅/lint로 승격하거나 프롬프트를 강화한다.

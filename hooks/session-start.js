@@ -14,8 +14,7 @@ const { readBehaviors, summarize } = require('./lib/behaviors');
 const { compareRules, importsAgentsMd } = require('./lib/rules-sync');
 const { loadConfig, unconfiguredPath } = require('./lib/config');
 const { renderSummary, renderCodex, renderSettingsNote, renderOnboardingNote } = require('./lib/rules-render');
-const { AGENTS } = require('./lib/config-schema');
-const { readModel, modelDriftMessage } = require('./lib/agent-frontmatter');
+const { modelNotices } = require('./lib/model-catalog-io');
 
 const FALLBACK = `## devkit 팀 규칙 리마인드
 상세 규칙은 플러그인 RULES.md 참조 (/kit).`;
@@ -286,27 +285,11 @@ function onboardingNote() {
   }
 }
 
-/**
- * 에이전트 모델 설정이 플러그인 업데이트로 풀렸는지 — 경로 A의 **유일한 방어선**이다.
- *
- * `/kit setup`이 `agents/*.md`의 frontmatter를 직접 고치므로, 업데이트가 그 파일을 덮으면
- * 설정이 조용히 기본값으로 돌아간다. 방향은 안전하지만(기본값) 사용자는 최고 모델로 계획이
- * 도는 줄 알고 아니다. 그 침묵을 없애는 것이 이 블록의 전부다.
- *
- * 기본값이면 파일을 **열지도 않는다** — 설정 안 한 사람에게 8번의 디스크 읽기를 물리지 않는다.
- */
+// 모델 안내 두 종류(설정 vs frontmatter · 설정 vs 이 머신의 Claude 카탈로그)는 lib/model-catalog-io.js가 만든다.
+// 기본값이면 파일을 하나도 열지 않는다(agents 8개·카탈로그) — 설정 안 한 사람의 디스크 IO는 0이다(P1·B10).
 function modelDrift() {
   try {
-    if (JSON.stringify(cfg.models) === JSON.stringify(require('./lib/config-schema').DEFAULTS.models)) return '';
-    const current = {};
-    for (const name of AGENTS) {
-      try {
-        current[name] = readModel(fs.readFileSync(path.join(__dirname, '..', 'agents', `${name}.md`), 'utf8'));
-      } catch {
-        current[name] = null; // 못 읽은 것은 "풀렸다"가 아니다 — 거짓 경고를 만들지 않는다
-      }
-    }
-    return modelDriftMessage(cfg, current);
+    return modelNotices(cfg);
   } catch (e) {
     process.stderr.write(`[devkit] session-start: 모델 설정 검사 실패 — ${e.message}\n`);
     return '';

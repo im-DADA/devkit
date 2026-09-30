@@ -26,7 +26,7 @@ allowed-tools:
 | 인자 | 하는 일 |
 |---|---|
 | `setup` | 마법사 실행 |
-| `setup show` | 현재 값 · 기본값과 다른 항목 · frontmatter 일치 여부 |
+| `setup show` | 현재 값 · 기본값과 다른 항목 · frontmatter 일치 여부 · 카탈로그 대조 |
 | `setup reset` | 설정 삭제 + `agents/*.md`를 기본값으로 복구 |
 | `setup --reapply` | 업데이트로 풀린 모델 설정을 다시 적용(12단계만) |
 
@@ -44,7 +44,16 @@ allowed-tools:
 7. 커밋·머지 (`commit.*`·`merge.strategy`)
 8. 가드 (`guards.level`·`newDependency`·`protectedFiles` 4종)
 9. 검증 (`verify.*`·`receipts`·`formatOnEdit`)
-10. **모델 배분** — 8종을 하나씩 묻지 않는다. 프리셋 3종(`기본` / `절약`: 전부 sonnet 이하 / `최대`: 계획·설계·리뷰를 최고 모델) 중에 고르고, 원하면 개별 조정. **effort 선택지는 `low`·`medium`·`high`·`xhigh`·`max` 다섯뿐**으로 제시한다(정수도 유효하지만 고르게 하지 않는다).
+10. **모델 배분** — Claude Code 서브에이전트 8종의 `model`·`effort`. **이 단계는 Claude Code 서브에이전트 전용이다 — Codex에는 적용되지 않는다**(Codex 서브에이전트의 역할별 모델 지정 경로를 아직 찾지 못했고, `~/.codex/config.toml`의 `model`은 사용자 전역 기본값이라 devkit이 건드리지 않는다).
+    1. **목록은 스크립트로 얻는다.** 먼저 CC 버전을 구한다 — `claude --version`을 Bash로 돌려 `x.y.z`를 뽑는다. `CLAUDE_CODE_EXECPATH`의 마지막 경로 조각도 버전처럼 생겼지만 **그건 런처 경로라 실행 중 버전보다 낡는다**(2026-09-30 실측: env는 `2.1.278`, 실제는 `2.1.285`). 둘 다 얻었으면 **큰 값**을 쓴다. ⚠ 낡은 버전을 넘기면 `minVersion`이 높은 최신 모델이 `belowVersion`으로 빠져 **가족 alias가 선택지에서 통째로 사라진다**(그때 `opus`가 없어졌다) — 버전을 모르는 것보다 잘못 아는 것이 나쁘므로, 확신이 없으면 **인자를 넘기지 마라**. 그 값을 붙여 호출한다:
+       `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --cc-version <x.y.z>` (버전을 못 얻으면 인자 없이 — 그러면 버전 필터 없이 전부 보인다). stdout의 JSON 한 줄을 읽는다.
+       ⚠ `~/.claude/cache/model-catalog/`의 파일을 **직접 Read하지 마라** — 홈 밖 파일이라 권한 프롬프트가 뜨고, 파싱은 스크립트가 결정적으로 한다. 이 스크립트는 파일을 쓰지 않고 항상 exit 0이다.
+    2. `claude.status`가 `ok`면 **`claude.choices`를 그대로 제시한다**: `primary`는 가족 alias로(예: `opus` — Opus 5), `pinned`는 "이전 버전(id로 고정)" 묶음으로 뒤에. ⚠ **이름만 보여주지 마라** — 각 선택지의 `description`(무엇에 쓰는 모델인지)과 `notice`(있으면 비용 경고, 예: "Fable은 Opus보다 사용량을 훨씬 빨리 쓴다")를 **함께** 적는다. 이름만 나열하면 사용자는 무엇을 고르는지 알 수 없다(2026-09-30 실사용에서 드러난 결함이다). 목록 위에 `fetchedAt`(카탈로그 갱신 시각)을 적고, `stale`이 true면 "낡았을 수 있다 — Claude Code가 다음 실행에서 갱신한다"를 붙인다(정보일 뿐 목록을 무효화하지 않는다). `belowVersion`에 든 모델은 선택지에 넣지 말고 "요구 버전 x.y.z(현재 y.y.y)"만 표기한다. `source`는 파일이 여럿일 때만 보여 준다.
+    3. `claude.status`가 `ok`가 아니면 **`fallback.models`·`fallback.efforts`로 제시한다**(현행과 같은 가족 3종·effort 5종) — 그리고 `reason`을 한 줄 덧붙인다. `missing`은 정상 상태다(로그인 전·다른 OS) — "카탈로그가 없어 기본 목록으로 보여 준다"처럼 사실만 적고 경고 톤을 쓰지 마라.
+    4. 프리셋 3종(`기본` / `절약`: 전부 sonnet 이하 / `최대`: 계획·설계·리뷰를 최고 모델)을 먼저 고르게 하고, 원하면 개별 조정. 8종을 하나씩 묻지 않는다. 카탈로그에는 등급 필드가 없으므로 프리셋의 "최고/절약"은 가족 이름 기준 그대로다.
+       ⚠ **프리셋은 이름만으로 뜻이 전달되지 않는다**("절약"·"최대"가 무엇을 바꾸는지 알 수 없다 — 2026-09-30 실사용). 세 선택지 각각에 **에이전트 8종의 실제 배분(모델·effort)을 표로** 보여주고, `notice`가 있는 모델이 섞여 있으면 그 비용 경고를 한 줄 덧붙인다. 포커스한 항목만 보이는 preview에 의존하지 말고 **세 프리셋의 차이를 한눈에** 두어라.
+    5. **effort는 고른 모델의 `efforts`만 제시한다.** `effortOptions`의 `label`(표시명)과 `recommended`(카탈로그가 권장으로 표시한 값)를 함께 보여주고 **권장값을 기본 선택으로** 둔다 — 권장 effort는 모델마다 다르다(Opus 5.5는 `medium`, Fable 5.1은 `high`). `efforts`가 빈 배열이면(예: Haiku) "이 모델은 effort를 쓰지 않는다(카탈로그 기준)"를 알리고 **기존 effort 값을 그대로 둔다** — 줄을 지우지 않는다(Claude Code가 그 줄을 거부하지 않는 것을 실측했다, 2026-09-22). 폴백이면 `fallback.efforts` 다섯뿐. 정수도 유효하지만 고르게 하지 않는다.
+    6. 카탈로그는 **선택지와 경고만** 만든다. 사용자가 목록 밖의 값을 직접 적겠다고 하면 막지 말고 그대로 저장한다 — 허용 판정은 `validateModel`이 형태만 본다. 단 `claude-`로 시작하는 id가 카탈로그에 없으면 "이 머신의 카탈로그에는 없다 — 호출 시 404로 종료될 수 있다"를 한 번 말한다.
 11. **diff를 보여주고 승인받는다.** 기존 파일이 있으면 같은 폴더에 `config.backup-{ISO}.json`을 **먼저** 남기고 그 경로를 보고한다. 승인 후 `~/.devkit/config.json`을 Write.
     - ⚠ 이 파일은 **보호 파일**이라 Write 시 확인 창이 뜬다. 정상이다 — 거절되면 우회하지 말고 사용자가 직접 고치도록 경로와 내용을 보여준다.
 12. **모델 설정을 `agents/*.md`에 적용한다** — `cfg.models`가 기본값과 **다른 에이전트만** 연다. 기본값과 같으면 파일을 **열지 않는다**(무변경이 곧 기본값 보장).
@@ -57,7 +66,7 @@ allowed-tools:
 
 ### `setup show`
 
-현재 값 · 기본값과 다른 항목 · `agents/*.md`가 설정과 맞는지(`readModel`로 대조) · 설정 파일 경로 · `DEVKIT_CONFIG`가 설정돼 있으면 그 사실.
+현재 값 · 기본값과 다른 항목 · `agents/*.md`가 설정과 맞는지(`readModel`로 대조) · **카탈로그 대조**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --check`를 돌려 `agents[]`를 표로 보인다 — `modelStatus`가 `absent`면 "이 머신의 Claude Code 카탈로그에 없다 — 호출 즉시 404로 종료된다", `effortStatus`가 `unsupported`면 "모델 X는 effort Y를 제공하지 않는다(카탈로그 기준)", `none`이면 "effort를 쓰지 않는 모델(값은 무시된다)", `unjudged`는 "판정하지 않음(정수 effort·alias·카탈로그 없음)"으로 표기만 한다. `claude.status`가 `ok`가 아니면 대조를 건너뛰고 `reason` 한 줄. 이 대조는 **Claude Code 서브에이전트 기준**이다(Codex 미적용) · 설정 파일 경로 · `DEVKIT_CONFIG`가 설정돼 있으면 그 사실.
 
 ### `setup reset`
 
@@ -196,6 +205,7 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
   /kit      이 도움말
   /kit setup 전역 설정 마법사 (~/.devkit/config.json) — 언어·가드 강도·PDCA·구조·
              코드 규칙·커밋/머지·검증·에이전트 모델. 설정 없으면 기본값으로 동작
+             모델 목록은 Claude Code 로컬 카탈로그에서 읽는다 (없으면 고정 목록 · Codex 미적용)
   /kit init 현재 프로젝트에 AGENTS.md + eslint + CI + settings.json 생성
   /kit sync  프로젝트 AGENTS.md·전역 ~/.codex/AGENTS.md의 규칙 사본 갱신 (마커 구간만)
   /kit audit 차단 이벤트(.devkit/audit.jsonl) 집계 조회
