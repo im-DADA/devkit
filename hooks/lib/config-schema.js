@@ -49,8 +49,8 @@ const DEFAULTS = deepFreeze({
     tscOnEdit: false,
   },
   models: {
-    planner: { model: 'fable', effort: 'max' },
-    architect: { model: 'fable', effort: 'max' },
+    planner: { model: 'opus', effort: 'max' },
+    architect: { model: 'opus', effort: 'max' },
     'code-reviewer': { model: 'opus', effort: 'high' },
     'feature-builder': { model: 'opus', effort: 'medium' },
     'tdd-driver': { model: 'opus', effort: 'medium' },

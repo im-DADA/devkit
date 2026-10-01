@@ -65,7 +65,12 @@ test('U19: INTEGRITY.sha256은 agents/를 덮지 않는다', () => {
 // ── U15~U17: 교체 (B19·B22) ───────────────────────────────────
 test('U15: 적용하면 model·effort 두 줄만 다르다 — 본문은 그대로다', () => {
   const before = agentMd('planner');
-  const r = applyModel(before, { model: 'opus', effort: 'high' });
+  // ⚠ 두 값이 **현재 값과 둘 다 달라야** "2줄 변경"이 성립한다. 리터럴을 박으면
+  // 기본 배분이 바뀔 때 이 테스트가 1줄로 깨진다(2026-10-01 planner fable→opus에서 실제로 깨졌다).
+  const now = readModel(before);
+  const target = { model: now.model === 'opus' ? 'sonnet' : 'opus',
+    effort: now.effort === 'high' ? 'low' : 'high' };
+  const r = applyModel(before, target);
   assert.equal(r.ok, true, r.reason);
 
   const a = before.split('\n');
@@ -73,7 +78,7 @@ test('U15: 적용하면 model·effort 두 줄만 다르다 — 본문은 그대�
   assert.equal(a.length, b.length, '줄 수가 바뀌었다 — 줄을 추가하거나 지웠다');
   const diff = a.map((l, i) => (l === b[i] ? null : i)).filter((i) => i !== null);
   assert.equal(diff.length, 2, `${diff.length}줄이 바뀌었다 — 정확히 2줄이어야 한다`);
-  assert.deepEqual(readModel(r.text), { model: 'opus', effort: 'high' });
+  assert.deepEqual(readModel(r.text), target);
   // 본문(frontmatter 밖)이 한 글자도 안 바뀌었는지 바이트로 본다
   const body = (s) => s.slice(s.indexOf('\n---', 3));
   assert.equal(Buffer.compare(Buffer.from(body(before)), Buffer.from(body(r.text))), 0);

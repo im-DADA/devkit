@@ -602,8 +602,8 @@ test('B4: 테스트를 쓰는 에이전트는 인용 가능성·관측점 규칙
 // 에이전트 frontmatter에 모델을 박는다. `inherit`로 두면 세션 모델을 따라가 배분이 무의미해진다.
 // ⚠ `ultracode`는 effort 값이 아니다 — CLI 2.1.273 `--effort`는 low·medium·high·xhigh·max만 받는다.
 const MODEL_PLAN = {
-  planner: ['fable', 'max'],
-  architect: ['fable', 'max'],
+  planner: ['opus', 'max'],
+  architect: ['opus', 'max'],
   'feature-builder': ['opus', 'medium'],
   'tdd-driver': ['opus', 'medium'],
   'code-reviewer': ['opus', 'high'],

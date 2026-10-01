@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Plan 단계 — 요청과 기존 코드를 읽기전용으로 탐색해 PDCA 사이클의 PLAN.md 본문(목표·단계·건드릴 파일·behavior 목록·리스크·검증·범위 밖·트랙 판정)을 반환한다. 파일 저장은 커맨드 몫이고 코드는 짜지 않는다.
-model: fable
+model: opus
 effort: max
 tools: Read, Grep, Glob
 ---
