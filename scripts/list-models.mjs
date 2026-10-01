@@ -66,9 +66,12 @@ try {
     out.claude.fetchedAt = iso(catalog.fetchedAt);
     out.claude.stale = catalog.stale;
     out.claude.models = catalog.models;
-    const { offered, belowVersion } = splitByVersion(catalog.models, ccVersion);
+    // 버전 미달도 선택지에 **남긴다** — 가족 alias는 CC가 하위 세대로 내려주고(2026-10-01 실측:
+    // 2.1.278에서 `--model opus` → Opus 5), id 고정은 고르면 CC가 400으로 막으며 `Run 'claude update'`를
+    // 스스로 안내한다. splitByVersion은 **belowVersion 산출(표기·안내용)에만** 쓴다 — offered는 쓰지 않는다.
+    const { belowVersion } = splitByVersion(catalog.models, ccVersion);
     out.claude.belowVersion = belowVersion.map(({ id, name, family, minVersion }) => ({ id, name, family, minVersion }));
-    out.claude.choices = wizardChoices(offered);
+    out.claude.choices = wizardChoices(catalog.models);
   }
   out.clis.claude = out.claude;
   if (mode === 'check') {

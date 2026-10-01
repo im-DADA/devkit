@@ -186,6 +186,8 @@ test('CX1 B1 B2: Codex 캐시가 공통 shape으로 정규화되고 hide는 hidd
   assert.deepEqual(parsed.models[2].efforts, ['low', 'medium', 'high', 'xhigh']);
   assert.deepEqual(parsed.models.map((m) => m.hidden), [false, false, false, true]);
   assert.deepEqual(parsed.models.map((m) => m.description), ['desc-astra', 'desc-plain', 'desc-55', null]);
+  // Codex 전용 축 — 결측은 null이다(0으로 치면 최신보다 위로 올라간다).
+  assert.deepEqual(parsed.models.map((m) => m.priority), [1, null, 7, 9]);
   assert.equal(parsed.cli, 'codex');
   assert.equal(parsed.fetchedAt, Date.parse(CODEX.fetched_at));
   // 캐시에 스키마 버전 필드도 만료 시각 필드도 없다(§3.10·O8) — 없는 것을 꾸미지 않는다.
@@ -221,11 +223,11 @@ test('CX4 R9: codexChoices는 hidden을 빼고 단일 목록을 내며 키 집�
   const { normalizeCodexCatalog, codexChoices } = loadCodex();
   const codexModels = normalizeCodexCatalog(CODEX).models;
   const choices = codexChoices(codexModels);
-  assert.deepEqual(choices.primary.map((c) => c.value), ['gpt-6-astra', 'gpt-plain', 'gpt-5.5']);
+  assert.deepEqual(choices.primary.map((c) => c.value), ['gpt-6-astra', 'gpt-5.5', 'gpt-plain']);
   // Codex에는 section·family가 없어 "이전 버전" 묶음이 성립하지 않는다(§3.2·R9).
   assert.deepEqual(choices.pinned, []);
-  assert.deepEqual(choices.primary.map((c) => c.id), ['gpt-6-astra', 'gpt-plain', 'gpt-5.5']);
-  assert.deepEqual(choices.primary.map((c) => c.label), ['GPT-6 Astra', 'Plain', 'GPT-5.5']);
+  assert.deepEqual(choices.primary.map((c) => c.id), ['gpt-6-astra', 'gpt-5.5', 'gpt-plain']);
+  assert.deepEqual(choices.primary.map((c) => c.label), ['GPT-6 Astra', 'GPT-5.5', 'Plain']);
   // 마법사가 `clis[cli].choices` 하나로 두 CLI를 다루려면 키 집합이 같아야 한다(§3.6).
   const claudeKeys = Object.keys(load().wizardChoices(models()).primary[0]).sort();
   assert.deepEqual(Object.keys(choices.primary[0]).sort(), claudeKeys);
@@ -258,4 +260,51 @@ test('CX5 B1: fs·child_process·os·path를 모두 봉인한 프로세스에서
   const out = spawnSync(process.execPath, ['-e', probe], { encoding: 'utf8' });
   assert.equal(out.status, 0, out.stderr);
   assert.deepEqual(JSON.parse(out.stdout), [4, true, 3, null]);
+});
+
+// ── CX6: priority 정렬 (B7~B11·B18) ─────────────────────────────
+// 2026-10-01 실측: Codex priority는 **작을수록 상위**다(gpt-6-astra=2 … gpt-5.5=13).
+// 공유 CODEX 픽스처를 건드리지 않고 지역 입력을 쓴다(다른 테스트를 조용히 망치지 않기 위해).
+test('CX6 B7 B8 B9 B11 B18: priority 오름차순·결측은 뒤로·동률은 캐시 순서·입력 불변', () => {
+  const { codexChoices } = loadCodex();
+  const m = (id, extra = {}) => ({ id, name: id, efforts: ['low'], effortOptions: [], hidden: false, ...extra });
+
+  // 1. 오름차순 — 작을수록 앞
+  assert.deepEqual(codexChoices([m('c',{priority:13}), m('a',{priority:2}), m('b',{priority:5})])
+    .primary.map((c) => c.value), ['a','b','c']);
+
+  // 2. 결측·비정수는 정렬 키가 없다 → 캐시 순서를 지키며 뒤로
+  const mixed = [m('x'), m('p',{priority:3}), m('y',{priority:'3'}), m('z',{priority:2.5}), m('q',{priority:1})];
+  assert.deepEqual(codexChoices(mixed).primary.map((c) => c.value), ['q','p','x','y','z']);
+
+  // 3. 동률은 캐시 순서 — 사전순이 아니다(안정 정렬이 아니면 뒤집힐 입력)
+  assert.deepEqual(codexChoices([m('b',{priority:4}), m('a',{priority:4})])
+    .primary.map((c) => c.value), ['b','a']);
+
+  // 4. hidden은 정렬 후에도 없다(가시 항목과 **동률**이어도)
+  const withHidden = codexChoices([m('v',{priority:4}), m('h',{priority:4, hidden:true})]);
+  assert.equal(withHidden.primary.length, 1);
+  assert.equal(withHidden.primary[0].value, 'v');
+
+  // 5. 입력 배열을 변이시키지 않는다(B18) — list-models.mjs가 같은 배열을 models에도 싣는다
+  const input = [m('b',{priority:9}), m('a',{priority:1})];
+  const before = input.map((x) => x.id);
+  const out = codexChoices(input);
+  assert.deepEqual(input.map((x) => x.id), before, '입력 배열이 정렬돼 버렸다');
+  assert.notEqual(out.primary, input);
+
+  // 6. 비교 함수 분기를 2원소 호출로 결정적으로 밟는다(큰 배열은 V8의 비교 순서를 모른다)
+  assert.deepEqual(codexChoices([m('a'), m('b',{priority:1})]).primary.map((c)=>c.value), ['b','a']);
+  assert.deepEqual(codexChoices([m('a',{priority:1}), m('b')]).primary.map((c)=>c.value), ['a','b']);
+  assert.deepEqual(codexChoices([m('a'), m('b')]).primary.map((c)=>c.value), ['a','b']);
+
+  // 7. efforts는 정렬하지 않는다(B10) — 서열을 발명하지 않는다.
+  //    ⚠ 픽스처가 **알파벳순이 아니어야** 알파벳 정렬 돌연변이를 잡는다 — `['high','low']`는
+  //    이미 알파벳순이라 `.sort()`를 넣어도 통과했다(2026-10-01 Gap이 돌연변이로 잡았다).
+  const kept = codexChoices([m('a',{priority:1, efforts:['medium','low','xhigh']})]).primary[0].efforts;
+  assert.deepEqual(kept, ['medium','low','xhigh'], 'efforts를 정렬하면 서열을 발명하는 것이다');
+  // effortOptions도 같은 성질이다 — 마법사가 label·recommended를 이 순서로 읽는다.
+  const opts = codexChoices([m('a',{priority:1,
+    effortOptions:[{id:'medium'},{id:'low'}]})]).primary[0].effortOptions;
+  assert.deepEqual(opts.map((o)=>o.id), ['medium','low']);
 });

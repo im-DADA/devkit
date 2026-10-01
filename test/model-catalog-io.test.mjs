@@ -21,7 +21,11 @@ function homeWith(config = null, files = {}, codex = null) {
   for (const [name,body] of Object.entries(files)) {
     fs.mkdirSync(catalogDir(home),{recursive:true});
     const file = path.join(catalogDir(home),name);
-    if (body === 'DIR') fs.mkdirSync(file); else fs.writeFileSync(file,body);
+    // codex 쪽(:31)과 같은 규약·같은 슬라이스 길이(8)다 — Claude 쪽에도 심링크를 심을 수 있어야
+    // 38행의 lstatSync에 관측점을 세울 수 있다(2026-10-01).
+    if (body === 'DIR') fs.mkdirSync(file);
+    else if (typeof body === 'string' && body.startsWith('SYMLINK:')) fs.symlinkSync(body.slice(8),file);
+    else fs.writeFileSync(file,body);
   }
   if (codex !== null) {
     fs.mkdirSync(path.join(home,'.codex'),{recursive:true});
@@ -121,9 +125,23 @@ test('I7 B14: check 모드의 8행 대조와 카탈로그 부재', () => {
     }
   }
 });
-test('I8 B7 B12: cc-version 필터, 잘못된 값과 값 생략은 미상', () => {
+// ⚠ 이름의 `B7 B12`는 **옛 사이클 번호**다(2026-09-30). 이번 사이클의 B7·B12와 숫자가 겹치지만
+// 추적성을 위해 이름은 건드리지 않는다. 이 테스트가 지금 고정하는 것은 이번 B1~B5다.
+test('I8 B7 B12: cc-version은 belowVersion만 만들고 선택지는 줄이지 않는다', () => {
   const home=homeWith(null,{'fixture.json':fixtureText}); const value=script(home,['--cc-version','2.1.9']);
-  assert.equal(value.ccVersion,'2.1.9'); assert.deepEqual(value.claude.belowVersion.map((m)=>m.id),['claude-fable-5-1']); assert.ok(!value.claude.choices.primary.some((m)=>m.family==='fable'));
+  assert.equal(value.ccVersion,'2.1.9');
+  // ① 필터가 사라져 **인자 없는 경로와 같아진다**(I6의 4/5와 일치해야 한다).
+  assert.equal(value.claude.choices.primary.length,4); assert.equal(value.claude.choices.pinned.length,5);
+  // ② 미달 모델이 **가족 alias 값으로** 남는다 — id로 격하되면(main에 같은 가족이 둘일 때) 여기서 빨개진다.
+  assert.deepEqual(value.claude.choices.primary.map((c)=>c.value),['opus','fable','sonnet','haiku']);
+  // ③ alias 선택지에도 `minVersion`이 실린다 — 마법사가 **정보 톤**으로 "최신 세대는 x.y.z 이상"을
+  //    적을 근거다. ⚠ alias는 하위 세대로 **동작하므로** 차단 경고를 붙이면 안 된다(DOC6이 고정).
+  assert.equal(value.claude.choices.primary.find((c)=>c.family==='fable').minVersion,'2.1.251');
+  // ④ 미달 목록 자체는 그대로 산출된다(표기·안내용).
+  //    ⚠ **4키 전부**를 본다 — id만 보면 투영을 깎아도(예: minVersion 제거) 아무도 못 잡고,
+  //    그러면 마법사가 버전 안내를 적을 근거를 잃는다(2026-10-01 Gap이 돌연변이로 잡았다).
+  assert.deepEqual(value.claude.belowVersion,
+    [{ id:'claude-fable-5-1', name:'Fable 5.1', family:'fable', minVersion:'2.1.251' }]);
   for (const args of [['--cc-version','bogus'],['--cc-version']]) { const unknown=script(home,args); assert.equal(unknown.ccVersion,null); assert.deepEqual(unknown.claude.belowVersion,[]); }
   assert.equal(script(home,['--cc-version=2.1.278']).ccVersion,'2.1.278');
 });
@@ -443,4 +461,78 @@ test('IX14: fetched_at이 날짜가 아니면 fetchedAt이 null이고 exit 0이�
   assert.equal(j.clis.codex.status,'ok','날짜가 깨진 것은 목록을 무효화하지 않는다');
   assert.equal(j.clis.codex.fetchedAt,null,'파싱 못한 시각을 ISO처럼 꾸며 내면 안 된다');
   assert.equal(j.clis.codex.choices.primary.length,1);
+});
+
+// ── IX16: priority 정렬이 스크립트 출력까지 닿는다 (B7·B9·B17·B18) ──
+// ⚠ 실제 캐시는 캐시 순서 == priority 순서라(2026-10-01 실측) 정렬이 돌았는지 구분되지 않는다.
+//    그래서 **일부러 어긋난** 입력으로 정렬을 증명한다.
+test('IX16 B7 B17 B18: choices는 priority 순, models는 캐시 순, priority는 Codex에만 실린다', () => {
+  const body = JSON.stringify({ fetched_at:'2026-10-01T00:00:00Z', etag:'W/"x"',
+    models: [
+      { slug:'A', display_name:'A', visibility:'list', priority:9,
+        default_reasoning_level:'low', supported_reasoning_levels:[{effort:'low'}] },
+      { slug:'B', display_name:'B', visibility:'list', priority:2,
+        default_reasoning_level:'low', supported_reasoning_levels:[{effort:'low'}] },
+      { slug:'C', display_name:'C', visibility:'list',
+        default_reasoning_level:'low', supported_reasoning_levels:[{effort:'low'}] },
+    ] });
+  const home = homeWith(null,{'fixture.json':fixtureText},body);
+  const j = script(home);
+  // 선택지는 priority 오름차순 — 결측(C)은 캐시 순서를 지키며 뒤로.
+  assert.deepEqual(j.clis.codex.choices.primary.map((c)=>c.value), ['B','A','C']);
+  // models는 **캐시 순서 그대로**다(B18) — 정렬이 입력을 변이시켰다면 여기가 ['B','A','C']가 된다.
+  assert.deepEqual(j.clis.codex.models.map((m)=>m.id), ['A','B','C']);
+  // B17: Codex에만 키가 늘었다. Claude 쪽은 그대로다(비대칭을 양성 단언한다).
+  assert.ok('priority' in j.clis.codex.models[0], 'Codex 정규화에 priority가 없다');
+  assert.equal(j.clis.codex.models[2].priority, null, '결측은 null이어야 한다');
+  assert.ok(!('priority' in j.clis.claude.models[0]), 'Claude에 priority가 샜다');
+});
+
+// ── IX15: Claude 카탈로그 심링크 방어 (B12·B13) ──────────────────
+// 2026-10-01까지 이 자리는 **무검증이었다** — model-catalog-io.js:38을 statSync로 되돌려도
+// 아무 기능 테스트가 빨개지지 않았다(직전 사이클 Gap 1회차 발견). Codex 쪽은 IX4가 덮는다.
+// ⚠ IX4의 `!('models' in value)`는 약한 앵커다 — 실패 객체의 성질일 뿐 *링크 대상이 새지
+//    않았다*를 증명하지 않는다. 그래서 링크 대상에 **고유 마커**를 심고 부재를 직접 단언한다.
+test('IX15 B12: Claude 카탈로그가 심링크면 읽지 않고 링크 대상이 새지 않는다', () => {
+  const outside = temp();
+  const target = path.join(outside,'real-catalog.json');
+  fs.writeFileSync(target, JSON.stringify({ ...FIXTURE, catalog: { config: { models: [
+    { id:'claude-symlink-leak-marker', name:'Leak', short_name:'Leak', section:'main',
+      thinking:{ type:'effort', effort_options:[{id:'low'}] } },
+  ] } } }));
+  const home = homeWith(null,{'x-cc.json':`SYMLINK:${target}`});
+  const out = probeRead(home);
+  assert.equal(out.value.ok,false);
+  assert.equal(out.value.reason,'unreadable');
+  // 링크 **대상의 모델**이 결과에 하나도 나타나지 않는다 — 이것이 이 테스트의 본체다.
+  assert.doesNotMatch(JSON.stringify(out.value),/symlink-leak-marker/);
+  assert.equal(out.stderr.trim().split('\n').length,1);
+  assert.notEqual(out.stderr.trim(),'');
+  assert.doesNotMatch(out.stderr,/symlink-leak-marker/);
+  assert.doesNotMatch(out.stderr,new RegExp(target.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),
+    '링크 대상 경로를 진단에 싣지 않는다');
+});
+
+// ── DOC6: 이번 사이클의 문안 계약 (B14·B15) ──────────────────────
+// 앵커는 네 글자 이하·일반 명사를 피한다(직전 리뷰가 `clis`(4자)를 약한 앵커로 지적했다).
+// 부재 단언은 **commands/kit.md 한 파일로 좁힌다** — `통째로 사라진다`는 다른 4개 파일에
+// 무관한 뜻으로 존재한다(no-config-parity:445 · verify-classify:289 · receipt.js · rules-sync.js).
+test('문서 DOC6 B14 B15: 빼지 않고 업데이트를 안내하고 priority·effort 순서의 근거를 적는다', () => {
+  const doc = kitDoc();
+  const step = modelSection();
+  for (const word of ['선택지에서 빼지 않는다','claude update','하위 세대로 내려준다',
+    '오름차순','작을수록 상위','캐시 순서를 지키며 뒤로','관측이지 보장이 아니다','2026-10-01','과하게 잡혀']) {
+    assert.ok(step.includes(word), `모델 배분 절에 "${word}"가 없다`);
+  }
+  // alias와 id 고정의 **분기**를 고정한다 — 한 문구로 합치면 동작하는 선택지(alias)에
+  // 불필요한 `claude update`가 붙는다(2026-10-01 리뷰 🟡2). 뭉뚱그리기로의 회귀를 막는다.
+  for (const word of ['차단 경고를 붙이지 마라','id 고정']) {
+    assert.ok(step.includes(word), `모델 배분 절에 "${word}"가 없다`);
+  }
+  // 휘발성 수치는 문서에 박지 않는다 — 캐시가 하루 안에 바뀌는 것을 리뷰 중 관측했다.
+  assert.ok(!doc.includes('가시 7종'), 'kit.md에 고정된 가시 모델 수가 남아 있다');
+  assert.doesNotMatch(doc, /`gpt-[0-9]/, 'kit.md에 Codex 모델 슬러그가 박혀 있다');
+  // 뜻이 뒤집힌 옛 문장이 남아 있으면 안 된다.
+  assert.ok(!doc.includes('통째로 사라진다'), 'kit.md에 "통째로 사라진다"가 남아 있다');
+  assert.ok(!doc.includes('선택지에 넣지 말고'), 'kit.md에 "선택지에 넣지 말고"가 남아 있다');
 });

@@ -61,22 +61,39 @@ function normalizeCodexCatalog(raw) {
         recommendedEffort,
         description: stringOrNull(m.description),
         notice: null, quickSelect: false, minVersion: null,
+        // Codex 전용 축 — Claude 카탈로그에 대응 필드를 **찾지 못했다**(2026-10-01까지 본 범위).
+        // 정수가 아니거나 없으면 null. **0으로 치지 않는다** — 최상위 값보다 위로 올라간다.
+        priority: Number.isInteger(m.priority) ? m.priority : null,
         hidden: m.visibility !== CODEX_VISIBLE,
       };
     }),
   };
 }
 
+/** priority 비교 — 정수만 키로 본다. 결측·비정수는 뒤로, 그들끼리는 0(캐시 순서 유지). */
+function byPriority(left, right) {
+  const a = Number.isInteger(left.priority) ? left.priority : null;
+  const b = Number.isInteger(right.priority) ? right.priority : null;
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+}
+
 /**
  * hidden을 뺀 **단일 목록**. 키 집합은 `wizardChoices`의 Choice와 같다 — 마법사가
  * `clis[cli].choices` 하나로 두 CLI를 다룰 수 있어야 한다(§3.6).
  * `pinned`는 항상 빈 배열이다: Codex에는 `section`·`family`가 없어 "이전 버전" 묶음이
- * 성립하지 않는다(R9). 입력(캐시) 순서를 보존하고 `priority`는 쓰지 않는다(O3 — 정렬 방향 미확인).
+ * 성립하지 않는다(R9). **`priority` 오름차순으로 안정 정렬한다** — 작을수록 상위인 것을
+ * 2026-10-01에 실측했다. 결측·비정수는 정렬 키가 없으므로
+ * **캐시 순서를 지키며 뒤로** 보낸다. 동률도 캐시 순서다. **입력 배열은 바꾸지 않는다.**
  * ⚠ 입력은 **`normalizeCodexCatalog`의 출력**이다. 타입 강제(문자열 아닌 name·description)는
  *   정규화가 이미 했으므로 여기서 다시 막지 않는다 — 계약 밖 값은 그대로 흐른다.
  */
 function codexChoices(models) {
-  const primary = modelList(models).filter((m) => !m.hidden).map((model) => ({
+  // hidden을 **먼저** 거른다 — 버릴 항목을 정렬하지 않고, "동률이면 캐시 순서"의 기준선이
+  // 가시 목록의 캐시 순서로 단순해진다. filter가 새 배열을 만들므로 sort가 입력을 건드리지 않는다.
+  const primary = modelList(models).filter((m) => !m.hidden).sort(byPriority).map((model) => ({
     value: model.id, label: model.name ?? model.id, id: model.id, family: null,
     efforts: Array.isArray(model.efforts) ? model.efforts : [],
     minVersion: null,
