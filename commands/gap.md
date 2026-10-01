@@ -17,6 +17,7 @@ allowed-tools:
 설계한 대로 구현됐는지 검증한다(완전성/일치 — 코드 품질은 `/review`). **Gap은 사이클의 필수 단계다 — 스킵하고 `/report`로 건너뛰지 않는다.**
 
 0. **하드 게이트 — behaviors.json 필수.** 사이클 폴더에 `behaviors.json`이 없으면 **여기서 중단**하고 "먼저 `/plan`의 behavior 목록 단계를 완료하라"고 안내한다. behaviors.json이 없으면 대조할 분모가 없어 Gap 자체가 무의미하다. (같은 판정을 `hooks/pdca-gate.js` 훅이 **강제한다** — `GAP.md` 쓰기 자체가 거부되므로 이 안내를 무시하고 진행할 수 없다.)
+0. **실행 CLI를 먼저 본다.** `~/.devkit/config.json`의 `models.gap-detector.cli`가 `codex`면 Task가 아니라 `codex exec`로 부른다 — 호출 형태·샌드박스·폴백은 `RULES.md`의 `### Codex 단계 실행 규약` 한 곳에 있다. 파일이 없거나 `claude`면 아래 그대로. ❌ `--dangerously-*` 플래그는 쓰지 않는다.
 1. 사이클 폴더 확인 — `.devkit/pdca-state.json`의 `cycleId`(없으면 `docs/{YYYY-MM-DD}-{slug}/` 중 진행 중인 것). 근거 문서는 `docs/{cycle}/PLAN.md`·`DESIGN.md`(인자로 경로가 주어지면 그것), `SPEC.md`는 있으면 참고. 근거가 약하면 사용자에게 알린다. 규약 상세는 RULES.md "PDCA 사이클".
 2. 사이클 폴더에 `behaviors.json`이 있으면 그것이 **대조의 분모**다. 항목을 사후에 늘리거나 줄이지 않는다.
 3. **gap-detector 에이전트**를 Task로 띄워 대조 위임. 에이전트는 **테스트를 실제로 실행**해야 하며, 실행 없이 ✅를 준 항목이 있으면 그 판정을 신뢰하지 않는다.

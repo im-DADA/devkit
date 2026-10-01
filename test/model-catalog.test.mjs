@@ -144,3 +144,118 @@ test('C14 B20: 표시용 필드가 shape 밖이어도 throw 없이 null·빈 배
   assert.deepEqual(model.efforts, ['low']);
   assert.equal(model.recommendedEffort, null);
 });
+
+// ── Codex 정규화 (§8.0·§8.1) ───────────────────────────────────
+// ⚠ `model-catalog-codex.js`를 **top-level에서 require하지 않는다**(§8.7-1) — 각 테스트가
+// 지연 require나 자식 프로세스로 모듈을 연다. 그래야 구현 0줄 상태에서 "무엇이 RED인가"가
+// 테스트 단위로 보이고, 기존 C1~C14가 양성 대조로 남는다.
+const codexPath = new URL('../hooks/lib/model-catalog-codex.js', import.meta.url).pathname;
+const loadCodex = () => require(codexPath);
+const CODEX = { fetched_at: '2026-09-30T02:11:04Z', etag: 'W/"x"', client_version: '0.155.1',
+  identity: { plan: 'x' },
+  models: [
+    { slug:'gpt-6-astra', display_name:'GPT-6 Astra', description:'desc-astra', visibility:'list', priority:1,
+      default_reasoning_level:'medium',
+      supported_reasoning_levels:[{effort:'low',description:'빠름'},{effort:'medium',description:'권장'},
+        {effort:'high',description:'깊다'},{effort:'xhigh',description:'더 깊다'},
+        {effort:'max',description:'최대'},{effort:'ultra',description:'가장 깊다'}] },
+    // 추론 단계가 아예 없는 모델 — effortOptionsOf의 빈 배열 경로를 덮는다(2026-10-01 리뷰 지적).
+    { slug:'gpt-plain', display_name:'Plain', description:'desc-plain', visibility:'list' },
+    { slug:'gpt-5.5', display_name:'GPT-5.5', description:'desc-55', visibility:'list', priority:7,
+      default_reasoning_level:'high',
+      supported_reasoning_levels:[{effort:'low'},{effort:'medium'},{effort:'high'},{effort:'xhigh'}] },
+    { slug:'gpt-reserve', display_name:'Reserve', visibility:'hide', priority:9,
+      default_reasoning_level:'nope', supported_reasoning_levels:[{effort:'low'}] },
+  ] };
+
+test('CX1 B1 B2: Codex 캐시가 공통 shape으로 정규화되고 hide는 hidden이 된다', () => {
+  const parsed = loadCodex().normalizeCodexCatalog(CODEX);
+  assert.deepEqual(parsed.models.map((m) => m.id), ['gpt-6-astra', 'gpt-plain', 'gpt-5.5', 'gpt-reserve']);
+  assert.deepEqual(parsed.models.map((m) => m.name), ['GPT-6 Astra', 'Plain', 'GPT-5.5', 'Reserve']);
+  // Codex 캐시에 대응 필드가 없는 축은 **만들어 넣지 않는다**(§4.1).
+  for (const key of ['family', 'section', 'minVersion', 'notice']) {
+    assert.deepEqual(parsed.models.map((m) => m[key]), [null, null, null, null], key);
+  }
+  assert.deepEqual(parsed.models.map((m) => m.quickSelect), [false, false, false, false]);
+  // `ultra`는 Codex 캐시에만 있는 effort다(2026-09-30 실측) — Claude frontmatter 값이 아니다.
+  assert.deepEqual(parsed.models[0].efforts, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+  // 추론 단계가 없는 모델은 빈 배열이다 — effortOptionsOf의 조기 반환 경로(2026-10-01 리뷰 지적).
+  assert.deepEqual(parsed.models[1].efforts, []);
+  assert.deepEqual(parsed.models[1].effortOptions, []);
+  assert.equal(parsed.models[1].recommendedEffort, null);
+  assert.deepEqual(parsed.models[2].efforts, ['low', 'medium', 'high', 'xhigh']);
+  assert.deepEqual(parsed.models.map((m) => m.hidden), [false, false, false, true]);
+  assert.deepEqual(parsed.models.map((m) => m.description), ['desc-astra', 'desc-plain', 'desc-55', null]);
+  assert.equal(parsed.cli, 'codex');
+  assert.equal(parsed.fetchedAt, Date.parse(CODEX.fetched_at));
+  // 캐시에 스키마 버전 필드도 만료 시각 필드도 없다(§3.10·O8) — 없는 것을 꾸미지 않는다.
+  assert.equal(parsed.staleAt, null);
+  assert.equal(parsed.version, null);
+});
+
+test('CX2 B3: default_reasoning_level이 recommendedEffort가 되고 목록 밖 값은 null이다', () => {
+  const parsed = loadCodex().normalizeCodexCatalog(CODEX);
+  const astra = parsed.models[0];
+  assert.equal(astra.recommendedEffort, 'medium');
+  assert.deepEqual(astra.effortOptions.filter((o) => o.recommended).map((o) => o.id), ['medium']);
+  assert.deepEqual(astra.effortOptions[5], { id: 'ultra', label: null, recommended: false, description: '가장 깊다' });
+  // `nope`은 efforts 밖이다 — 선택지에 없는 값을 기본 포커스로 두지 않는다(§4.2).
+  assert.equal(parsed.models[3].recommendedEffort, null);
+  assert.equal(parsed.models[2].recommendedEffort, 'high');
+  // 추론 단계가 없는 모델은 권장값도 없다.
+  assert.equal(parsed.models[1].recommendedEffort, null);
+});
+
+test('CX3 B4: shape 밖 입력은 throw 없이 null, 유효한 빈 배열은 빈 목록이다', () => {
+  const { normalizeCodexCatalog } = loadCodex();
+  for (const raw of [null, undefined, [], 'x', 3, {}, { models: 'x' }, { models: {} },
+    { models: [{ display_name: 'x' }] }, { models: [null] }]) {
+    assert.equal(normalizeCodexCatalog(raw), null, JSON.stringify(raw));
+  }
+  // 부재와 0종은 다르다 — 0종은 "읽었고 비었다"는 사실이다.
+  assert.deepEqual(normalizeCodexCatalog({ models: [] }).models, []);
+  assert.equal(normalizeCodexCatalog({ models: [] }).fetchedAt, null);
+});
+
+test('CX4 R9: codexChoices는 hidden을 빼고 단일 목록을 내며 키 집합이 Choice와 같다', () => {
+  const { normalizeCodexCatalog, codexChoices } = loadCodex();
+  const codexModels = normalizeCodexCatalog(CODEX).models;
+  const choices = codexChoices(codexModels);
+  assert.deepEqual(choices.primary.map((c) => c.value), ['gpt-6-astra', 'gpt-plain', 'gpt-5.5']);
+  // Codex에는 section·family가 없어 "이전 버전" 묶음이 성립하지 않는다(§3.2·R9).
+  assert.deepEqual(choices.pinned, []);
+  assert.deepEqual(choices.primary.map((c) => c.id), ['gpt-6-astra', 'gpt-plain', 'gpt-5.5']);
+  assert.deepEqual(choices.primary.map((c) => c.label), ['GPT-6 Astra', 'Plain', 'GPT-5.5']);
+  // 마법사가 `clis[cli].choices` 하나로 두 CLI를 다루려면 키 집합이 같아야 한다(§3.6).
+  const claudeKeys = Object.keys(load().wizardChoices(models()).primary[0]).sort();
+  assert.deepEqual(Object.keys(choices.primary[0]).sort(), claudeKeys);
+  for (const bad of [null, undefined, 'x', 3, {}, [null], [{ id: 3 }]]) {
+    assert.deepEqual(codexChoices(bad), { primary: [], pinned: [] }, JSON.stringify(bad));
+  }
+  // 정규화를 거치지 않은(혹은 망가진) 모델이 들어와도 throw하지 않고 안전한 기본값으로 떨어진다.
+  const odd = codexChoices([{ id: 'x' }, { id: 'y', name: 3, efforts: 'nope', effortOptions: null, description: 7 }]);
+  assert.equal(odd.primary.length, 2);
+  assert.equal(odd.primary[0].label, 'x', 'name이 없으면 id로 표기한다');
+  assert.deepEqual(odd.primary[1].efforts, [], 'efforts가 배열이 아니면 빈 배열이다');
+  assert.deepEqual(odd.primary[1].effortOptions, []);
+  assert.equal(odd.primary[1].recommendedEffort, null);
+  // ⚠ label·description의 **타입 강제는 이 함수의 책임이 아니다.** 입력은 normalizeCodexCatalog의
+  // 출력이고 거기서 stringOrNull로 이미 걸러진다 — 여기서 또 막으면 중복 방어가 된다.
+  // 계약 밖 값(숫자 등)은 그대로 흐른다. 이 테스트가 고정하는 것은 **throw하지 않는다**는 것이다.
+});
+
+test('CX5 B1: fs·child_process·os·path를 모두 봉인한 프로세스에서 두 함수가 동작한다', () => {
+  // 이 모듈은 **아무것도 require하지 않는다**(§3.9·§4.2). 헬퍼 3줄을 복제한 대가로 얻은
+  // 성질이고, 봉인 테스트가 전이 논증 없이 자명해진다.
+  const sealed = ['fs', 'node:fs', 'fs/promises', 'node:fs/promises', 'child_process', 'node:child_process',
+    'os', 'node:os', 'path', 'node:path'];
+  const probe = `const Module = require('module'); const original = Module.prototype.require;
+    Module.prototype.require = function (id) { if (${JSON.stringify(sealed)}.includes(id)) throw new Error('SEALED:' + id); return original.apply(this, arguments); };
+    const m = require(${JSON.stringify(codexPath)});
+    const parsed = m.normalizeCodexCatalog(${JSON.stringify(CODEX)});
+    process.stdout.write(JSON.stringify([parsed.models.length, parsed.models[3].hidden,
+      m.codexChoices(parsed.models).primary.length, m.normalizeCodexCatalog('x')]));`;
+  const out = spawnSync(process.execPath, ['-e', probe], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(JSON.parse(out.stdout), [4, true, 3, null]);
+});

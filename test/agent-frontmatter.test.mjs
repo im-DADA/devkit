@@ -19,7 +19,7 @@ import { createRequire } from 'node:module';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(dir, '..');
 const require_ = createRequire(import.meta.url);
-const { readModel, applyModel, validateEffort, validateModel, modelDriftMessage } =
+const { EFFORTS, readModel, applyModel, validateEffort, validateModel, modelDriftMessage } =
   require_(path.join(root, 'hooks', 'lib', 'agent-frontmatter.js'));
 const { DEFAULTS, AGENTS, mergeConfig } = require_(path.join(root, 'hooks', 'lib', 'config-schema.js'));
 
@@ -151,4 +151,44 @@ test('🔴 치환 특수 패턴이 값으로 들어와도 frontmatter가 부서�
       `model=${JSON.stringify(evil)}가 치환 패턴으로 해석됐다: ${JSON.stringify(got)}`);
     assert.equal(r.text.split('\n').length, md.split('\n').length, '줄 수가 바뀌었다');
   }
+});
+
+// ── FM1~FM4: CLI 축이 생긴 뒤의 비대칭 (§8.4) ──────────────────
+// `cli`는 **frontmatter로 표현되지 않는 축**이다. 그래서 두 목록이 갈린다:
+// 설정 파일이 받는 effort(`config-schema.js`의 `isEffort`)에는 `ultra`가 있고,
+// Claude Code frontmatter가 받는 값(`EFFORTS`)에는 **없다**. 갈린 것이 의도다.
+const { SPEC } = require_(path.join(root, 'hooks', 'lib', 'config-schema.js'));
+
+test('FM1 B17: EFFORTS에 ultra가 없고 설정 스키마에는 있다 — 두 목록이 갈린 것이 의도다', () => {
+  assert.equal(EFFORTS.includes('ultra'), false,
+    'ultra가 CC frontmatter 허용값에 들어갔다 — Codex effort가 applyModel을 타고 새면 에이전트가 망가진다');
+  assert.deepEqual(EFFORTS, ['low', 'medium', 'high', 'xhigh', 'max']);
+  // 양성 대조: 같은 값이 **설정 파일**에서는 유효하다(Codex 단계에 적을 수 있어야 한다).
+  assert.equal(SPEC.models.planner.effort('ultra'), true);
+  assert.equal(SPEC.models.planner.effort('turbo'), false);
+});
+
+test('FM2 B18: applyModel이 ultra를 거부하고 텍스트를 돌려주지 않는다', () => {
+  const r = applyModel(agentMd('planner'), { model: 'gpt-6-astra', effort: 'ultra' });
+  assert.equal(r.ok, false, 'Codex effort가 Claude frontmatter에 박혔다');
+  assert.equal('text' in r, false);
+  for (const allowed of EFFORTS) assert.ok(r.reason.includes(allowed), allowed);
+});
+
+test('FM3 B20: cli가 codex인 항목은 드리프트로 보고하지 않는다', () => {
+  const cfg = { models: { planner: { cli: 'codex', model: 'gpt-6-astra', effort: 'ultra' } } };
+  assert.equal(modelDriftMessage(cfg, { planner: { model: 'opus', effort: 'max' } }), '',
+    'Codex 단계마다 매 세션 거짓 경고가 뜬다 — 그게 이 함수의 존재 이유를 스스로 깬다');
+});
+
+test('FM4 B21: cli가 claude거나 없으면 현행대로 보고한다 (양성 대조)', () => {
+  const current = { planner: { model: 'opus', effort: 'max' } };
+  const claude = modelDriftMessage({ models: { planner: { cli: 'claude', model: 'gpt-6-astra', effort: 'ultra' } } }, current);
+  assert.match(claude, /planner/);
+  // `cli` 키가 **없는** 옛 형태(마이그레이션 전 설정)도 그대로 보고한다.
+  const legacy = modelDriftMessage({ models: { planner: { model: 'fable', effort: 'max' } } }, current);
+  assert.match(legacy, /planner/);
+  assert.match(legacy, /--reapply/);
+  // 값이 같으면 cli가 claude여도 침묵한다(경고가 cli 때문에 켜지는 게 아니다).
+  assert.equal(modelDriftMessage({ models: { planner: { cli: 'claude', model: 'opus', effort: 'max' } } }, current), '');
 });

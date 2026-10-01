@@ -20,6 +20,7 @@ Gap 분석 → 보완 → 재분석을 **자동으로 반복**해 `behaviors.jso
 ## 루프 (최대 5회)
 
 0. **회차 시작 SHA 기록** — `git rev-parse HEAD`로 BASE를 잡아둔다. 회차 끝에서 테스트 조작 검사에 쓴다.
+0. **실행 CLI를 먼저 본다.** `~/.devkit/config.json`의 `models.<그 단계의 에이전트>.cli`가 `codex`면 Task가 아니라 `codex exec`로 부른다 — 호출 형태·샌드박스·폴백은 `RULES.md`의 `### Codex 단계 실행 규약` 한 곳에 있다. 파일이 없거나 `claude`면 아래 그대로. ❌ `--dangerously-*` 플래그는 쓰지 않는다.
 1. **gap-detector** Task로 PLAN/DESIGN 대비 현재 구현 분석 → 판정 + ❌/⚠️ 목록.
 2. **종료 조건 검사** — 아래 중 하나면 멈추고 **Breaker**로 넘어간다:
    - **`behaviors.json`의 unproven이 0** → 성공. 종료.

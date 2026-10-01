@@ -460,7 +460,8 @@ test('P21: SG2 — lite면 매 세션 그 사실이 보인다 (B24)', () => {
 test('P14: 설정과 frontmatter가 어긋나면 재적용을 안내한다', () => {
   const cwd = project();
   const raw = '{"version":1,"models":{"planner":{"model":"opus","effort":"high"}}}';
-  // agents/*.md는 지금 기본값(fable/max)이므로 위 설정과 어긋난 상태다 = 업데이트로 풀린 상황
+  // agents/*.md는 지금 기본값이므로 위 설정과 어긋난 상태다 = 업데이트로 풀린 상황
+  // (모델 이름을 적지 않는다 — 기본값이 바뀔 때 주석만 거짓이 된다. DEFAULTS가 정본이다.)
   const out = runHook('session-start.js', { home: home(raw), cwd });
   assert.match(out.stdout, /에이전트 모델 설정이 풀렸다/, '풀린 설정이 조용히 지나갔다');
   assert.match(out.stdout, /planner/, '어느 에이전트인지 말해야 한다');

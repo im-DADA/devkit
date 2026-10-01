@@ -13,13 +13,23 @@ const temporary = [];
 process.on('exit', () => { for (const dir of temporary) fs.rmSync(dir, {recursive:true,force:true}); });
 function temp() { const dir = fs.mkdtempSync(path.join(os.tmpdir(),'devkit-catalog-')); temporary.push(dir); return dir; }
 const catalogDir = (home) => path.join(home,'.claude','cache','model-catalog');
-function homeWith(config = null, files = {}) {
+const codexCache = (home) => path.join(home,'.codex','models_cache.json');
+// codex: 문자열이면 본문, `'DIR'`은 디렉터리, `'SYMLINK:<target>'`은 심링크, `'EMPTYDIR'`은 파일 없는 `~/.codex/`
+function homeWith(config = null, files = {}, codex = null) {
   const home = temp();
   if (config !== null) { fs.mkdirSync(path.join(home,'.devkit')); fs.writeFileSync(path.join(home,'.devkit','config.json'), config); }
   for (const [name,body] of Object.entries(files)) {
     fs.mkdirSync(catalogDir(home),{recursive:true});
     const file = path.join(catalogDir(home),name);
     if (body === 'DIR') fs.mkdirSync(file); else fs.writeFileSync(file,body);
+  }
+  if (codex !== null) {
+    fs.mkdirSync(path.join(home,'.codex'),{recursive:true});
+    const file = codexCache(home);
+    if (codex === 'EMPTYDIR') { /* 디렉터리만 만든다 */ }
+    else if (codex === 'DIR') fs.mkdirSync(file);
+    else if (typeof codex === 'string' && codex.startsWith('SYMLINK:')) fs.symlinkSync(codex.slice(8),file);
+    else fs.writeFileSync(file,codex);
   }
   return home;
 }
@@ -117,18 +127,20 @@ test('I8 B7 B12: cc-version 필터, 잘못된 값과 값 생략은 미상', () =
   for (const args of [['--cc-version','bogus'],['--cc-version']]) { const unknown=script(home,args); assert.equal(unknown.ccVersion,null); assert.deepEqual(unknown.claude.belowVersion,[]); }
   assert.equal(script(home,['--cc-version=2.1.278']).ccVersion,'2.1.278');
 });
-const kitSetupStep10 = () => fs.readFileSync(path.join(root,'commands/kit.md'),'utf8').split('10. **모델 배분**')[1].split('\n### ')[0];
+// ⚠ 앵커가 '### 모델 배분'이다 — 마법사가 3라운드가 되며 번호가 사라졌다(2026-10-01).
+const kitSetupStep10 = () => fs.readFileSync(path.join(root,'commands/kit.md'),'utf8').split('\n### 모델 배분\n')[1].split('\n### ')[0];
 test('문서 D1 B15: 모델 단계와 setup show의 카탈로그 계약', () => {
-  const doc=fs.readFileSync(path.join(root,'commands/kit.md'),'utf8'); const step=doc.split('10. **모델 배분**')[1].split('\n### ')[0];
-  for (const word of ['list-models.mjs','choices','efforts','fallback','fetchedAt','stale','Claude Code 서브에이전트 전용','Codex에는 적용되지 않는다']) assert.ok(step.includes(word),word);
+  const doc=fs.readFileSync(path.join(root,'commands/kit.md'),'utf8'); const step=doc.split('\n### 모델 배분\n')[1].split('\n### ')[0];
+  // "Codex 미적용" 두 문장은 B30이 삭제를 요구한다 — 대신 CLI 축의 단어를 고정한다.
+  for (const word of ['list-models.mjs','choices','efforts','fallback','fetchedAt','stale','clis','offer','ultra','두 CLI의 모델을 한 목록에 섞지 마라']) assert.ok(step.includes(word),word);
   assert.ok(!step.includes('--reapply')); assert.ok(doc.split('### `setup show`')[1].split('\n### ')[0].includes('--check'));
 });
 test('문서 D2 B19: 규칙/README/도움말/evals에 출처와 CC 전용', () => {
-  const rules=fs.readFileSync(path.join(root,'RULES.md'),'utf8').split('### 에이전트 모델 배분')[1].split('\n## ')[0];
-  for (const word of ['model-catalog','판정에는 관여하지 않는다','두 종류','Codex에는 적용되지 않는다']) assert.ok(rules.includes(word),word);
+  const rules=fs.readFileSync(path.join(root,'RULES.md'),'utf8').split('### 에이전트 모델 배분')[1].split('\n### ')[0];
+  for (const word of ['cli-detect.js','판정에는 관여하지 않는다','두 종류','폴백 정의']) assert.ok(rules.includes(word),word);
   assert.ok(fs.readFileSync(path.join(root,'README.md'),'utf8').includes('list-models.mjs'));
-  assert.ok(fs.readFileSync(path.join(root,'commands/kit.md'),'utf8').split('## 인자 없음')[1].includes('카탈로그'));
-  const evals=fs.readFileSync(path.join(root,'evals/README.md'),'utf8'); for (const word of ['model-catalog','Codex 미적용']) assert.ok(evals.includes(word));
+  assert.ok(fs.readFileSync(path.join(root,'commands/kit.md'),'utf8').split('## 인자 없음')[1].includes('로컬 캐시'));
+  const evals=fs.readFileSync(path.join(root,'evals/README.md'),'utf8'); for (const word of ['list-models.mjs','codex exec','CLI 질문']) assert.ok(evals.includes(word),`evals: ${word}`);
 });
 
 test('문서 B22: 10단계가 낡은 EXECPATH를 1차 버전원으로 쓰지 않는다', () => {
@@ -158,4 +170,277 @@ test('문서 B24: README의 해싱 파일 개수가 매니페스트 실제 줄 �
   const claimed = readme.match(/실행 파일 (\d+)개를 해싱/);
   assert.ok(claimed, 'README에 해싱 개수 문장이 있어야 한다');
   assert.equal(Number(claimed[1]), manifest);
+});
+
+// ── Codex 캐시 리더 (§8.5) ─────────────────────────────────────
+// 상한을 Claude와 **공유하지 않는다**: 실측 캐시가 351,987B이고 Claude용 256KB를 공유하면
+// 항상 `unreadable`이 되어 기능이 통째로 죽는다(§4.4).
+const CODEX_MODELS = [
+  { slug:'gpt-6-astra', display_name:'GPT-6 Astra', description:'desc-astra', visibility:'list',
+    default_reasoning_level:'medium',
+    supported_reasoning_levels:[{effort:'low'},{effort:'medium'},{effort:'high'},{effort:'xhigh'},{effort:'ultra'}] },
+  { slug:'gpt-5.5', display_name:'GPT-5.5', description:'desc-55', visibility:'list',
+    default_reasoning_level:'high', supported_reasoning_levels:[{effort:'low'},{effort:'medium'}] },
+  { slug:'gpt-reserve', display_name:'Reserve', visibility:'hide',
+    default_reasoning_level:'nope', supported_reasoning_levels:[{effort:'low'}] },
+];
+const codexBody = (pad = 0) => JSON.stringify({ fetched_at:'2026-09-30T02:11:04Z', etag:'W/"x"', client_version:'0.155.1',
+  identity:{plan:'x'},
+  models: CODEX_MODELS.map((m,i) => i === 0 && pad ? {...m, description:'desc-astra'+'x'.repeat(pad)} : m) });
+function probeReadCodex(home) {
+  const out = run(home,['-e',`process.stdout.write(JSON.stringify(require(${JSON.stringify(path.join(root,'hooks/lib/model-catalog-io.js'))}).readCodexCatalog()))`]);
+  assert.equal(out.status,0,out.stderr.toString()); return {value:JSON.parse(out.stdout),stderr:out.stderr.toString()};
+}
+
+test('IX1 B5: 352KB급 Codex 캐시를 읽어낸다 — Claude용 256KB 상한에 걸리지 않는다', () => {
+  const body = codexBody(400*1024);
+  assert.ok(Buffer.byteLength(body) > 256*1024, '이 테스트의 전제가 깨졌다 — 본문이 256KB를 넘지 않는다');
+  const home = homeWith(null,{},body);
+  const out = probeReadCodex(home);
+  assert.equal(out.value.ok,true,JSON.stringify(out.value));
+  assert.equal(out.value.cli,'codex');
+  assert.equal(out.value.models.length,3);
+  // 만료 시각 필드를 캐시에서 찾지 못했다 — stale 판정을 하지 않는다(R4·O8).
+  assert.equal(out.value.stale,false);
+  assert.equal(out.value.staleAt,null);
+  assert.equal(out.value.fetchedAt,Date.parse('2026-09-30T02:11:04Z'));
+  assert.equal(out.value.source,codexCache(home));
+  assert.equal(out.stderr,'');
+});
+
+test('IX2 B6: 상한을 넘는 파일은 unreadable이고 진단은 본문 없는 한 줄이다', () => {
+  const { MAX_CODEX_CATALOG_BYTES } = require('../hooks/lib/model-catalog-io.js');
+  assert.equal(MAX_CODEX_CATALOG_BYTES, 2*1024*1024);
+  const big = Buffer.concat([Buffer.from('SECRET_BODY_MARKER'), Buffer.alloc(MAX_CODEX_CATALOG_BYTES+1-18,'x')]);
+  assert.equal(big.length, MAX_CODEX_CATALOG_BYTES+1);
+  const out = probeReadCodex(homeWith(null,{},big));
+  assert.equal(out.value.ok,false); assert.equal(out.value.reason,'unreadable');
+  // ⚠ `''.trim().split('\n')`은 길이 1이다 — **비어있지 않음을 먼저** 단언해야 진단 소실을 잡는다.
+  assert.notEqual(out.stderr.trim(),'');
+  assert.equal(out.stderr.trim().split('\n').length,1);
+  assert.doesNotMatch(out.stderr,/SECRET_BODY_MARKER|xxxx/);
+  assert.match(out.stderr,/상한 2097152B/);
+});
+
+test('IX3 B7: Codex 캐시가 없으면 missing이고 stderr가 조용하다', () => {
+  for (const home of [homeWith(), homeWith(null,{},'EMPTYDIR')]) {
+    const out = probeReadCodex(home);
+    assert.equal(out.value.ok,false); assert.equal(out.value.reason,'missing');
+    assert.equal(out.stderr,'');
+  }
+});
+
+test('IX4 B8: 심링크와 디렉터리는 따라가지 않고 unreadable이다', () => {
+  const outside = temp();
+  const target = path.join(outside,'real-cache.json');
+  fs.writeFileSync(target, codexBody());
+  const link = probeReadCodex(homeWith(null,{},`SYMLINK:${target}`));
+  assert.equal(link.value.ok,false,'HOME 밖 심링크를 따라 읽었다');
+  assert.equal(link.value.reason,'unreadable');
+  assert.ok(!('models' in link.value) || link.value.models === undefined);
+  assert.notEqual(link.stderr.trim(),''); assert.equal(link.stderr.trim().split('\n').length,1);
+  const dir = probeReadCodex(homeWith(null,{},'DIR'));
+  assert.equal(dir.value.reason,'unreadable');
+  assert.match(dir.stderr,/정규 파일이 아니다/);
+});
+
+test('IX5 B5 B6: JSON 아님과 shape 밖은 invalid, 0종은 empty다', () => {
+  const bad = probeReadCodex(homeWith(null,{},'{ not json SECRET_BODY_MARKER'));
+  assert.equal(bad.value.reason,'invalid');
+  assert.notEqual(bad.stderr.trim(),''); assert.equal(bad.stderr.trim().split('\n').length,1);
+  assert.doesNotMatch(bad.stderr,/SECRET_BODY_MARKER|not json/);
+  const shape = probeReadCodex(homeWith(null,{},'{"models":"x"}'));
+  assert.equal(shape.value.reason,'invalid');
+  assert.match(shape.stderr,/models=string/);
+  assert.equal(shape.stderr.trim().split('\n').length,1);
+  const empty = probeReadCodex(homeWith(null,{},'{"models":[]}'));
+  assert.equal(empty.value.reason,'empty');
+  assert.notEqual(empty.stderr.trim(),'');
+});
+
+test('IX9 B20 B34: cli가 codex인 항목은 드리프트 경고를 내지 않는다', () => {
+  const cwd = temp();
+  const codex = homeWith(JSON.stringify({version:1,models:{'tdd-driver':{cli:'codex',model:'gpt-6-astra',effort:'ultra'}}}));
+  const quiet = runStart(codex,cwd);
+  assert.equal(quiet.status,0);
+  assert.doesNotMatch(quiet.stdout.toString(),/모델 설정이 풀렸다/);
+  // 양성 대조: 같은 값을 claude로 돌리면 경고가 **있다**(침묵이 구현 누락이 아님을 증명한다).
+  const claude = homeWith(JSON.stringify({version:1,models:{'tdd-driver':{cli:'claude',model:'gpt-6-astra',effort:'ultra'}}}));
+  const loud = runStart(claude,cwd);
+  assert.equal(loud.status,0);
+  assert.match(loud.stdout.toString(),/모델 설정이 풀렸다/);
+});
+
+test('IX10 P1: 설정 없는 사용자는 Codex 캐시 유무와 무관하게 출력 바이트가 같다', () => {
+  // ⚠ **같은 HOME**에서 두 번 돈다. 첫 실행 안내가 HOME 경로를 본문에 보간하므로
+  // (rules-render.js:152) 홈이 다르면 바이트가 달라져 이 단언이 무엇도 증명하지 못한다.
+  const home = homeWith(null,{'fixture.json':fixtureText}); const cwd = temp();
+  const a = runStart(home,cwd);
+  fs.mkdirSync(path.join(home,'.codex'),{recursive:true}); fs.writeFileSync(codexCache(home),codexBody());
+  const b = runStart(home,cwd);
+  assert.equal(a.status,0); assert.equal(b.status,0);
+  assert.equal(Buffer.compare(a.stdout,b.stdout),0,'기본값 사용자의 stdout이 Codex 캐시에 반응했다 — IO 0 계약이 깨졌다');
+  assert.equal(Buffer.compare(a.stderr,b.stderr),0);
+});
+
+// ── IX6~IX8: 스크립트 출력에 CLI 축 (B22·B23·B24·B13) ──────────
+// 설계: DESIGN.md §4.5. 기존 최상위 키는 한 글자도 빼지 않는다(B23).
+
+test('IX6 B22 B23: clis·detected·offer가 실리고 기존 최상위 키가 그대로 남는다', () => {
+  const home = homeWith(null,{'a-cc.json':JSON.stringify(FIXTURE)},codexBody());
+  const before = tree(home);
+  const j = script(home);
+  // 기존 계약(B23) — 하나라도 빠지면 setup show와 --check가 깨진다.
+  for (const key of ['note','mode','cli','ccVersion','claude','fallback']) assert.ok(key in j, `최상위 ${key}가 사라졌다`);
+  assert.ok(j.note.includes(' · '), 'note의 SEP가 없으면 이 줄이 인용 대조 후보가 된다');
+  // clis.claude는 최상위 claude와 같은 내용이다(§3.6 — 마법사 지시문이 CLI별로 갈리지 않게).
+  assert.deepEqual(j.clis.claude, j.claude);
+  assert.equal(j.clis.codex.status,'ok');
+  assert.equal(j.clis.codex.choices.primary.length,2, 'hidden 1종을 뺀 2종이어야 한다');
+  assert.deepEqual(j.clis.codex.choices.pinned,[], 'Codex에는 section이 없어 pinned가 성립하지 않는다(R9)');
+  assert.equal(j.clis.codex.stale,false, '만료 시각 필드를 찾지 못했으므로 stale 판정을 하지 않는다');
+  assert.ok(Number.isFinite(Date.parse(j.clis.codex.fetchedAt)), 'fetchedAt이 ISO가 아니다');
+  assert.ok(j.detected.codex.status, 'detected가 비었다');
+  assert.equal(j.offer.length,2, 'offered가 false여도 이유를 말할 수 있어야 하므로 항상 둘이다');
+  assert.equal(j.offer[0].cli,'claude');
+  assert.deepEqual(tree(home),before, '보고 도구가 파일을 썼다');
+});
+
+test('IX7 B13: --cli는 감지 결과와 무관하게 노출한다', () => {
+  const home = homeWith(null,{},null);           // Codex 캐시도 홈도 없다
+  const j = script(home,['--cli=codex']);
+  const codex = j.offer.find((o) => o.cli === 'codex');
+  assert.equal(codex.offered,true);
+  assert.equal(codex.forced,true);
+  // ⚠ hint는 단언하지 않는다 — 이 테스트는 PATH를 물려받고, 이 머신에 codex가 깔려 있으면
+  // status가 absent가 아니라 binary라서 forced hint가 붙지 않는다. 그 문안은 환경에
+  // 의존하지 않는 DT5(순수 함수)가 본다. 여기서 보는 것은 **--cli 인자가 프로세스
+  // 경계를 넘어 offerableClis까지 닿는가**다.
+});
+
+test('IX8 B24: Codex가 없어도 exit 0이고 Claude 쪽은 정상이다', () => {
+  const home = homeWith(null,{'a-cc.json':JSON.stringify(FIXTURE)},null);
+  const j = script(home);
+  assert.equal(j.clis.codex.status,'missing');
+  assert.deepEqual(j.clis.codex.models,[]);
+  assert.deepEqual(j.clis.codex.choices,{primary:[],pinned:[]});
+  assert.equal(j.clis.claude.status,'ok', 'Codex 부재가 Claude 목록을 깨서는 안 된다');
+  assert.ok(j.fallback.models.length > 0);
+});
+
+// ── DOC1~DOC4: 이번 사이클의 문서 계약 (B19·B25·B27~B32·B37) ──────
+// 설계: DESIGN.md §8.6. 문안이 재생성되면 단어가 어긋나므로 여기서 고정한다.
+const kitDoc = () => fs.readFileSync(path.join(root,'commands/kit.md'),'utf8');
+const modelSection = () => kitDoc().split('\n### 모델 배분\n')[1].split('\n### ')[0];
+
+test('문서 DOC1 B19: 모델 적용이 CLI별로 갈리고 Codex는 기본값으로 되돌린다', () => {
+  const step = modelSection();
+  for (const word of ['cli','codex','DEFAULTS.models','되돌린다','폴백 정의','applyModel']) {
+    assert.ok(step.includes(word), `모델 배분 절에 ${word}가 없다`);
+  }
+});
+
+test('문서 DOC2 B25 B27 B28 B37: 라운드 축소·4선택지 제약·Codex 제외 사유·목록 밖 입력', () => {
+  const doc = kitDoc();
+  for (const word of ['한 라운드에 세 문항','24개 항목','직접 고르기','최대 4개','4개씩 나눠 라운드',
+    '8종을 하나씩 묻지 않는다','report-writer','검증하지 않았다','목록에 없는 모델도 그대로 적을 수 있다']) {
+    assert.ok(doc.includes(word), `kit.md에 ${word}가 없다`);
+  }
+  // 재적용은 카탈로그 드리프트의 처방이 아니다 — 모델 배분 절에 들어오면 안 된다.
+  assert.ok(!modelSection().includes('--reapply'), '모델 배분 절에 --reapply가 있다');
+  // B42: 감지가 틀렸을 때의 탈출구가 하위 명령표와 도움말 **둘 다**에 있어야 찾을 수 있다.
+  assert.ok(doc.split('### 마법사 절차')[0].includes('--cli='), '하위 명령표에 --cli 탈출구가 없다');
+  assert.ok(doc.split('## 인자 없음')[1].includes('--cli=codex'), '도움말에 --cli 탈출구가 없다');
+});
+
+test('문서 DOC3 B29 B30 B32: Codex 실행 규약이 한 곳에 있고 금지 문장이 사라졌다', () => {
+  const rules = fs.readFileSync(path.join(root,'RULES.md'),'utf8');
+  const protocol = rules.split('### Codex 단계 실행 규약')[1];
+  assert.ok(protocol, 'RULES.md에 Codex 단계 실행 규약 절이 없다');
+  for (const word of ['codex exec','model_reasoning_effort','stdin','-o','stdout을 파싱하지 마라',
+    'workspace-write','read-only','폴백','dangerously']) {
+    assert.ok(protocol.includes(word), `규약에 ${word}가 없다`);
+  }
+  // B44: `cat <…>`는 셸이 리다이렉션으로 읽어 parse error를 낸다 — 코드블록에 남으면 안 된다.
+  assert.ok(!protocol.includes('cat <'), '규약의 cat에 셸 메타문자 placeholder가 남아 있다');
+  // 실측으로 드러난 두 사실이 적혀 있어야 한다(둘 다 사용자를 오해시킨다).
+  assert.ok(protocol.includes('stderr'), '훅 출력 채널 사실이 없다');
+  assert.ok(protocol.includes('--skip-git-repo-check'), 'git 레포 요구 사실이 없다');
+  // B30: 이번 사이클이 대체한 문장이 어디에도 남아 있지 않다.
+  for (const file of ['RULES.md','commands/kit.md','README.md','evals/README.md']) {
+    const text = fs.readFileSync(path.join(root,file),'utf8');
+    for (const gone of ['Codex 미적용','Codex에는 적용되지 않는다']) {
+      assert.ok(!text.includes(gone), `${file}에 "${gone}"이 남아 있다`);
+    }
+  }
+});
+
+test('문서 DOC4 B31 B32: 커맨드가 CLI 분기를 적고 규약을 참조한다', () => {
+  // iterate·ship도 Task로 위임한다 — 빠지면 설정을 조용히 무시한다(RULES.md가 금지한 상태).
+  for (const name of ['plan','review','tdd','gap','report','flow','iterate','ship']) {
+    const doc = fs.readFileSync(path.join(root,'commands',`${name}.md`),'utf8');
+    for (const word of ['models','cli','codex exec','RULES.md','dangerously']) {
+      assert.ok(doc.includes(word), `commands/${name}.md에 ${word}가 없다`);
+    }
+  }
+});
+
+// ── IX11: 고장난 설정에서도 exit 0과 폴백을 지킨다 (B43) ────────
+// ⚠ 이 테스트는 `catch` 블록을 타지 **않는다.** config.js·model-catalog-io.js의 읽기 가드가
+// 모든 고장을 먼저 잡아 정상 경로로 흘리기 때문이다(2026-10-01 실측: config.json을 디렉터리로
+// 둬도 `설정 경로가 정규 파일이 아니다` 경고 후 기본값을 반환한다). 즉 `list-models.mjs:79`의
+// catch는 **도달시킬 입력을 찾지 못한 최후 방어선**이고, 그 사실 자체를 여기 남긴다.
+// 이 테스트가 고정하는 것은 "가드가 처리해 exit 0과 폴백 형태가 유지된다"다.
+test('IX11 B43: 설정이 고장나도 가드가 처리해 exit 0과 폴백 형태를 지킨다', () => {
+  // 주입 가능한 고장 — config.json을 **디렉터리**로 둔다.
+  const home = homeWith(null,{'a-cc.json':JSON.stringify(FIXTURE)},null);
+  fs.mkdirSync(path.join(home,'.devkit'),{recursive:true});
+  fs.mkdirSync(path.join(home,'.devkit','config.json'));
+  const before = tree(home);
+  const out = run(home,[path.join(root,'scripts/list-models.mjs'),'--check']);
+  assert.equal(out.status,0,'보고 도구는 스스로 터져도 작업을 막지 않는다');
+  const j = JSON.parse(out.stdout);
+  assert.ok(j.note && j.fallback, '폴백 JSON의 최소 형태가 깨졌다');
+  assert.ok(j.clis && j.clis.claude && j.clis.codex, 'clis 자리가 비면 마법사가 읽을 수 없다');
+  assert.deepEqual(tree(home),before,'예외 경로에서 파일을 썼다');
+});
+
+// ── IX12: readAgentModels의 실패 경로 (B43 동반 지적) ─────────────
+// 2026-10-01 Gap: 이 함수는 테스트가 0건이었고 :126의 catch는 도달이 trivial하다
+// ("못 읽은 것은 풀렸다가 아니다"는 계약이 여기 걸려 있다 — null이어야 드리프트 오탐이 안 난다).
+test('IX12 B43: 없는 디렉터리를 주면 8종 전부 null이고 throw하지 않는다', () => {
+  const home = homeWith();
+  const out = run(home,['-e',
+    `const io = require(${JSON.stringify(path.join(root,'hooks/lib/model-catalog-io.js'))});`
+    + `process.stdout.write(JSON.stringify(io.readAgentModels('/definitely/not/here')))`]);
+  assert.equal(out.status,0,out.stderr.toString());
+  const got = JSON.parse(out.stdout);
+  assert.equal(Object.keys(got).length,8);
+  assert.deepEqual(Object.values(got),Array(8).fill(null),'읽지 못한 에이전트는 null이어야 한다');
+  assert.equal(out.stderr.toString(),'', '못 읽은 것은 정상 상태다 — 경고하지 않는다');
+});
+
+// ── IX13: --cli 인자 규약과 미지값 진단 (2026-10-01 리뷰 🟢2) ──────
+test('IX13: --cli는 공백 형태도 받고 모르는 값은 조용히 삼키지 않는다', () => {
+  const home = homeWith(null,{'a-cc.json':JSON.stringify(FIXTURE)},null);
+  // `--cc-version`과 같은 규약 — 한 파일 안에서 인자 형태가 갈리면 호출자가 헷갈린다.
+  const spaced = script(home,['--cli','codex']);
+  assert.equal(spaced.offer.find((o) => o.cli === 'codex').forced,true,'공백 형태를 못 받았다');
+  // 모르는 값은 stderr 한 줄로 알리고 exit 0을 지킨다(조용히 무시하면 오타를 모른다).
+  const out = run(home,[path.join(root,'scripts/list-models.mjs'),'--cli=gemini']);
+  assert.equal(out.status,0);
+  assert.match(out.stderr.toString(),/--cli 값을 모른다/);
+  assert.ok(!JSON.parse(out.stdout).offer.some((o) => o.cli === 'gemini'),'모르는 CLI가 선택지에 샜다');
+});
+
+// ── IX14: fetchedAt이 날짜가 아니면 null로 낸다 (2026-10-01 Gap 2회차) ──
+// `iso()`의 null 분기가 미검증으로 남아 있었다 — 없는 값을 ISO처럼 꾸며 내지 않는 것이 계약이다.
+test('IX14: fetched_at이 날짜가 아니면 fetchedAt이 null이고 exit 0이다', () => {
+  const body = JSON.stringify({ fetched_at:'not-a-date', etag:'W/"x"',
+    models:[{slug:'gpt-x', display_name:'X', visibility:'list',
+      default_reasoning_level:'low', supported_reasoning_levels:[{effort:'low'}]}] });
+  const j = script(homeWith(null,{},body));
+  assert.equal(j.clis.codex.status,'ok','날짜가 깨진 것은 목록을 무효화하지 않는다');
+  assert.equal(j.clis.codex.fetchedAt,null,'파싱 못한 시각을 ISO처럼 꾸며 내면 안 된다');
+  assert.equal(j.clis.codex.choices.primary.length,1);
 });

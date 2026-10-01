@@ -19,6 +19,10 @@
 // **있는 줄만 바꾸고, 없는 줄은 만들지 않는다.** 형태가 예상과 다르면 실패를 돌려준다 —
 // 모르는 파일을 고쳐 놓는 것보다 아무것도 안 하는 쪽이 낫다.
 
+// ⚠ `ultra`를 여기 넣지 마라. 이 목록은 **Claude Code frontmatter가 받는 값**이고
+// `ultra`는 Codex 캐시에만 있는 effort다(2026-09-30 실측). 설정 파일이 받는 값은
+// config-schema.js의 `isEffort`이고 그쪽에는 `ultra`가 있다 — **두 목록이 갈린 것이 맞다.**
+// 합치면 Codex effort가 applyModel을 타고 CC frontmatter로 새어 에이전트가 망가진다(B18).
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** `low|medium|high|xhigh|max` 또는 **양의 정수**(CC 2.1.278의 허용값 그대로) */
@@ -104,6 +108,10 @@ function modelDriftMessage(cfg, current) {
   if (!cfg || !cfg.models || !current) return '';
   const off = [];
   for (const [name, want] of Object.entries(cfg.models)) {
+    // ⚠ Codex 단계는 **frontmatter로 표현되지 않는다.** 안 빼면 Codex로 돌리는
+    // 에이전트마다 매 세션 거짓 경고가 뜨고, 그게 이 함수의 존재 이유(무시 학습 방지)를
+    // 스스로 깬다. 그 에이전트의 frontmatter는 **Claude 폴백 정의**로서 의미를 유지한다.
+    if (want?.cli === 'codex') continue;
     const got = current[name];
     if (!got) continue;
     if (String(got.model) !== String(want.model) || String(got.effort) !== String(want.effort)) off.push(name);

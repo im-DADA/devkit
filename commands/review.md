@@ -13,6 +13,7 @@ allowed-tools:
 
 현재 변경분을 리뷰한다. **GAP과 REPORT 사이의 필수 단계다** — REVIEW.md가 없으면 `/report`가 열리지 않는다.
 
+0. **실행 CLI를 먼저 본다.** `~/.devkit/config.json`의 `models.code-reviewer.cli`가 `codex`면 Task가 아니라 `codex exec`로 부른다 — 호출 형태·샌드박스·폴백은 `RULES.md`의 `### Codex 단계 실행 규약` 한 곳에 있다. 파일이 없거나 `claude`면 아래 그대로. ❌ `--dangerously-*` 플래그는 쓰지 않는다.
 1. `git status`와 `git diff`(또는 스테이징 됐으면 `git diff --staged`)로 변경 범위 확인.
 2. **code-reviewer 에이전트**를 Task로 띄워 리뷰 위임. 인자로 파일 경로가 주어지면 그 파일만.
 3. **사이클 활성 여부로 분기한다** — (a) `.devkit/pdca-state.json`에 `cycleId`가 있고 `docs/{cycleId}/`가 실제로 있거나, **또는** (b) 인자·대화 컨텍스트로 진행 중인 사이클 폴더 `docs/{YYYY-MM-DD}-{slug}/`가 특정되면 활성으로 보고 아래 4~5로, **어느 쪽으로도 사이클을 특정할 수 없으면(비활성) 3-b로**.

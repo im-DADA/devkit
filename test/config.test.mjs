@@ -284,16 +284,45 @@ test('SC3: cli codex와 ultra effort를 함께 받는다', () => {
   assert.deepEqual(problems, []);
 });
 
-test('SC4: planner·architect 기본 모델이 opus다', () => {
+test('SC4: planner·architect 기본 모델이 opus이고 8종 전부 cli가 claude다', () => {
   assert.deepEqual(DEFAULTS.models.planner, { cli: 'claude', model: 'opus', effort: 'max' });
   assert.deepEqual(DEFAULTS.models.architect, { cli: 'claude', model: 'opus', effort: 'max' });
+  // ⚠ 2종만 보면 나머지 6종이 조용히 codex로 넘어가도 아무도 못 잡는다 — 돌연변이로 실증됐다
+  // (test-writer.cli를 codex로 바꿨을 때 무결성 해시 1건만 빨개지고, 그건 gen-integrity가 덮는다).
+  assert.deepEqual(Object.values(DEFAULTS.models).map((m) => m.cli), Array(8).fill('claude'));
 });
 
-test('SC5: 기본값을 주장하는 네 파일에 fable이 없다', () => {
+test('SC7 B38: README 에이전트 표가 DEFAULTS와 일치한다', () => {
+  // 기대값을 DEFAULTS에서 만든다 — 리터럴을 박으면 기본 배분이 바뀔 때 표만 거짓이 된다
+  // (2026-10-01에 실제로 그랬다: planner·architect를 opus로 옮기고 README 표를 놓쳤다).
+  const readme = fs.readFileSync(path.join(dir, '..', 'README.md'), 'utf8');
+  for (const [agent, want] of Object.entries(DEFAULTS.models)) {
+    const row = readme.split('\n').find((l) => l.startsWith(`| \`${agent}\``));
+    assert.ok(row, `README에 ${agent} 행이 없다`);
+    assert.ok(row.includes(`${want.model} · ${want.effort}`), `${agent}: README가 "${row.trim()}"인데 기본값은 ${want.model} · ${want.effort}다`);
+  }
+});
+
+test('SC8 B39: 기본 배분을 말하는 커맨드 문서가 DEFAULTS와 일치한다', () => {
+  // planner의 모델을 문장으로 적은 커맨드들 — 기본값이 바뀌면 여기도 바뀌어야 한다.
+  const want = DEFAULTS.models.planner.model;
+  for (const rel of ['commands/plan.md', 'commands/flow.md']) {
+    const text = fs.readFileSync(path.join(dir, '..', rel), 'utf8');
+    const m = text.match(/planner(?:는)? \*{0,2}([A-Za-z]+)[·•]max/);
+    assert.ok(m, `${rel}에 planner 모델을 적은 문장이 없다`);
+    assert.equal(m[1].toLowerCase(), want, `${rel}가 ${m[1]}이라 적었는데 기본값은 ${want}다`);
+  }
+});
+
+test('SC5 B35: 기본값을 주장하는 파일에 fable이 없다 — 대소문자 무시', () => {
   // 다른 파일(테스트 FIXTURE 등)에는 fable이 정당하게 있다 — 기본 배분을 말하는 곳만 본다.
+  // ⚠ `includes('fable')`은 **`Fable`을 통과시킨다** — 이 레포가 금지하는 우회이고, 실제로
+  //    agent-contract:600·no-config-parity:463의 옛 기본값 주석이 그 구멍으로 살아남았다(2026-10-01 Gap).
   const root = path.join(dir, '..');
-  for (const rel of ['hooks/lib/config-schema.js', 'agents/planner.md', 'agents/architect.md', 'test/agent-contract.test.mjs']) {
-    assert.ok(!fs.readFileSync(path.join(root, rel), 'utf8').includes('fable'), `${rel}에 fable이 남아 있다`);
+  for (const rel of ['hooks/lib/config-schema.js', 'agents/planner.md', 'agents/architect.md',
+    'test/agent-contract.test.mjs', 'test/no-config-parity.test.mjs']) {
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    assert.doesNotMatch(text, /fable/i, `${rel}에 fable이 남아 있다`);
   }
 });
 

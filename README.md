@@ -75,7 +75,7 @@ devkit의 기본값은 만든 사람의 취향이라(한국어·PDCA·`features/
 받쳐주는 것:
 - **receipt** — Bash 명령·출력을 `.devkit/receipts.jsonl`에 남겨 evidence 인용과 대조한다(`/gap`의 `verify-evidence`). 알려진 키 형식 11종만 마스킹하고 그 외는 평문으로 남는다.
 - **감사 로그** — 거부·확인·경고·검증 결과가 `.devkit/audit.jsonl`에 남는다. `/kit audit`로 집계.
-- **무결성 매니페스트** — `INTEGRITY.sha256`이 `hooks/`·`scripts/`의 실행 파일 52개를 해싱한다. **수동 실행**: `node scripts/verify-integrity.mjs`. `agents`·`commands`·`skills`의 `.md`는 대상이 아니다.
+- **무결성 매니페스트** — `INTEGRITY.sha256`이 `hooks/`·`scripts/`의 실행 파일 54개를 해싱한다. **수동 실행**: `node scripts/verify-integrity.mjs`. `agents`·`commands`·`skills`의 `.md`는 대상이 아니다.
 
 ## 구성
 
@@ -106,8 +106,8 @@ devkit의 기본값은 만든 사람의 취향이라(한국어·PDCA·`features/
 
 | 에이전트 | 용도 | 모델 · effort |
 |---|---|---|
-| `planner` | Plan — 읽기전용 탐색 → PLAN.md 본문 | fable · max |
-| `architect` | Design — 설계 확정 → DESIGN.md 본문 | fable · max |
+| `planner` | Plan — 읽기전용 탐색 → PLAN.md 본문 | opus · max |
+| `architect` | Design — 설계 확정 → DESIGN.md 본문 | opus · max |
 | `feature-builder` | feature 구조에 맞춰 구현 | opus · medium |
 | `tdd-driver` | 테스트 우선 구현 | opus · medium |
 | `code-reviewer` | 읽기전용 리뷰 | opus · high |
@@ -117,7 +117,7 @@ devkit의 기본값은 만든 사람의 취향이라(한국어·PDCA·`features/
 
 모델·effort는 에이전트 frontmatter에 고정돼 있다. 훅은 메인 세션 모델을 바꿀 수 없어서 단계를 에이전트로 떼어냈다. 평소 대화·구현은 세션 기본값을 따른다.
 
-`/kit setup`의 모델 선택지는 Claude Code가 갱신하는 로컬 카탈로그(`~/.claude/cache/model-catalog/`)에서 읽는다 — 없거나 깨지면 위 가족 3종·effort 5종으로 떨어진다. Claude Code 서브에이전트 전용이고 Codex에는 적용되지 않는다.
+`/kit setup`의 모델 선택지는 **설치된 CLI의 로컬 캐시**에서 읽는다 — Claude Code는 `~/.claude/cache/model-catalog/`, Codex는 `~/.codex/models_cache.json`이다(둘 다 각 CLI가 스스로 갱신한다). 없거나 깨지면 devkit 기본값에서 유도한 고정 목록으로 떨어진다. **에이전트마다 실행 CLI(`claude`·`codex`)를 따로 정할 수 있고, 설치된 CLI만 선택지에 뜬다** — Codex로 지정한 단계는 커맨드가 `codex exec`로 부르고, 실패하면 Claude로 폴백하며 그 사실을 보고한다.
 
 스킬은 모두 `/이름`으로도 부를 수 있다.
 
@@ -174,7 +174,7 @@ devkit의 기본값은 만든 사람의 취향이라(한국어·PDCA·`features/
 | Template | `templates/pre-commit` | staged 파일 시크릿 검사 + lint 스크립트 실행. `--no-verify`로 우회된다 |
 | Script | `scripts/verify-integrity.mjs` / `gen-integrity.mjs` | 훅 파일 해시 검사 / 매니페스트 재생성 |
 | Script | `scripts/verify-evidence.mjs` | evidence 적합성(ref 실존·인용 대조·커버리지). `/gap`이 부른다 |
-| Script | `scripts/list-models.mjs` | Claude Code 모델 카탈로그 목록·설정 대조(JSON). `/kit setup`이 부른다 |
+| Script | `scripts/list-models.mjs` | Claude Code·Codex 모델 목록·CLI 감지·설정 대조(JSON). `/kit setup`이 부른다 |
 | Script | `scripts/bench-delta.mjs` · `bench-verify.mjs` | 보고 주입량 · `--incremental` 속도 실측 (`--project <path>`) |
 | 기록 | `.devkit/audit.jsonl` | 거부·확인·경고·검증 결과. 시크릿 마스킹 |
 | 기록 | `.devkit/receipts.jsonl` | Bash 명령·출력. **알려진 키 형식 11종만 마스킹** — 그 외(`export K=V`·Bearer 토큰 등)는 평문. 8MB 넘으면 1세대 로테이트 |

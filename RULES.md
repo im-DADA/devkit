@@ -491,7 +491,38 @@ export function formatCurrency(value: number): string {
 - **선택지의 출처는 Claude Code가 갱신하는 로컬 카탈로그**(`~/.claude/cache/model-catalog/`)다 — `/kit setup`은 `scripts/list-models.mjs`로 읽는다. 없거나 깨지거나 모양이 다르면 **기본값의 가족 3종·effort 5종으로 떨어진다**(파일이 없는 것은 정상 상태다 — 로그인 전·다른 OS). 카탈로그 파일에는 읽기만 하고 쓰거나 지우지 않는다.
 - **카탈로그는 선택지와 경고만 만들고 판정에는 관여하지 않는다.** `validateModel`·`validateEffort`는 형태만 본다 — 판정이 외부 파일에 매달리면 그 파일이 낡거나 사라지는 순간 설정이 조용히 기본값으로 떨어진다. 그래서 모델마다 다른 effort 집합(Haiku 0종·4.6 세대 4종)도 마법사의 선택지에서만 반영되고, 허용값은 그대로다.
 - **드리프트는 두 종류다.** 설정 vs frontmatter(플러그인 업데이트가 되돌림 → `/kit setup --reapply`)와 설정 vs 카탈로그(모델 퇴역 → `/kit setup`으로 다시 고른다 — 재적용은 해결이 아니다). 후자는 **카탈로그 id 형태의 값(`claude-…`)이 카탈로그에 없을 때만** 말한다 — 가족 alias(`opus`·`fable`)의 해석은 Claude Code 몫이라 판정하지 않는다. 없는 id를 쓰는 에이전트는 호출 즉시 `model_not_found`(HTTP 404)로 종료된다(2026-09-22 실측). 게이트웨이·`behavesAs` 매핑으로 의도한 값이면 오탐이다.
-- **모델 단계는 Claude Code 서브에이전트 전용이다.** Codex에는 적용되지 않는다 — Codex 서브에이전트의 역할별 모델 지정 경로를 찾지 못했고, `~/.codex/config.toml`의 전역 `model`은 사용자 CLI 기본값이라 devkit이 건드리지 않는다(2026-09-22 결정, 다음 사이클 후보).
+- **모델 단계에는 CLI 축이 있다.** `models.<agent>`는 `{cli, model, effort}`이고 `cli`는 `claude`(기본) 또는 `codex`다 — `cli`가 없는 옛 설정 파일은 병합 때 자동으로 `claude`가 된다(마이그레이션 코드 없음). 선택지에 뜨는 CLI는 **이 머신에 설치된 것만**이다(`hooks/lib/cli-detect.js` — `PATH`의 실행 파일을 정본으로, `~/.claude/`·`~/.codex/`를 보조로 본다. `which`를 spawn하지 않는다). 감지가 틀렸을 때의 탈출구는 `/kit setup --cli=codex`다.
+- **frontmatter는 Claude 전용이고 이 비대칭을 감추지 않는다.** `cli: "codex"`인 에이전트는 `applyModel` 대상에서 빠지고 frontmatter가 **devkit 기본값으로 되돌려진다** — 그 값은 **폴백 정의**다(Codex가 없거나 실패하면 그 값으로 Claude가 돈다). 그래서 `session-start`의 드리프트 경고는 `cli: "codex"` 항목을 **판정하지 않는다**(안 빼면 Codex로 돌리는 에이전트마다 매 세션 거짓 경고가 뜨고, 그게 이 경고의 존재 이유를 스스로 깬다). `effort`의 허용값도 갈린다 — 설정 파일은 `ultra`를 받고(Codex 전용) Claude frontmatter는 받지 않는다.
+
+### Codex 단계 실행 규약
+
+이 절은 **devkit이 `codex exec`를 하위 프로세스로 부르는 경우**다. `~/.codex/AGENTS.md`의 역할 분담("검증은 Claude Code가 한다")은 **사람이 Codex CLI 안에서 직접 일할 때**의 규약이고, 둘은 다른 상황이다.
+
+`/plan`·`/tdd`·`/review`·`/gap`·`/report`·`/flow`는 위임 직전에 `~/.devkit/config.json`의 `models.<agent>.cli`를 본다(파일이 없으면 `claude`다 — 설정하지 않은 사용자에게 이 절은 아무 영향이 없다).
+
+- **`claude`(기본)** — 지금까지와 같다. Task로 서브에이전트를 띄운다. 아래는 전부 무관하다.
+- **`codex`** — Bash로 `codex exec`를 한 번 부른다. 형태를 바꾸지 마라:
+
+```bash
+{ sed '1,/^---$/d' "${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md"; printf '\n\n---\n\n'; cat docs/<사이클>/PLAN.md docs/<사이클>/DESIGN.md; } \
+  | codex exec -m <model> -c model_reasoning_effort=<effort> -s <read-only|workspace-write> \
+      -C "$(pwd)" -o "docs/<사이클>/.codex-<agent>.txt" -
+```
+
+  - 프롬프트는 **stdin(`-`)** 으로 준다(2026-09-30 실측). 인자로 주면 셸 이스케이프 지옥이 된다.
+  - `sed '1,/^---$/d'`가 frontmatter를 뗀다 — `model:`·`tools:`는 Claude Code 전용 키이고 Codex에는 뜻이 없다. 이 명령이 본문 첫 줄을 보존하는 것은 2026-10-01에 실측했다.
+  - 이번 단계의 입력은 **본문 뒤에** 이어 붙인다 — `cat`에 **파일 경로를 그대로** 적어라. `<…>` 꼴 placeholder를 `cat` 뒤에 남기면 셸이 리다이렉션으로 읽어 parse error가 난다.
+  - `effort`는 **`-c model_reasoning_effort=<v>`** 다(2026-09-30 실측 확정 — 오타 키는 `unknown configuration field`로 거부된다). `--effort`가 아니다.
+  - `-s`는 **에이전트마다 devkit이 명시한다**(기본값에 기대지 않는다): 파일을 쓰는 단계(`feature-builder`·`tdd-driver`·`test-writer`)는 `workspace-write`(승인 프롬프트 없이 파일을 쓰는 것을 실측했다), 읽고 판정만 하는 단계(`code-reviewer`·`gap-detector`)는 `read-only`.
+  - 결과는 **`-o` 파일에서만 읽는다. stdout을 파싱하지 마라** — 사용자 `~/.codex/hooks.json`의 훅 출력이 섞이는 것을 실측했다(v0.155.1에서는 **stderr**로 나갔다 — 버전에 따라 채널이 달라질 수 있으니 어느 쪽도 파싱하지 않는다).
+  - `-o` 파일은 **지우지 않는다.** Codex가 무엇을 냈는지 사후에 볼 수 있는 유일한 흔적이다. 같은 단계를 다시 부르면 덮어쓴다. 파일명이 `.`으로 시작하므로 `/cycles` 목록과 evidence 대조에는 끼지 않는다.
+  - Bash 도구의 `timeout`을 **허용 최대치로** 준다. Codex 한 번 호출은 분 단위다 — 기본 타임아웃에 걸려 죽으면 폴백으로 오인된다.
+  - ❌ `--dangerously-bypass-approvals-and-sandbox` · `--dangerously-bypass-hook-trust`를 **쓰지 않는다.** 승인·샌드박스·훅 신뢰를 사용자 대신 devkit이 꺾는 결정이다. 사용자 Codex 훅이 실패해 단계가 실패하면 그 훅을 끄지 말고 **폴백**한다.
+- **폴백은 조용하지 않다.** 셋 중 하나면 그 단계를 **Claude 서브에이전트로 다시 돌리고** 보고에 한 줄 적는다: ① `codex`를 찾지 못했다 ② exit ≠ 0 ③ `-o` 파일이 없거나 비었다.
+  - ⚠ **git 레포가 아니면 `codex exec`는 즉시 실패한다**(`Not inside a trusted directory and --skip-git-repo-check was not specified.`, 2026-10-01 실측). devkit은 그 플래그를 붙이지 않는다 — 사용자 신뢰 경계를 대신 꺾는 결정이다. 대신 **폴백 보고에 이 사유를 적어** 사용자가 "설정했는데 늘 실패한다"로 오해하지 않게 한다.
+  예: `⚠ tdd-driver를 Codex(gpt-6-astra · xhigh)로 돌리려 했으나 실패했다(exit 1) — Claude(agents/tdd-driver.md의 값)로 대신 돌렸다. 설정은 그대로다. Codex가 이미 쓴 파일이 있을 수 있으니 git status로 확인하라.`
+- **Codex 실행은 사용자 Codex 계정의 사용량을 쓴다**(Claude 구독과 별 축이다). 마법사가 Codex를 고를 때 한 번, 실행 보고에 한 번 알린다.
+- **`planner`·`architect`·`report-writer`는 마법사가 Codex 선택지에서 뺀다** — 도구가 없어서가 아니라 계약이다("본문을 반환하고 파일 쓰기는 커맨드가 한다"를 `codex exec -o`로 성립시키는 것을 검증하지 않았다). 설정 파일을 손으로 고쳐 그 셋을 `codex`로 둘 수는 있다 — 그때 커맨드는 **이 절을 그대로 따르고** 보고에 "검증되지 않은 경로다"를 한 줄 적는다. 조용히 무시하면 "설정했는데 안 먹는" 상태가 된다.
 
 ## 커밋 메시지
 

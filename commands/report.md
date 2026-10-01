@@ -16,6 +16,7 @@ allowed-tools:
 
 한 사이클을 마무리하며 완료 리포트를 만들고 사이클 폴더를 아카이빙한다. 규약 상세는 RULES.md "PDCA 사이클".
 
+0. **실행 CLI를 먼저 본다.** `~/.devkit/config.json`의 `models.report-writer.cli`가 `codex`면 Task가 아니라 `codex exec`로 부른다 — 호출 형태·샌드박스·폴백은 `RULES.md`의 `### Codex 단계 실행 규약` 한 곳에 있다. 파일이 없거나 `claude`면 아래 그대로. ❌ `--dangerously-*` 플래그는 쓰지 않는다.
 1. 사이클 폴더 확인 — `.devkit/pdca-state.json`의 `cycleId` → `docs/{cycle}/`.
 2. **하드 게이트** — `docs/{cycle}/`에 `behaviors.json`·`GAP.md`·`REVIEW.md` 중 하나라도 없으면(빈 파일도 없는 것으로 본다) 없는 것과 만드는 커맨드(`/plan`의 behavior 단계 · `/gap` · `/review`)를 안내하고 **여기서 중단**한다. Gap 통과 조건은 `unproven == 0`(증거 없는 통과 주장이 0건)이다 — Match Rate 숫자가 아니다. (같은 판정을 훅 `hooks/pdca-gate.js`가 REPORT.md 쓰기 시점에 별도로 강제한다.)
 3. **report-writer 에이전트**를 Task로 띄워 `docs/{cycle}/PLAN.md`·`DESIGN.md`·`GAP.md`·`REVIEW.md`·`git diff`·테스트를 종합.

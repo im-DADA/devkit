@@ -12,6 +12,7 @@ allowed-tools:
 
 변경분을 커밋/PR 낼 수 있게 준비한다. **실제 커밋·푸시·PR 생성은 사용자 승인 후에만.**
 
+0. **실행 CLI를 먼저 본다.** `~/.devkit/config.json`의 `models.<그 단계의 에이전트>.cli`가 `codex`면 Task가 아니라 `codex exec`로 부른다 — 호출 형태·샌드박스·폴백은 `RULES.md`의 `### Codex 단계 실행 규약` 한 곳에 있다. 파일이 없거나 `claude`면 아래 그대로. ❌ `--dangerously-*` 플래그는 쓰지 않는다.
 1. `git status` / `git diff`로 변경 확인.
 2. code-reviewer 에이전트로 빠른 리뷰 → 🔴 버그 있으면 먼저 알리고 진행 여부 확인.
 3. **Conventional Commit 메시지 초안** 작성:

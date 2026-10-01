@@ -13,6 +13,7 @@ allowed-tools:
 
 인자로 받은 기능을 **TDD로** 구현한다.
 
+0. **실행 CLI를 먼저 본다.** `~/.devkit/config.json`의 `models.tdd-driver.cli`가 `codex`면 Task가 아니라 `codex exec`로 부른다 — 호출 형태·샌드박스·폴백은 `RULES.md`의 `### Codex 단계 실행 규약` 한 곳에 있다. 파일이 없거나 `claude`면 아래 그대로. ❌ `--dangerously-*` 플래그는 쓰지 않는다.
 1. 인자(`$ARGUMENTS`)가 비었으면 무엇을 만들지 한 줄 물어보고 대기.
 2. **tdd-driver 에이전트**에 위임 — 레드-그린-리팩터 루프 실행:
    - 기능을 behavior 목록으로 쪼갬 → 사용자에게 목록 확인
