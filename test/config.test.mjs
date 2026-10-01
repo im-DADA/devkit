@@ -249,3 +249,60 @@ test('🔴 허용값 밖 값의 원문이 problems에 실리지 않는다', () =
     '거부한 값을 그대로 echo했다 — 시크릿을 적어 넣은 사용자에게 유출 경로가 된다');
   assert.match(problems.join(' '), /tone/, '어느 키가 문제인지는 말해야 한다');
 });
+
+// ── SC1~SC6: CLI 축과 기본 모델 (B14~B16·B33·B35·B36) ──────────
+// 설계: docs/2026-09-30-wizard-slim-multi-cli/DESIGN.md §3.7·§4.6·§8.3
+
+test('SC1: cli 없는 옛 설정은 claude로 병합되고 키 순서가 보존된다', () => {
+  const { config, problems } = mergeConfig({ models: { planner: { model: 'fable', effort: 'max' } } });
+  assert.deepEqual(config.models.planner, { cli: 'claude', model: 'fable', effort: 'max' });
+  assert.deepEqual(problems, []);
+  // 키 순서가 DEFAULTS와 같아야 isDefault의 JSON.stringify 비교가 성립한다(§3.7).
+  assert.deepEqual(Object.keys(config.models.planner), Object.keys(DEFAULTS.models.planner));
+});
+
+test('SC1b: DEFAULTS를 그대로 적어 넣으면 problems가 비고 isDefault가 참이다', () => {
+  // ⚠ SPEC에 cli가 빠지면 problems에만 쌓이고 stderr로 흐른다 — P1은 stdout만 보므로
+  // 그 침묵을 아무 테스트도 잡지 못한다(DESIGN §1-②). 이 단언이 그 구멍을 막는다.
+  const { config, problems } = mergeConfig(JSON.parse(JSON.stringify(DEFAULTS)));
+  assert.deepEqual(problems, []);
+  assert.equal(isDefault(config), true);
+});
+
+test('SC2: 모르는 cli는 거부되고 같은 에이전트의 model·effort는 살아남는다', () => {
+  const { config, problems } = mergeConfig({ models: { planner: { cli: 'gemini', model: 'sonnet', effort: 'low' } } });
+  assert.equal(config.models.planner.cli, 'claude');
+  assert.equal(config.models.planner.model, 'sonnet');
+  assert.equal(config.models.planner.effort, 'low');
+  assert.ok(problems.some((p) => p.includes('models.planner.cli')), problems.join(' | '));
+  assert.ok(!problems.join(' ').includes('gemini'), '거부된 값 원문을 problems에 싣지 않는다');
+});
+
+test('SC3: cli codex와 ultra effort를 함께 받는다', () => {
+  const { config, problems } = mergeConfig({ models: { 'tdd-driver': { cli: 'codex', effort: 'ultra' } } });
+  assert.deepEqual(config.models['tdd-driver'], { cli: 'codex', model: 'opus', effort: 'ultra' });
+  assert.deepEqual(problems, []);
+});
+
+test('SC4: planner·architect 기본 모델이 opus다', () => {
+  assert.deepEqual(DEFAULTS.models.planner, { cli: 'claude', model: 'opus', effort: 'max' });
+  assert.deepEqual(DEFAULTS.models.architect, { cli: 'claude', model: 'opus', effort: 'max' });
+});
+
+test('SC5: 기본값을 주장하는 네 파일에 fable이 없다', () => {
+  // 다른 파일(테스트 FIXTURE 등)에는 fable이 정당하게 있다 — 기본 배분을 말하는 곳만 본다.
+  const root = path.join(dir, '..');
+  for (const rel of ['hooks/lib/config-schema.js', 'agents/planner.md', 'agents/architect.md', 'test/agent-contract.test.mjs']) {
+    assert.ok(!fs.readFileSync(path.join(root, rel), 'utf8').includes('fable'), `${rel}에 fable이 남아 있다`);
+  }
+});
+
+test('SC6: 폴백 목록은 DEFAULTS에서 유도된다 — 하드코딩 상수가 아니다', () => {
+  const { fallbackChoices } = require_(path.join(dir, '..', 'hooks', 'lib', 'model-catalog.js'));
+  const { EFFORTS } = require_(path.join(dir, '..', 'hooks', 'lib', 'agent-frontmatter.js'));
+  assert.deepEqual(fallbackChoices(), {
+    models: [...new Set(Object.values(DEFAULTS.models).map((m) => m.model))],
+    efforts: [...EFFORTS],
+  });
+  assert.equal(fallbackChoices().models.length, 2, 'planner·architect가 opus가 된 뒤 fable이 빠진다(R10)');
+});

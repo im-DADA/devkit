@@ -509,7 +509,8 @@ test('P15: 모델을 바꿨다 되돌리면 파일이 바이트 단위로 원상
   assert.equal(reverted.ok, true);
   assert.equal(Buffer.compare(Buffer.from(reverted.text), Buffer.from(before)), 0,
     '되돌렸는데 원본과 다르다 — reset이 잔재를 남긴다');
-  assert.deepEqual(readModel(reverted.text), D.models.planner);
+  // cli는 frontmatter에 없는 축이므로 model·effort만 대조한다(DESIGN §4단계의 비대칭).
+  assert.deepEqual(readModel(reverted.text), { model: D.models.planner.model, effort: D.models.planner.effort });
 });
 
 test('P15b: 지금 저장소는 무결성 검증을 통과한다 (B20의 나머지 절반)', () => {

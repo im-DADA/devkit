@@ -49,14 +49,14 @@ const DEFAULTS = deepFreeze({
     tscOnEdit: false,
   },
   models: {
-    planner: { model: 'opus', effort: 'max' },
-    architect: { model: 'opus', effort: 'max' },
-    'code-reviewer': { model: 'opus', effort: 'high' },
-    'feature-builder': { model: 'opus', effort: 'medium' },
-    'tdd-driver': { model: 'opus', effort: 'medium' },
-    'gap-detector': { model: 'sonnet', effort: 'high' },
-    'test-writer': { model: 'sonnet', effort: 'medium' },
-    'report-writer': { model: 'sonnet', effort: 'low' },
+    planner: { cli: 'claude', model: 'opus', effort: 'max' },
+    architect: { cli: 'claude', model: 'opus', effort: 'max' },
+    'code-reviewer': { cli: 'claude', model: 'opus', effort: 'high' },
+    'feature-builder': { cli: 'claude', model: 'opus', effort: 'medium' },
+    'tdd-driver': { cli: 'claude', model: 'opus', effort: 'medium' },
+    'gap-detector': { cli: 'claude', model: 'sonnet', effort: 'high' },
+    'test-writer': { cli: 'claude', model: 'sonnet', effort: 'medium' },
+    'report-writer': { cli: 'claude', model: 'sonnet', effort: 'low' },
   },
   _appliedAt: null,
 });
@@ -68,7 +68,10 @@ const isBool = (v) => typeof v === 'boolean';
 const isNonNegInt = (v) => Number.isInteger(v) && v >= 0;
 const isSeconds = (v) => Number.isFinite(v) && v > 0;
 const isName = (v) => typeof v === 'string' && v.trim().length > 0 && !/\s/.test(v);
-const isEffort = (v) => (typeof v === 'string' && ['low', 'medium', 'high', 'xhigh', 'max'].includes(v))
+// CLI 종류만 열거한다 — 모델명과 달리 devkit이 **실행 분기를 직접 적기** 때문이다.
+// 모르는 CLI 이름을 받아도 부를 방법이 없고, 조용히 안 불리는 것보다 거부가 낫다.
+const CLIS = enumOf('claude', 'codex');
+const isEffort = (v) => (typeof v === 'string' && ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(v))
   || (Number.isInteger(v) && v > 0);
 const isKinds = (v) => Array.isArray(v) && v.every((k) => ['typecheck', 'lint'].includes(k));
 const isIsoOrNull = (v) => v === null || (typeof v === 'string' && !Number.isNaN(Date.parse(v)));
@@ -115,7 +118,7 @@ const SPEC = {
     timeouts: { typecheck: isSeconds, lint: isSeconds },
     tscOnEdit: isBool,
   },
-  models: Object.fromEntries(AGENTS.map((a) => [a, { model: isName, effort: isEffort }])),
+  models: Object.fromEntries(AGENTS.map((a) => [a, { cli: CLIS, model: isName, effort: isEffort }])),
   _appliedAt: isIsoOrNull,
 };
 

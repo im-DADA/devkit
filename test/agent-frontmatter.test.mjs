@@ -49,7 +49,10 @@ test('U18: DEFAULTS.models 8개가 실제 agents 파일의 frontmatter와 같다
   for (const name of AGENTS) {
     const got = readModel(agentMd(name));
     assert.ok(got, `${name}.md에서 model·effort를 못 읽었다`);
-    assert.deepEqual(got, DEFAULTS.models[name], `${name}: 기본값이 실물과 어긋났다`);
+    // ⚠ `cli`는 **frontmatter로 표현되지 않는 축**이다(Claude Code 전용 키가 아니다).
+    // 그래서 실물 대조는 model·effort만 본다 — 이 비대칭은 의도된 것이다.
+    const { model, effort } = DEFAULTS.models[name];
+    assert.deepEqual(got, { model, effort }, `${name}: 기본값이 실물과 어긋났다`);
   }
 });
 
