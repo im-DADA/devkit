@@ -487,6 +487,8 @@ export function formatCurrency(value: number): string {
 - **대가: 플러그인을 업데이트하면 설정이 풀린다.** 풀리는 방향이 기본값이라 안전하지만 조용하다. `session-start`가 어긋남을 탐지해 `/kit setup --reapply`를 안내하는 것이 **유일한 방어선**이다.
 - `INTEGRITY.sha256`은 `hooks/`·`scripts/`만 덮으므로 이 변경의 대상이 아니다. **`/kit setup`은 매니페스트를 재생성하지 않는다** — 재생성하면 그 시점 `hooks/`의 상태를 무조건 정당화해 변조 탐지의 기준선을 말없이 다시 긋게 된다.
 - `effort` 허용값은 `low|medium|high|xhigh|max` 또는 양의 정수다. 허용값 밖이면 그 에이전트는 **건너뛴다**(파일을 열지 않는다).
+- **effort는 묻지 않고 유도한다.** `cli`가 `claude`면 `DEFAULTS.models[agent].effort`를 그대로 쓴다 — 카탈로그의 권장값으로 덮으면 `planner`의 `max`가 조용히 내려가 "계획은 가장 비싼 판단"이라는 배분이 뒤집힌다. `cli`가 `codex`면 그 모델의 권장값을 쓰고, 없으면 **effort 줄을 손대지 않는다**(모르는 값을 고른 척하지 않는다).
+- **마법사가 Codex 후보로 제시하는 것은 파일을 직접 쓰는 단계뿐이다**(`feature-builder`·`tdd-driver`·`test-writer`). 나머지 다섯은 본문을 반환하고 파일 쓰기는 커맨드가 하는 계약이라 `codex exec`가 마크다운 본문을 온전히 담는지 **검증되지 않았다**. 설정 스키마는 여덟 단계 전부에 `cli: codex`를 받으므로 손으로 적을 수는 있고, 그 조합은 **미검증**이다.
 
 - **선택지의 출처는 Claude Code가 갱신하는 로컬 카탈로그**(`~/.claude/cache/model-catalog/`)다 — `/kit setup`은 `scripts/list-models.mjs`로 읽는다. 없거나 깨지거나 모양이 다르면 **기본값의 가족 3종·effort 5종으로 떨어진다**(파일이 없는 것은 정상 상태다 — 로그인 전·다른 OS). 카탈로그 파일에는 읽기만 하고 쓰거나 지우지 않는다.
 - **카탈로그는 선택지와 경고만 만들고 판정에는 관여하지 않는다.** `validateModel`·`validateEffort`는 형태만 본다 — 판정이 외부 파일에 매달리면 그 파일이 낡거나 사라지는 순간 설정이 조용히 기본값으로 떨어진다. 그래서 모델마다 다른 effort 집합(Haiku 0종·4.6 세대 4종)도 마법사의 선택지에서만 반영되고, 허용값은 그대로다.

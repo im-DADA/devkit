@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { DEFAULTS } = require('../hooks/lib/config-schema');
+const { DEFAULTS, AGENTS } = require('../hooks/lib/config-schema');
 const { EFFORTS } = require('../hooks/lib/agent-frontmatter');
 const root = path.resolve(new URL('..', import.meta.url).pathname);
 const temporary = [];
@@ -146,12 +146,16 @@ test('I8 B7 B12: cc-version은 belowVersion만 만들고 선택지는 줄이지 
   assert.equal(script(home,['--cc-version=2.1.278']).ccVersion,'2.1.278');
 });
 // ⚠ 앵커가 '### 모델 배분'이다 — 마법사가 3라운드가 되며 번호가 사라졌다(2026-10-01).
-const kitSetupStep10 = () => fs.readFileSync(path.join(root,'commands/kit.md'),'utf8').split('\n### 모델 배분\n')[1].split('\n### ')[0];
-test('문서 D1 B15: 모델 단계와 setup show의 카탈로그 계약', () => {
-  const doc=fs.readFileSync(path.join(root,'commands/kit.md'),'utf8'); const step=doc.split('\n### 모델 배분\n')[1].split('\n### ')[0];
-  // "Codex 미적용" 두 문장은 B30이 삭제를 요구한다 — 대신 CLI 축의 단어를 고정한다.
-  for (const word of ['list-models.mjs','choices','efforts','fallback','fetchedAt','stale','clis','offer','ultra','두 CLI의 모델을 한 목록에 섞지 마라']) assert.ok(step.includes(word),word);
-  assert.ok(!step.includes('--reapply')); assert.ok(doc.split('### `setup show`')[1].split('\n### ')[0].includes('--check'));
+const wizardSection = () => fs.readFileSync(path.join(root,'commands/kit.md'),'utf8')
+  .split('\n### 마법사 절차\n')[1].split('\n### ')[0];
+test('문서 D1 B15: 마법사 절차와 setup show의 카탈로그 계약', () => {
+  const doc=fs.readFileSync(path.join(root,'commands/kit.md'),'utf8'); const step=wizardSection();
+  // ⚠ 앵커가 `모델 배분` → `마법사 절차`로 **이사했다**(2026-10-02). 선택지 구성 지시가
+  //    setup-plan.js로 옮겨가면서 이 절에는 "스크립트를 부르고 그대로 묻는다"만 남았다.
+  //    옛 단어(choices·efforts·fallback·fetchedAt·stale·ultra·두 CLI를 섞지 마라)는 문서가 아니라
+  //    **동작**이 지킨다 — setup-plan.test.mjs의 S13·S14다(DESIGN §5 A1~A6).
+  for (const word of ['list-models.mjs','clis','offer','--plan']) assert.ok(step.includes(word),word);
+  assert.ok(!modelSection().includes('--reapply')); assert.ok(doc.split('### `setup show`')[1].split('\n### ')[0].includes('--check'));
 });
 test('문서 D2 B19: 규칙/README/도움말/evals에 출처와 CC 전용', () => {
   const rules=fs.readFileSync(path.join(root,'RULES.md'),'utf8').split('### 에이전트 모델 배분')[1].split('\n### ')[0];
@@ -161,17 +165,15 @@ test('문서 D2 B19: 규칙/README/도움말/evals에 출처와 CC 전용', () =
   const evals=fs.readFileSync(path.join(root,'evals/README.md'),'utf8'); for (const word of ['list-models.mjs','codex exec','CLI 질문']) assert.ok(evals.includes(word),`evals: ${word}`);
 });
 
-test('문서 B22: 10단계가 낡은 EXECPATH를 1차 버전원으로 쓰지 않는다', () => {
-  const step = kitSetupStep10();
+test('문서 B22: 마법사 절차가 낡은 EXECPATH를 1차 버전원으로 쓰지 않는다', () => {
+  const step = wizardSection();
   assert.match(step, /claude --version/);
   // env가 낡는다는 사실과 "모르면 안 넘긴다"는 처방이 둘 다 있어야 한다.
   assert.match(step, /런처 경로라 실행 중 버전보다 \*\*낡는다\*\*|낡는다/);
   assert.match(step, /큰 값/);
   assert.match(step, /인자를 넘기지 마라/);
-  // 설명·권장값을 보여주라는 지시가 살아 있어야 한다(이름만 나열하는 회귀 방지).
-  assert.match(step, /description/);
-  assert.match(step, /notice/);
-  assert.match(step, /recommended/);
+  // 설명·권장값을 보여주라는 **지시**는 사라졌다 — 이제 문자열을 setup-plan.js가 완성해 준다.
+  // 그 자리는 S4(모든 설명이 비지 않는다)와 S13(notice 분기)이 **동작으로** 지킨다(DESIGN §5 B2).
 });
 
 test('문서 B23: evals 모델 단계 행이 표에서 끊기지 않는다', () => {
@@ -360,8 +362,10 @@ test('문서 DOC1 B19: 모델 적용이 CLI별로 갈리고 Codex는 기본값�
 
 test('문서 DOC2 B25 B27 B28 B37: 라운드 축소·4선택지 제약·Codex 제외 사유·목록 밖 입력', () => {
   const doc = kitDoc();
-  for (const word of ['한 라운드에 세 문항','24개 항목','직접 고르기','최대 4개','4개씩 나눠 라운드',
-    '8종을 하나씩 묻지 않는다','report-writer','검증하지 않았다','목록에 없는 모델도 그대로 적을 수 있다']) {
+  // 옛 다라운드 문구 5건은 **IP7이 부재를 단언한다.** 그 의도는 문서가 아니라 실행이 받는다 —
+  // `한 라운드에 세 문항`·`8종을 하나씩`→S1(라운드 1·문항 ≤2), `최대 4개`·`4개씩`→S4(선택지 ≤4),
+  // `24개 항목`→SP1·SP2(잎 키 대조·수치 부재). DESIGN §5 C1.
+  for (const word of ['직접 고르기','report-writer','검증하지 않았다','목록에 없는 모델도 그대로 적을 수 있다']) {
     assert.ok(doc.includes(word), `kit.md에 ${word}가 없다`);
   }
   // 재적용은 카탈로그 드리프트의 처방이 아니다 — 모델 배분 절에 들어오면 안 된다.
@@ -517,22 +521,196 @@ test('IX15 B12: Claude 카탈로그가 심링크면 읽지 않고 링크 대상�
 // 앵커는 네 글자 이하·일반 명사를 피한다(직전 리뷰가 `clis`(4자)를 약한 앵커로 지적했다).
 // 부재 단언은 **commands/kit.md 한 파일로 좁힌다** — `통째로 사라진다`는 다른 4개 파일에
 // 무관한 뜻으로 존재한다(no-config-parity:445 · verify-classify:289 · receipt.js · rules-sync.js).
-test('문서 DOC6 B14 B15: 빼지 않고 업데이트를 안내하고 priority·effort 순서의 근거를 적는다', () => {
+test('문서 DOC6 B14 B15: 휘발성 수치와 뜻이 뒤집힌 옛 문장이 kit.md에 없다', () => {
   const doc = kitDoc();
-  const step = modelSection();
-  for (const word of ['선택지에서 빼지 않는다','claude update','하위 세대로 내려준다',
-    '오름차순','작을수록 상위','캐시 순서를 지키며 뒤로','관측이지 보장이 아니다','2026-10-01','과하게 잡혀']) {
-    assert.ok(step.includes(word), `모델 배분 절에 "${word}"가 없다`);
-  }
-  // alias와 id 고정의 **분기**를 고정한다 — 한 문구로 합치면 동작하는 선택지(alias)에
-  // 불필요한 `claude update`가 붙는다(2026-10-01 리뷰 🟡2). 뭉뚱그리기로의 회귀를 막는다.
-  for (const word of ['차단 경고를 붙이지 마라','id 고정']) {
-    assert.ok(step.includes(word), `모델 배분 절에 "${word}"가 없다`);
-  }
+  // ⚠ **이 테스트는 이제 부재만 본다.** 옛 presence 단언 9건은 선택지 구성 지시와 함께
+  //    setup-plan.js로 옮겨갔고, 그 자리는 S13이 **동작으로** 지킨다(DESIGN §5 D1~D5):
+  //      선택지에서 빼지 않는다 → S13(미달 모델이 있어도 options 4개가 유지된다)
+  //      claude update·하위 세대로 내려준다·차단 경고를 붙이지 마라·id 고정
+  //                              → S13(alias의 notice에 claude update가 **없고** id 고정에는 있다)
+  //      오름차순·작을수록 상위·캐시 순서를 지키며 뒤로 → 기존 IX16·CX6(정렬 결과와 입력 불변)
+  //    대체 없이 사라진 것은 3건이고 숨기지 않는다 — `관측이지 보장이 아니다`와 `과하게 잡혀`는
+  //    effort 문항이 없어지며 **규칙 자체가 소멸**했고(남은 성질은 CX6-7이 덮는다), 날짜 `2026-10-01`은
+  //    애초에 어떤 동작도 지키지 않아 돌연변이를 만들 수 없었다.
   // 휘발성 수치는 문서에 박지 않는다 — 캐시가 하루 안에 바뀌는 것을 리뷰 중 관측했다.
   assert.ok(!doc.includes('가시 7종'), 'kit.md에 고정된 가시 모델 수가 남아 있다');
   assert.doesNotMatch(doc, /`gpt-[0-9]/, 'kit.md에 Codex 모델 슬러그가 박혀 있다');
   // 뜻이 뒤집힌 옛 문장이 남아 있으면 안 된다.
   assert.ok(!doc.includes('통째로 사라진다'), 'kit.md에 "통째로 사라진다"가 남아 있다');
   assert.ok(!doc.includes('선택지에 넣지 말고'), 'kit.md에 "선택지에 넣지 말고"가 남아 있다');
+});
+
+// ── IP1~IP5: `--plan` 전달 계약 (B13~B17) ─────────────────────
+// 설계: docs/2026-10-01-wizard-question-budget/DESIGN.md §2
+// 이 모드가 있는 이유는 마법사가 **문항을 발명하지 못하게** 하는 것이다 — 문항 문자열을
+// 스크립트가 완성해 주면 커맨드에는 "그대로 넘긴다" 한 문장만 남는다(결함로그 D8).
+const planLib = () => require('../hooks/lib/setup-plan.js');
+
+test('IP1 B13: --plan이 문항 본문을 그대로 담은 한 줄 JSON을 내고 exit 0이다', () => {
+  const home = homeWith(null,{'u-h-cc.json':fixtureText},codexBody());
+  const j = script(home,['--plan']);
+  assert.equal(j.mode,'plan');
+  assert.ok(Array.isArray(j.plan.rounds) && j.plan.rounds.length === 1);
+  // 전달 중 **변형 0**을 본다. 같은 식을 두 번 쓰는 항등식이 아니라 **두 경로**의 비교다 —
+  // 왼쪽은 자식 프로세스의 stdout, 오른쪽은 이 프로세스가 모듈을 직접 부른 값이다.
+  const direct = planLib().basePlan({offer:j.offer,codexChoices:j.clis.codex.choices,cfg:DEFAULTS});
+  assert.deepEqual(j.plan.rounds,direct.rounds,'스크립트가 문항을 가공했다');
+  assert.deepEqual(j.plan.patches,direct.patches);
+  assert.equal(typeof j.plan.path,'string');
+});
+
+test('IP2 B14: 카탈로그와 Codex 캐시가 없어도 문항을 내고 Codex 문항만 사라진다', () => {
+  const both = script(homeWith(null,{'u-h-cc.json':fixtureText},codexBody()),['--plan']);
+  assert.deepEqual(both.plan.rounds[0].questions.map((q)=>q.header),['설정 범위','구현 CLI']);
+  for (const home of [homeWith(null,{'u-h-cc.json':fixtureText}), homeWith(null)]) {
+    const j = script(home,['--plan']);   // script()가 exit 0과 1줄을 이미 단언한다
+    assert.equal(j.plan.rounds.length,1);
+    assert.ok(j.plan.rounds[0].questions.length >= 1);
+    assert.deepEqual(j.plan.rounds[0].questions.map((q)=>q.header),['설정 범위'],
+      'Codex가 없는데 구현 CLI를 물었다');
+    assert.ok(j.plan.notes.length >= 1,'사라진 사유가 없다');
+  }
+});
+
+test('IP3 B15: --plan은 홈과 프로젝트에 파일을 쓰지 않는다', () => {
+  const home = homeWith(null,{'u-h-cc.json':fixtureText},codexBody());
+  const before = tree(home); const projBefore = fs.readdirSync(root).sort();
+  script(home,['--plan']); script(home,['--plan','--agent','tdd-driver']);
+  assert.deepEqual(tree(home),before);
+  assert.deepEqual(fs.readdirSync(root).sort(),projBefore);
+});
+
+test('IP4 B16: 세 모드의 최상위 키 집합과 agents 8행이 보존된다 (키 집합 수준)', () => {
+  // ⚠ 이름대로 **키 집합 수준**이다. "바이트 동일"은 여기서 증명하지 않는다 —
+  // 옛 스크립트를 HEAD에서 꺼내 비교하면 이 사이클을 커밋하는 순간 자기참조가 된다(D24 ①).
+  // 바이트 비교는 구현 중 1회 수동으로 하고 러너 원문을 REPORT에 남긴다(DESIGN §2.5).
+  const home = homeWith(null,{'u-h-cc.json':fixtureText},codexBody());
+  const base = ['ccVersion','claude','cli','clis','detected','fallback','mode','note','offer'];
+  const expect = { list: base, check: [...base,'agents','config'], plan: [...base,'plan'] };
+  for (const [mode,keys] of Object.entries(expect)) {
+    const j = script(home, mode === 'list' ? [] : [`--${mode}`]);
+    assert.deepEqual(Object.keys(j).sort(),[...keys].sort(),`${mode} 모드의 키 집합이 달라졌다`);
+    assert.equal(j.mode,mode);
+    if (mode !== 'plan') assert.equal('plan' in j,false,`${mode}에 plan이 샜다`);
+  }
+  const chk = script(home,['--check']);
+  assert.deepEqual(chk.agents.map((r)=>r.agent),[...AGENTS]);
+  assert.deepEqual(Object.keys(chk.config).sort(),['modelsDefault','path']);
+  // --check가 --plan보다 먼저다. 둘 다 주면 check이고 plan 키는 생기지 않는다.
+  const both = script(home,['--check','--plan']);
+  assert.equal(both.mode,'check'); assert.equal('plan' in both,false);
+});
+
+test('IP5 B17: --plan이 기본값과 현재 설정의 차이를 함께 실어 준다', () => {
+  const plain = script(homeWith(null,{'u-h-cc.json':fixtureText},codexBody()),['--plan']);
+  assert.equal(plain.plan.current.isDefault,true);
+  assert.deepEqual(plain.plan.current.nonDefault,{});
+  assert.deepEqual(plain.plan.defaults,DEFAULTS,'마법사가 config-schema.js를 따로 읽어야 한다');
+  const tuned = JSON.stringify({version:1,models:{'tdd-driver':{cli:'codex',model:'gpt-6-astra',effort:'high'}}});
+  const j = script(homeWith(tuned,{'u-h-cc.json':fixtureText},codexBody()),['--plan']);
+  assert.equal(j.plan.current.isDefault,false);
+  assert.deepEqual(j.plan.current.nonDefault,{'tdd-driver':{cli:'codex',model:'gpt-6-astra',effort:'high'}});
+  // --agent는 한 단계의 문항을 더 싣는다. 모르는 이름이면 null이고 exit 0이다.
+  const one = script(homeWith(null,{'u-h-cc.json':fixtureText},codexBody()),['--plan','--agent=tdd-driver']);
+  assert.equal(one.plan.model.agent,'tdd-driver');
+  assert.equal(one.plan.model.group,'writesFiles');
+  assert.equal(script(homeWith(null),['--plan','--agent','nope']).plan.model,null);
+});
+
+// ── IP6~IP8: 마법사 절차의 문안 계약 (B18~B20) ────────────────
+// ⚠ 형태 관찰이다(문서 문자열 존재). 이름에 그렇게 밝히고 동작 단언과 섞지 않는다(RULES.md:412).
+test('문서 IP6 B18: 마법사 절차가 문항을 열거하지 않고 --plan 출력을 그대로 묻게 한다', () => {
+  const step = wizardSection();
+  for (const word of ['--plan','rounds[0].questions','map','patches','notes','백업','승인',
+    '한 라운드','문항을 발명하지 마라','라운드를 늘리지 마라','프리셋 표를 그리지 마라']) {
+    assert.ok(step.includes(word), `마법사 절차에 "${word}"가 없다`);
+  }
+  // 선택지를 문서가 다시 적으면 그 사본이 낡고, 모델이 둘 중 하나를 고르게 된다.
+  assert.doesNotMatch(step, /`label`\s*[:·]/, '마법사 절차가 선택지를 열거한다');
+});
+
+test('문서 IP7 B19: 옛 다라운드 문구가 kit.md에서 사라졌다', () => {
+  const doc = kitDoc();
+  for (const word of ['한 라운드에 세 문항','4개씩 나눠 라운드','최대 4개','8종을 하나씩 묻지 않는다',
+    '24개 항목','프리셋 표를 먼저 그린다','세 프리셋']) {
+    assert.ok(!doc.includes(word), `kit.md에 옛 문구 "${word}"가 남아 있다`);
+  }
+});
+
+test('문서 IP8 B20: effort를 묻는 지시가 없고 유도 규칙이 각 한 곳에만 있다', () => {
+  const doc = kitDoc();
+  assert.ok(!doc.includes('effort 문항'), 'kit.md에 effort 문항 지시가 남아 있다');
+  assert.ok(!doc.includes('첫 칸'), 'kit.md에 effort 기본 포커스 지시가 남아 있다');
+  const key = 'effort는 묻지 않고 유도한다';
+  assert.equal(doc.split(key).length - 1, 1, `kit.md의 "${key}"가 한 곳이 아니다`);
+  const rules = fs.readFileSync(path.join(root,'RULES.md'),'utf8');
+  assert.equal(rules.split(key).length - 1, 1, `RULES.md의 "${key}"가 한 곳이 아니다`);
+  assert.ok(rules.split('### 에이전트 모델 배분')[1].split('\n### ')[0].includes(key),
+    'RULES의 유도 규칙이 에이전트 모델 배분 절 밖에 있다');
+});
+
+// ── IP9·IP10: 탈출구 (B24·B25) ───────────────────────────────
+test('문서 IP9 B24: setup models가 하위 명령표와 도움말 둘 다에 있고 effort를 묻지 않는다', () => {
+  const doc = kitDoc();
+  // 찾을 수 있어야 쓸 수 있다 — 한쪽에만 있으면 아무도 모른다(--cli 탈출구와 같은 규칙).
+  assert.ok(doc.split('### 마법사 절차')[0].includes('setup models'), '하위 명령표에 setup models가 없다');
+  assert.ok(doc.split('## 인자 없음')[1].includes('setup models'), '도움말에 setup models가 없다');
+  const step = doc.split('\n### setup models\n')[1].split('\n### ')[0];
+  for (const word of ['2라운드','묻지 않는다','검증하지 않았다','목록에 없는 모델도 그대로 적을 수 있다']) {
+    assert.ok(step.includes(word), `setup models 절에 "${word}"가 없다`);
+  }
+});
+
+test('문서 IP10 B25: 자연어 경로가 승인 전 쓰기 금지를 명시한다 (문서 + 훅 양성 대조)', () => {
+  const doc = kitDoc();
+  assert.ok(doc.split('### 마법사 절차')[0].includes('setup <자연어'), '하위 명령표에 자연어 경로가 없다');
+  const step = doc.split('\n### 자연어 한 줄\n')[1].split('\n### ')[0];
+  for (const word of ['diff','승인 전에는 한 글자도 쓰지 않는다','백업','거절']) {
+    assert.ok(step.includes(word), `자연어 절에 "${word}"가 없다`);
+  }
+  // ⚠ 위는 **형태 관찰**이다(마크다운은 실행되지 않는다). 승인을 실제로 강제하는 것은 훅이므로
+  //    그 방벽이 살아 있는지 **같은 테스트에서 양성 대조**한다 — 문서만 믿지 않는다.
+  const home = homeWith(null);
+  const input = JSON.stringify({ tool_name:'Write',
+    tool_input:{ file_path: path.join(home,'.devkit','config.json'), content:'{}' } });
+  const out = spawnSync(process.execPath,[path.join(root,'hooks/protected-file.js')],
+    { env:{...process.env,HOME:home}, input, timeout:10000 });
+  assert.equal(out.status,0,out.stderr.toString());
+  assert.match(out.stdout.toString(),/permissionDecision/,'설정 파일 쓰기가 확인 창을 거치지 않는다');
+});
+
+// ── IP11·IP12: 리뷰 🔴1·🔴4 (2026-10-02) ──────────────────────
+test('IP11: --agent가 감지 안 된 CLI를 권하지 않고 못 쓰는 사유를 싣는다', () => {
+  // 🔴 cliRound가 offer를 보지 않아, Codex가 없는 홈에서도 `실행 CLI` 문항에 Codex가 떴다.
+  // 고른 뒤에는 byCli.codex가 null이라 모델이 즉흥으로 메울 수밖에 없다 — 이 사이클이 없애려던 상태다.
+  // ⚠ 홈만 비워서는 안 된다 — `cli-detect`는 **PATH의 실행 파일**을 1차 근거로 보므로
+  //    이 머신에 codex가 깔려 있으면 홈과 무관하게 offered가 참이다. PATH를 비워 만든다.
+  const home = homeWith(null,{'u-h-cc.json':fixtureText});
+  const out = spawnSync(process.execPath,[path.join(root,'scripts/list-models.mjs'),'--plan','--agent','tdd-driver'],
+    {env:{HOME:home,PATH:'/nonexistent'},cwd:root,input:'',timeout:10000});
+  assert.equal(out.status,0,out.stderr.toString());
+  const j = JSON.parse(out.stdout);
+  assert.equal(j.offer.find((o)=>o.cli==='codex').offered,false,'이 테스트의 전제가 깨졌다');
+  assert.equal(j.plan.model.byCli.codex,null);
+  // 선택지가 하나뿐인 문항은 만들지 않는다(스키마가 minItems 2다).
+  assert.equal(j.plan.model.cliRound,null,'고를 수 없는 CLI를 선택지로 냈다');
+  assert.ok(Array.isArray(j.plan.model.notes) && j.plan.model.notes.some((n)=>/Codex/.test(n)),
+    'byCli가 null인 사유가 어디에도 없다');
+  // 둘 다 있으면 문항이 살아 있다(양성 대조).
+  const both = script(homeWith(null,{'u-h-cc.json':fixtureText},codexBody()),['--plan','--agent','tdd-driver']);
+  assert.equal(both.plan.model.cliRound.questions[0].options.length,2);
+});
+
+test('문서 IP12: 마법사가 설정을 교체하지 않고 병합하며 사라질 키를 보여준다', () => {
+  // 🔴 `{"version":1, ...patch}`를 쓰라고 적혀 있었다. patch는 모델 축만 담으므로 비기본
+  // 홈에서 `기본값 그대로`를 고르면 손으로 적은 비모델 키가 **통째로 사라졌다**.
+  const step = wizardSection();
+  for (const word of ['병합','기존 파일','덮어쓰지 마라']) {
+    assert.ok(step.includes(word), `마법사 절차에 "${word}"가 없다`);
+  }
+  assert.ok(!step.includes('`{"version":1, ...patch}`를 `~/.devkit/config.json`에 Write'),
+    '교체 쓰기 지시가 남아 있다');
+  // 승인 화면이 notes를 보여줘야 `되돌리지 않는다`·`Codex 사용량`이 사용자에게 닿는다.
+  assert.ok(step.includes('patches') && /notes.*승인|승인.*notes/s.test(step),
+    '승인 화면에서 notes를 보여주라는 지시가 없다');
 });

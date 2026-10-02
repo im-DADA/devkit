@@ -6,9 +6,12 @@ const { codexChoices } = require('../hooks/lib/model-catalog-codex');
 const { detectClis, offerableClis } = require('../hooks/lib/cli-detect');
 const { splitByVersion, wizardChoices, fallbackChoices, checkAssignments, modelsAreDefault } = require('../hooks/lib/model-catalog');
 const { loadConfig, configPath } = require('../hooks/lib/config');
+const { basePlan, modelPlan, GROUPS } = require('../hooks/lib/setup-plan');
+const { DEFAULTS, AGENTS } = require('../hooks/lib/config-schema');
 
 const args = process.argv.slice(2);
-const mode = args.includes('--check') ? 'check' : 'list';
+// `--check`가 `--plan`보다 **먼저**다 — 둘 다 주면 check이고 plan 키는 생기지 않는다.
+const mode = args.includes('--check') ? 'check' : args.includes('--plan') ? 'plan' : 'list';
 let ccVersion = null;
 for (let i = 0; i < args.length; i += 1) {
   const value = args[i] === '--cc-version' ? args[i + 1]
@@ -22,6 +25,12 @@ for (let i = 0; i < args.length; i += 1) {
     : args[i].startsWith('--cli=') ? args[i].slice('--cli='.length) : null;
   if (!value || value.startsWith('--')) continue;
   (['claude', 'codex'].includes(value) ? force : unknownCli).push(value);
+}
+let agentArg = null;   // `--cc-version`·`--cli`과 같은 규약(공백형·`=`형)
+for (let i = 0; i < args.length; i += 1) {
+  const value = args[i] === '--agent' ? args[i + 1]
+    : args[i].startsWith('--agent=') ? args[i].slice('--agent='.length) : null;
+  if (value && !value.startsWith('--')) agentArg = value;
 }
 /** 아직 못 읽은 CLI의 자리. status는 호출자가 덮는다. */
 const emptyCli = () => ({ status: 'unreadable', reason: null, source: null, fetchedAt: null, stale: false,
@@ -84,6 +93,40 @@ try {
   out.claude = { ...emptyCli(), reason: error.name };
   out.clis = { claude: { ...emptyCli(), reason: error.name }, codex: { ...emptyCodex(), reason: error.name } };
   if (out.detected === null) out.offer = [];
+}
+if (mode === 'plan') {
+  // 기존 try **밖**이다. `설정 범위` 문항은 카탈로그 없이도 정적으로 만들 수 있으므로,
+  // 카탈로그 실패가 문항을 통째로 지우면 안 된다(B14).
+  try {
+    const meta = (cli) => ({ status: out.clis[cli].status, reason: out.clis[cli].reason,
+      fetchedAt: out.clis[cli].fetchedAt, stale: out.clis[cli].stale === true });
+    const known = agentArg !== null && Object.prototype.hasOwnProperty.call(DEFAULTS.models, agentArg);
+    const cliPlan = !known ? null
+      : modelPlan({ agent: agentArg, cli: null, choices: null, meta: null, ccVersion, offer: out.offer });
+    const model = !known ? null : {
+      agent: agentArg,
+      group: GROUPS.writesFiles.includes(agentArg) ? 'writesFiles' : 'returnsBody',
+      cliRound: cliPlan.rounds[0] ?? null,
+      byCli: Object.fromEntries(['claude', 'codex'].map((cli) => [cli,
+        out.offer.some((o) => o.cli === cli && o.offered === true)
+          ? modelPlan({ agent: agentArg, cli, choices: out.clis[cli].choices, meta: meta(cli), ccVersion })
+          : null])),
+      // 못 쓰는 CLI의 사유를 여기 싣는다 — 안 실으면 `byCli[cli] === null`이 침묵이 된다.
+      notes: cliPlan.notes,
+    };
+    out.plan = { path: configPath(), ...basePlan({ offer: out.offer,
+      codexChoices: out.clis.codex.choices, cfg: loadConfig() }), defaults: DEFAULTS, model };
+  } catch (error) {
+    // 도달 입력을 찾지 못한 최후 방어선이다(IX11과 같은 상태). 그래도 exit 0과 폴백 JSON은 지킨다.
+    out.plan = { path: null, rounds: [], notes: [`문항을 만들지 못했다(${error.name}) — 설정 파일을 직접 고친다`],
+      patches: {}, current: null, defaults: DEFAULTS, model: null };
+  }
+  if (agentArg !== null && out.plan.model === null) {
+    // 조용히 무시하면 사용자는 오타를 모른다. `--cli`의 선례대로 stderr 한 줄, exit 0은 지킨다.
+    // 거부된 값의 **원문을 싣지 않는다** — 진단 한 줄을 위조할 수 있고, 아는 이름 목록만으로 충분하다.
+    process.stderr.write('[devkit] · --agent 값을 모른다 — 단계 문항을 싣지 않는다'
+      + ` (아는 이름: ${AGENTS.join(', ')})\n`);
+  }
 }
 if (unknownCli.length) {
   // 조용히 무시하면 사용자는 오타를 모른다. 보고 도구이므로 stderr 한 줄로만 알리고 exit 0을 지킨다.

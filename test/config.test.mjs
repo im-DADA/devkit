@@ -335,3 +335,42 @@ test('SC6: 폴백 목록은 DEFAULTS에서 유도된다 — 하드코딩 상수�
   });
   assert.equal(fallbackChoices().models.length, 2, 'planner·architect가 opus가 된 뒤 fable이 빠진다(R10)');
 });
+
+// ── SP1·SP2: 설정 키와 문서의 대조 (B22·B23) ──────────────────
+// 설계: docs/2026-10-01-wizard-question-budget/DESIGN.md §8.3
+// 이 저장소는 `24개 항목`·`라운드가 7개 늘어난다`를 문서에 적어 두었는데 **둘 다 틀렸다**
+// (실측 잎 키 31개). 수를 세어 적는 대신 **키를 전개하고 수치 주장을 금지**한다 — 숫자는
+// 조용히 거짓이 되고(D36) 아무도 못 잡는다. SP1은 키를 추가하고 문서를 안 고치면 빨개진다.
+const pickSection = () => fs.readFileSync(path.join(dir,'..','commands','kit.md'),'utf8')
+  .split('\n### 직접 고르기\n')[1].split('\n### ')[0];
+function leafKeys() {
+  const { SPEC } = require_(purePath);
+  const out = [];
+  (function walk(node, prefix) {
+    for (const [k, v] of Object.entries(node)) {
+      const q = prefix ? `${prefix}.${k}` : k;
+      const branch = v && typeof v === 'object' && !Array.isArray(v) && typeof v !== 'function' && !(v instanceof RegExp);
+      if (branch) walk(v, q); else out.push(q);
+    }
+  }(SPEC, ''));
+  return out.filter((k) => !['version', '_appliedAt'].includes(k) && !k.startsWith('models'));
+}
+
+test('SP1 B22: SPEC의 잎 키 전부가 kit.md 직접 고르기 절에 정확히 한 번 나온다', () => {
+  const section = pickSection();
+  const leaves = leafKeys();
+  assert.ok(leaves.length >= 30, `잎 키가 ${leaves.length}개다 — 이 테스트의 전제가 깨졌다`);
+  for (const leaf of leaves) {
+    // ⚠ **백틱으로 감싸 센다.** 맨 문자열로 세면 `format`이 `formatOnEdit`에, `testing`이
+    //    `testNudge`에 걸려 "있는 것처럼" 보인다(부분 일치가 거짓 통과를 만든다).
+    const hits = section.split(`\`${leaf}\``).length - 1;
+    assert.equal(hits, 1, `직접 고르기 절에 \`${leaf}\`가 ${hits}번 나온다(1이어야 한다)`);
+  }
+});
+
+test('SP2 B23: 직접 고르기 절이 항목 수나 라운드 수를 주장하지 않는다', () => {
+  const doc = fs.readFileSync(path.join(dir,'..','commands','kit.md'),'utf8');
+  assert.ok(doc.includes('### 직접 고르기'), '절 제목에서 숫자를 빼야 한다');
+  assert.doesNotMatch(pickSection(), /\d+\s*개\s*(항목|라운드)/, '수치 주장이 남아 있다');
+  assert.doesNotMatch(pickSection(), /라운드가 \d+개 늘어난다/);
+});

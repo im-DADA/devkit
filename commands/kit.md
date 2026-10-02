@@ -26,6 +26,8 @@ allowed-tools:
 | 인자 | 하는 일 |
 |---|---|
 | `setup` | 마법사 실행 |
+| `setup models [<agent>]` | 한 단계의 실행 CLI와 모델만 바꾼다(최대 2라운드 · effort는 묻지 않는다) |
+| `setup <자연어 한 줄>` | 예: `/kit setup 구현은 Codex로` — 의도를 diff로 보여주고 승인받는다 |
 | `setup show` | 현재 값 · 기본값과 다른 항목 · frontmatter 일치 여부 · CLI 축 · 카탈로그 대조 |
 | `setup --cli=<name>` | CLI 감지가 틀렸을 때의 탈출구 — 감지 결과와 무관하게 그 CLI를 모델 선택지에 노출한다(`claude`·`codex`) |
 | `setup reset` | 설정 삭제 + `agents/*.md`를 기본값으로 복구 |
@@ -33,87 +35,70 @@ allowed-tools:
 
 ### 마법사 절차
 
-1. **현재 상태 먼저 보여준다.** `~/.devkit/config.json`을 Read — 있으면 기본값과 다른 항목만, 없으면 `설정 없음 — 기본값으로 동작 중`. 기본값은 `hooks/lib/config-schema.js`를 Read해서 가져온다. 이어서 `### 모델 배분` ①의 스크립트를 **한 번** 돌려 모델 목록·CLI 감지 결과를 미리 확보한다 — R1의 배분 표를 그 JSON으로 그린다.
-2. **R1 — 한 라운드에 세 문항**(AskUserQuestion 1회). 세 문항은 서로의 답에 의존하지 않으므로 한 번에 묻는다. **대부분의 사용자는 여기서 끝난다.** 문항 앞 본문에 `### 모델 배분` ②의 프리셋 표를 먼저 그린다.
-   - **Q1 `설정 범위`** — `기본값 그대로`(권장 · 기본 포커스) · `최소 간섭`(가드 minimal · PDCA 끔 · 코드 규칙 전부 끔) · `엄격`(가드 strict · 편집마다 타입체크) · `직접 고르기`(24개 항목을 주제별로 묻는다 — 라운드가 7개 늘어난다)
-     - ⚠ `기본값 그대로`는 **`{"version":1}` 한 줄만** 쓴다. 동작은 완전 기본값이면서 "설정을 물어봤다"는 사실이 남아 첫 실행 안내가 다시 뜨지 않는다. 기본값 전체를 적어 넣지 마라 — 나중에 devkit의 기본값이 바뀌어도 그 사람만 옛 값에 묶인다.
-     - ⚠ **단 Q2·Q3에서 모델을 기본값과 다르게 골랐으면** 파일은 `{"version":1, "models":{…}, "_appliedAt":"…"}`이 된다. 앞 24개 항목은 그때도 한 글자도 적지 않는다.
-     - 언어·PDCA·구조·코드규칙·커밋·머지·가드·검증 **24개 항목을 묻는 곳은 `직접 고르기` 경로뿐이다.** 설정 키와 스키마는 그대로 남아 있으므로 손으로 고칠 수 있다(`~/.devkit/config.json`).
-   - **Q2 `모델 배분`** — `기본`(권장) · `절약` · `최대` · `혼합`(Codex가 감지됐을 때만 — 계획·설계·리뷰는 Claude 최고 모델, 구현·테스트는 Codex). 각 선택지의 설명에 그 프리셋이 바꾸는 것을 한 줄로 적는다.
-   - **Q3 `개별 조정`** — `아니오, 이대로`(권장) · `일부만 바꾼다`. 질문에 "위 표의 배분에서"를 명시한다.
-   - ⚠ 문항 `header`는 **12자 이내**다(도구 제약). 긴 이름은 줄여 적는다.
-3. Q3이 `일부만 바꾼다`면 `### 모델 배분` ③~⑤의 라운드를 돈다. `아니오`면 건너뛴다. Q1이 `직접 고르기`면 `### 24개 항목 직접 고르기`를 **R1 뒤에** 이어서 돈다(별도 플래그를 새로 만들지 않는다).
-4. **diff를 보여주고 승인받는다.** 기존 파일이 있으면 같은 폴더에 `config.backup-{ISO}.json`을 **먼저** 남기고 그 경로를 보고한다. 승인 후 `~/.devkit/config.json`을 Write.
-    - ⚠ 이 파일은 **보호 파일**이라 Write 시 확인 창이 뜬다. 정상이다 — 거절되면 우회하지 말고 사용자가 직접 고치도록 경로와 내용을 보여준다.
-5. **모델 설정을 `agents/*.md`에 적용한다** — `### 모델 배분` ⑥.
-6. **마무리 보고 3줄**: ① 바뀐 항목 수 + 백업 경로 ② 규칙 주입이 바뀌었으면 **"새 세션부터 적용된다"**(`session-start`는 세션 시작에만 돈다) ③ `/kit init`을 돌린 프로젝트가 있으면 **`/kit sync` 안내** — 사본이 설정 이전 텍스트라 낡음으로 뜬다. Codex로 지정한 단계가 있으면 **한 줄 더**: 어느 단계가 Codex로 도는지 + "Codex 실행은 Codex 계정의 사용량을 쓴다" + "`codex`를 찾지 못하거나 실패하면 Claude로 폴백하고 그때 한 줄 보고한다".
+1. **문항은 스크립트가 만든다.** 먼저 CC 버전을 구한다 — `claude --version`을 Bash로 돌려 `x.y.z`를 뽑는다. `CLAUDE_CODE_EXECPATH`의 마지막 경로 조각도 버전처럼 생겼지만 **그건 런처 경로라 실행 중 버전보다 낡는다**(2026-09-30 실측). 둘 다 얻었으면 **큰 값**을 쓰고, 확신이 없으면 **인자를 넘기지 마라**.
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --plan --cc-version <x.y.z>` (`/kit setup --cli=codex`로 불렸으면 `--cli=codex`도 붙인다). stdout의 JSON 한 줄을 읽는다. 이 호출 **한 번**으로 모델 목록·CLI 감지(`clis`·`offer`)·문항·현재 설정의 차이가 전부 온다 — `hooks/lib/config-schema.js`를 따로 Read하지 마라.
+   ⚠ `~/.claude/cache/model-catalog/`·`~/.codex/models_cache.json`을 **직접 Read하지 마라**. 이 스크립트는 파일을 쓰지 않고 항상 exit 0이다.
+2. **`plan.notes`를 본문에 그대로 적고, `plan.rounds[0].questions`를 AskUserQuestion에 그대로 넘긴다.** **한 라운드**로 끝난다.
+   - ⚠ **문항을 발명하지 마라.** 질문·선택지·설명은 스크립트가 완성해서 준다. 고쳐 쓰거나 덧붙이지 않는다.
+   - ⚠ **라운드를 늘리지 마라.** 단계별로 하나씩 묻는 흐름을 만들지 마라 — 그건 `setup models`가 하는 일이다.
+   - ⚠ **프리셋 표를 그리지 마라.** 배분을 표로 미리 보여줄 필요가 없다.
+   - 문항 객체에 **키를 더하지 마라** — 도구가 거부한다. 답을 되돌릴 때는 형제 키 `map`을 쓴다(`map[header][label]` → 값).
+3. **답을 patch로 바꾼다.** `map`으로 얻은 두 값이 그대로 키가 된다 — `plan.patches["<scope>|<build>"]`(예: `patches["default|codex"]`). 구현 CLI 문항이 없었으면 `build`는 `claude`다. 그 조합의 `patch`와 `notes`가 나온다.
+4. **diff와 `notes`를 보여주고 승인받는다.** `plan.current.nonDefault`(지금)와 patch를 나란히 보이고, 그 조합의 `patches[키].notes`를 **그대로 함께 출력한다** — 거기에만 있는 사실이 있다(되돌리지 않는다 · Codex 사용량 · effort를 쓰지 않는 모델). 기존 파일이 있으면 같은 폴더에 `config.backup-{ISO}.json`을 **먼저** 남기고 그 경로를 보고한다.
+   - **승인 후 쓰기는 병합이다.** `~/.devkit/config.json`을 Read해서 `{...기존 파일, ...patch, version: 1}`을 Write한다. ⚠ **기존 파일을 덮어쓰지 마라** — `patch`는 모델 축만 담으므로 `{"version":1, ...patch}`를 그대로 쓰면 사용자가 손으로 적은 `language`·`guards`·`pdca` 같은 키가 **말없이 사라진다**(2026-10-02 리뷰). 파일이 없으면 그때만 `{"version":1, ...patch}`다.
+   - `기본값 그대로`는 **`{"version":1}` 한 줄만** 쓴다(patch가 빈 객체다). 동작은 완전 기본값이면서 "설정을 물어봤다"는 사실이 남아 첫 실행 안내가 다시 뜨지 않는다. 기본값 전체를 적어 넣지 마라 — 나중에 devkit의 기본값이 바뀌어도 그 사람만 옛 값에 묶인다.
+   - ⚠ 이 파일은 **보호 파일**이라 Write 시 확인 창이 뜬다. 정상이다 — 거절되면 우회하지 말고 경로와 내용을 보여준다.
+5. **모델 설정을 `agents/*.md`에 적용한다** — `### 모델 배분`.
+6. **마무리 보고 3줄**: ① 바뀐 항목 수 + 백업 경로 ② 규칙 주입이 바뀌었으면 **"새 세션부터 적용된다"** ③ `/kit init`을 돌린 프로젝트가 있으면 **`/kit sync` 안내**. Codex로 지정한 단계가 있으면 한 줄 더: 어느 단계가 Codex로 도는지 + 유도된 effort + "`codex`를 찾지 못하거나 실패하면 Claude로 폴백하고 그때 한 줄 보고한다".
+   - 설정 범위가 `직접 고르기`면 **3번과 4번 사이에** `### 직접 고르기`를 돌고, 거기서 받은 답을 같은 `patch`에 합친 뒤 4번으로 간다 — 두 번 쓰지 않는다.
 
 ### 모델 배분
 
-에이전트 8종의 `cli`·`model`·`effort`를 정한다. **8종을 하나씩 묻지 않는다 — 바꿀 단계만 고르게 한다.**
+`cfg.models`가 기본값과 **다른 에이전트만** 연다. 기본값과 같으면 파일을 **열지 않는다**(무변경이 곧 기본값 보장).
 
-① **목록과 CLI 감지는 스크립트로 얻는다.** 먼저 CC 버전을 구한다 — `claude --version`을 Bash로 돌려 `x.y.z`를 뽑는다. `CLAUDE_CODE_EXECPATH`의 마지막 경로 조각도 버전처럼 생겼지만 **그건 런처 경로라 실행 중 버전보다 낡는다**(2026-09-30 실측: env는 `2.1.278`, 실제는 `2.1.285`). 둘 다 얻었으면 **큰 값**을 쓴다. ⚠ 낡은 버전을 넘겨도 **선택지에서는 아무것도 사라지지 않는다**(2026-10-01 정정 — 예전 문서는 가족 alias까지 목록에서 빠진다고 적었고 그건 틀렸다). 대신 `belowVersion`이 **과하게 잡혀** 쓸 수 있는 모델에 **불필요한 "업데이트 필요" 표기가 붙는다** — 사용자를 필요 없는 `claude update`로 보내는 거짓 안내다. 버전을 모르는 것보다 잘못 아는 것이 나쁘므로, 확신이 없으면 **인자를 넘기지 마라**(그때 `belowVersion`은 비고 선택지는 똑같다).
-   `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --cc-version <x.y.z>` (`/kit setup --cli=codex`로 불렸으면 `--cli=codex`도 함께 붙인다). stdout의 JSON 한 줄을 읽는다.
-   ⚠ `~/.claude/cache/model-catalog/`·`~/.codex/models_cache.json`을 **직접 Read하지 마라** — 홈 밖 파일이라 권한 프롬프트가 뜨고, 파싱은 스크립트가 결정적으로 한다. 이 스크립트는 파일을 쓰지 않고 항상 exit 0이다.
-   **CLI 선택지는 `offer`가 정본이다.** `offered`가 false인 CLI는 **보여주지도 묻지도 않는다.** `hint`가 있으면 그 문장을 그대로 표기한다.
+- **effort는 묻지 않고 유도한다.** `cli`가 `claude`인 단계는 `hooks/lib/config-schema.js`의 `DEFAULTS.models[agent].effort`를 **그대로 쓴다** — 카탈로그의 권장값으로 덮지 마라(`planner`의 `max`가 조용히 내려간다).
+- `cli`가 `codex`인 단계는 **그 모델의 권장값**을 쓴다. 없으면 **effort 줄을 손대지 않는다.** 유도된 값은 마무리 보고에 한 줄 적는다.
+- `cli`가 `claude`인 에이전트만 `hooks/lib/agent-frontmatter.js`의 `applyModel`로 `model`·`effort` 두 줄을 바꾼다. 직접 정규식을 짜지 말 것.
+- **`cli`가 `codex`인 에이전트는 frontmatter를 `DEFAULTS.models`의 값으로 되돌린다**(같은 `applyModel`로) — 그 frontmatter는 **폴백 정의**다(Codex가 사라지면 그 값으로 Claude가 돈다). `effort`가 `ultra`면 `applyModel`이 거부하는 것이 정상이다.
+- `{ok:false}`가 오면 그 에이전트는 **건너뛰고** 사유를 보고한다. 값을 고쳐 넣지 않는다.
+- 성공하면 설정의 `_appliedAt`을 ISO 시각으로 기록한다.
+- **`gen-integrity.mjs`를 돌리지 않는다.** `INTEGRITY.sha256`은 `hooks/`·`scripts/`만 덮고 `agents/`는 대상이 아니다. 보고에 한 줄로 적는다.
+- ⚠ **대상 디렉터리에 `.git`이 있으면 멈추고 확인받는다.** devkit 소스 레포일 수 있고, 그 경우 `test/agent-contract.test.mjs`의 모델 계약 테스트가 RED가 된다. 거절하면 설정만 저장하고 `_appliedAt`은 `null`로 둔다.
 
-② **프리셋 표를 먼저 그린다**(R1 Q2 앞 본문). 세 프리셋(`기본`·`절약`·`최대`) + Codex가 `offer`에 있으면 `혼합`까지, **에이전트 8종 × (CLI · 모델 · effort)를 한 표로** 보여준다. 포커스한 항목만 보이는 preview에 의존하지 마라 — 프리셋 이름만으로는 뜻이 전달되지 않는다(2026-09-30 실사용).
-   - `기본` = `hooks/lib/config-schema.js`의 `DEFAULTS.models` 그대로(이 문서에 값을 적지 마라 — 사본이 낡는다).
-   - `절약` = 전부 sonnet 이하 · `최대` = 계획·설계·리뷰를 최고 모델. 카탈로그에는 등급 필드가 없으므로 "최고/절약"은 가족 이름 기준이다.
-   - `혼합` = 계획·설계·리뷰는 Claude 최고 모델, 구현·테스트(`feature-builder`·`tdd-driver`·`test-writer`)는 `clis.codex.choices.primary[0]` + 그 모델의 `recommendedEffort`.
-   - 각 모델의 `description`(무엇에 쓰는 모델인지)과 `notice`(있으면 비용 경고)를 표 아래 한 줄씩 적는다. **이름만 나열하지 마라.**
-   - Codex 열이 있는 프리셋에는 "Codex 실행은 Codex 계정의 사용량을 쓴다(Claude 구독과 별 축이다)"를 한 줄 적는다.
+### setup models
 
-③ **바꿀 단계 고르기**(R1 Q3이 `일부만 바꾼다`일 때 · AskUserQuestion 1회 · 3문항 multiSelect). ⚠ **한 문항의 선택지는 최대 4개다** — 8종을 한 문항에 담을 수 없어 세 묶음으로 나눈다. 세 문항을 **한 번에** 보낸다.
-   - 문항 1 `바꿀 단계 1/3` — `planner — 계획(PLAN)` · `architect — 설계(DESIGN)` · `report-writer — 완료 보고` · `이 묶음은 없음`
-     이 셋은 **Claude 고정**이다(④) — 골라도 CLI는 묻지 않는다.
-   - 문항 2 `바꿀 단계 2/3` — `feature-builder — 기능 구현` · `tdd-driver — TDD 구현` · `test-writer — 테스트 작성` · `이 묶음은 없음`
-   - 문항 3 `바꿀 단계 3/3` — `code-reviewer — 코드 리뷰` · `gap-detector — Gap 분석` · `이 묶음은 없음`
-   - `이 묶음은 없음`을 다른 항목과 함께 고르면 **에이전트 선택을 정본으로** 보고 `없음`은 무시한다.
+`/kit setup models [<agent>]` — **한 단계**의 실행 CLI와 모델만 바꾼다. `<agent>`가 없으면 어느 단계인지 먼저 묻는다.
 
-④ **실행 CLI**(Codex가 `offer`에 있고 문항 2·3에서 고른 단계가 1개 이상일 때만 · AskUserQuestion 1회 · 최대 2문항 multiSelect). **선택지가 하나면 이 질문을 띄우지 않는다.**
-   - `고른 단계 중 Codex로 돌릴 것을 고른다(고르지 않은 것은 Claude로 돈다)` — 선택지는 고른 단계 3개씩 + `전부 Claude로`.
-   - **`planner`·`architect`·`report-writer`는 Codex 선택지에 넣지 않는다.** 사유를 묶음 라벨 옆에 한 줄로 적는다 — 조용히 없으면 사용자는 버그로 읽는다: "이 셋은 **본문을 반환하고 파일 쓰기는 커맨드가 한다**가 계약이고, `codex exec -o`가 마크다운 본문을 온전히 담는지 검증하지 않았다(2026-09-30 결정)."
-   - Codex를 고른 단계가 있으면 사용량 경고(②)를 한 번 더 적는다.
+1. `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --plan --agent <agent>` → `plan.model`.
+2. `plan.model.cliRound`가 있으면 그것을 묻는다(없으면 CLI는 Claude 고정이다). 그 답으로 `plan.model.byCli[<cli>].rounds`를 묻는다. **합쳐서 2라운드를 넘지 않는다.**
+3. **effort는 묻지 않는다** — `plan.model.byCli[<cli>].notes`에 유도값이 적혀 있으니 그걸 보고한다.
+4. 그 단계의 `{cli, model}`과 **유도된 effort**(3번의 notes에 적힌 값, 없으면 effort 키를 **빼라**)로 `{models: {<agent>: {…}}}` 하나만 만들어 `### 마법사 절차` 4~5와 같은 방식으로 **병합** 승인·적용한다. ⚠ effort를 직접 고르거나 지어내지 마라.
 
-⑤ **모델과 effort**(고른 단계마다 1문항씩 · **한 라운드에 최대 4문항**이므로 4개씩 나눠 라운드를 돈다). 모델 → effort 순서로 라운드를 가른다(effort 선택지가 고른 모델에 의존한다).
-   - **모델 문항**: 그 단계의 CLI에 맞는 `clis.<cli>.choices.primary`에서 **상위 3종 + `그 외 — 직접 적는다`**. ⚠ 선택지가 4개까지라 전체 목록을 담을 수 없다 — `그 외`를 고르면 그 CLI의 **전체 목록을 평문으로** 보여주고 이름을 받는다. **두 CLI의 모델을 한 목록에 섞지 마라.**
-     - Claude면 `primary`는 가족 alias(예: `opus` — Opus 5), 4번째 칸의 전체 목록에 `pinned`("이전 버전 · id로 고정")를 함께 보여 준다.
-     - Codex면 `primary`가 **`priority` 오름차순**이다 — 값이 **작을수록 상위**인 것을 2026-10-01에 실측했고 `codexChoices`가 그 순서로 정렬한다. ⚠ 구체적인 모델 이름·`priority` 값·가시 모델 수는 **여기 적지 않는다** — 캐시는 하루 안에도 바뀌고(2026-10-01 리뷰 중 최상위 모델과 가시 개수가 둘 다 바뀌는 것을 관측했다) 문서에 박아 두면 곧 거짓이 된다. 값이 필요하면 스크립트 출력을 보라. `priority`가 없거나 정수가 아닌 모델은 **캐시 순서를 지키며 뒤로** 간다. ⚠ `priority`가 품질 서열인지 단순 표시 순서인지는 **모른다** — 정렬에만 쓰고 "최고 모델" 판정에는 쓰지 않는다. `최대`·`혼합` 프리셋은 계속 **가족 이름 기준**이다.
-     - 각 선택지에 `description`과 `notice`를 적고, 권장 effort(`recommendedEffort`)를 함께 표기한다.
-     - `belowVersion`에 든 모델도 **선택지에서 빼지 않는다.** 빼면 사용자는 최신 모델이 왜 없는지 알 수 없다. 다만 **표기는 두 갈래로 가른다** — 2026-10-01 실측에서 둘의 거동이 갈렸기 때문이다. 한 문구로 뭉뚱그리면 **동작하는 선택지에 불필요한 `claude update`를 붙이게 된다**(55행이 거짓 안내라 부른 그 상태다).
-       - **가족 alias**(`value`가 `family`와 같은 것 — `opus` 등): Claude Code가 **쓸 수 있는 하위 세대로 내려준다**(미달 2.1.278에서 `--model opus` → Opus 5). 고르면 **그대로 동작하므로** 차단 경고를 붙이지 마라. `minVersion`이 있으면 `ⓘ 최신 세대는 Claude Code x.y.z 이상 — 지금은 쓸 수 있는 세대로 동작한다(claude update로 최신 세대)`처럼 **정보 톤**으로 적는다.
-       - **id 고정**(`claude-opus-5-5`처럼 세대를 콕 집은 것): 고르면 Claude Code가 400으로 막으며 `Run 'claude update'`를 **스스로 안내한다**. 그 옆에는 `⚠ Claude Code x.y.z 이상 필요 — claude update`를 적어 **이유와 해결법을 함께** 보여라(`x.y.z`는 그 항목의 `minVersion`).
-       - 어느 쪽이든 **판정은 devkit이 아니라 Claude Code가 한다** — devkit은 표기만 한다.
-     - 목록 위에 `fetchedAt`을 적고, `stale`이 true면 "낡았을 수 있다 — Claude Code가 다음 실행에서 갱신한다"를 붙인다(정보일 뿐 목록을 무효화하지 않는다). Codex 캐시는 만료 시각을 알 수 없어 `fetchedAt`만 적는다.
-   - **effort 문항**: 고른 모델의 `efforts`만 제시한다. `effortOptions`의 `label`·`description`을 함께 보여주고 **`recommendedEffort`를 첫 칸(기본 포커스)** 에 둔다 — 권장값은 모델마다 다르다.
-     - `efforts`가 **4종 이하면 전부** 제시한다. **5종 이상이면 `[권장 · 최상 · 최하 · 그 외]`** 로 줄이고, `그 외`를 고르면 남은 값을 평문으로 보여주고 하나를 받는다(실측 Codex 모델은 5~6종이라 이 경로가 표준이다).
-       - **최상·최하는 `efforts` 배열의 마지막·첫 원소다** — **2026-10-01 실측**에서 그때의 Codex 가시 모델이 **전부** 낮은 단계부터 실려 있었다(`low,medium,high,xhigh,max,ultra`). ⚠ **이것은 관측이지 보장이 아니다** — devkit은 `efforts`를 **정렬하지 않는다**(등급 서열은 캐시가 주는 유일한 신호이고, devkit이 정렬 키를 발명하면 틀린 서열을 만들어낸다). 배열이 뒤집혀 보이면 **순서를 신뢰하지 말고 `그 외`로 전체 목록을 보여 준다**.
-     - `efforts`가 빈 배열이면(예: Haiku) "이 모델은 effort를 쓰지 않는다(카탈로그 기준)"를 알리고 **기존 effort 값을 그대로 둔다** — 줄을 지우지 않는다(Claude Code가 그 줄을 거부하지 않는 것을 실측했다, 2026-09-22).
-     - Codex 모델에는 `ultra`가 선택지에 나타날 수 있다. 설정 파일은 그 값을 받지만 **Claude frontmatter는 받지 않는다** — 그래서 `ultra`는 `cli: "codex"`인 단계에만 쓴다.
-   - **상태가 `ok`가 아니면** `fallback.models`·`fallback.efforts`로 제시하고 `reason`을 한 줄 덧붙인다. `missing`은 정상 상태다(로그인 전·다른 OS·Codex 미설치) — "목록이 없어 기본 목록으로 보여 준다"처럼 사실만 적고 경고 톤을 쓰지 마라.
-   - 카탈로그는 **선택지와 경고만** 만든다. **목록에 없는 모델도 그대로 적을 수 있다** — 폴백 목록은 devkit 기본값에서 유도되므로 기본 배분에 없는 모델(예: Fable)은 거기 없다. 그때는 `그 외 — 직접 적는다`로 이름을 그대로 적으면 저장된다(허용 판정은 형태만 본다). 단 `claude-`로 시작하는 id가 카탈로그에 없으면 "이 머신의 카탈로그에는 없다 — 호출 시 404로 종료될 수 있다"를 한 번 말한다.
+- `plan.model.group`이 `returnsBody`면 **Codex 선택지가 없다.** 사유는 `notes`에 있다 — 이 단계들은 본문을 반환하고 파일 쓰기는 커맨드가 하는 계약이라 `codex exec`가 마크다운 본문을 온전히 담는지 **검증하지 않았다**(2026-09-30 결정).
+- **목록에 없는 모델도 그대로 적을 수 있다** — `그 외`를 고르면 이름을 받아 저장한다(허용 판정은 형태만 본다). 단 `claude-`로 시작하는 id가 카탈로그에 없으면 "이 머신의 카탈로그에는 없다 — 호출 시 404로 종료될 수 있다"를 한 번 말한다.
 
-⑥ **`agents/*.md` 적용** — `cfg.models`가 기본값과 **다른 에이전트만** 연다. 기본값과 같으면 파일을 **열지 않는다**(무변경이 곧 기본값 보장).
-   - `cli`가 `claude`인 에이전트만 `hooks/lib/agent-frontmatter.js`의 `applyModel`로 `model`·`effort` 두 줄을 바꾼다. 직접 정규식을 짜지 말 것.
-   - **`cli`가 `codex`인 에이전트는 frontmatter를 `DEFAULTS.models`의 값으로 되돌린다**(같은 `applyModel`로). 건드리지 않고 두면 "Claude용 모델이 박혀 있는데 Codex로 돈다"는 거짓 상태가 남는다. 그 frontmatter는 **폴백 정의**로서 뜻을 유지한다 — Codex가 사라지면 그 값으로 Claude가 돈다. `effort`가 `ultra`면 `applyModel`이 거부하는 것이 정상이다(Codex 전용 값이다).
-   - `{ok:false}`가 오면 그 에이전트는 **건너뛰고** 사유를 보고한다. 값을 고쳐 넣지 않는다.
-   - 성공하면 설정의 `_appliedAt`을 ISO 시각으로 기록한다.
-   - **`gen-integrity.mjs`를 돌리지 않는다.** `INTEGRITY.sha256`은 `hooks/`·`scripts/`만 덮고 `agents/`는 애초에 대상이 아니다. 보고에 한 줄로 그 사실을 적는다.
-   - ⚠ **대상 디렉터리에 `.git`이 있으면 멈추고 확인받는다.** devkit 소스 레포일 수 있고, 그 경우 `test/agent-contract.test.mjs`의 모델 계약 테스트가 RED가 된다. 거절하면 설정만 저장하고 `_appliedAt`은 `null`로 둔다.
+### 자연어 한 줄
 
-### 24개 항목 직접 고르기
+`/kit setup 구현은 Codex로`처럼 문장으로 부를 수 있다. 문항을 건너뛰고 의도를 설정으로 번역한다.
 
-R1 Q1이 `직접 고르기`일 때만 돈다. 주제당 1라운드이고, 문항이 4개를 넘는 주제(코드 규칙·가드)는 그 주제만 2라운드로 쪼갠다.
+1. **번역** — `plan.defaults`의 키와 `plan.patches`가 쓰는 축으로만 옮긴다. 모르는 요구는 **번역하지 말고 모른다고 말한다**(값을 지어내지 않는다).
+2. **diff** — `plan.current.nonDefault`와 제안 patch를 키 단위로 보여준다. 바뀌는 줄이 0이면 "바꿀 것이 없다"로 끝낸다.
+3. **승인** — **승인 전에는 한 글자도 쓰지 않는다.** 백업을 먼저 남기고 경로를 보고한 뒤 Write한다. 보호 파일이라 확인 창이 뜨는 것이 정상이고, **거절되면** 우회하지 말고 경로와 내용을 보여준다.
+4. `pdca.docs: "lite"`처럼 **검증 게이트를 여는 값**을 요청받으면 그 뜻을 한 줄로 말하고 **별도로 확인받는다**.
 
-1. 언어·톤·서식 (`language`·`tone`·`format`)
-2. PDCA (`pdca.enabled` → 켜면 `sensitivity`·`defaultTrack`·`docs`)
-   - ⚠ `docs: "lite"`는 **GAP·REVIEW를 REPORT의 선행조건에서 뺀다.** 고르기 전에 그 뜻을 한 줄로 말하고 확인받는다 — "리뷰 없이 완료 보고"가 가능해지는 것이 이 값의 의미다. `behaviors.json`은 어느 값에서도 필수다.
-3. 폴더 구조·테스트 정책 (`structure`·`testing`)
-4. 코드 규칙 6토글 + `rules.maxLines`
-5. 커밋·머지 (`commit.*`·`merge.strategy`)
-6. 가드 (`guards.level`·`newDependency`·`protectedFiles` 4종)
-7. 검증 (`verify.*`·`receipts`·`formatOnEdit`)
+### 직접 고르기
+
+설정 범위가 `직접 고르기`일 때만 돈다. 주제당 1라운드이고, 한 라운드의 문항이 네 개를 넘는 주제는 그 주제만 둘로 쪼갠다.
+⚠ 아래 키가 **묻는 항목의 전부**다. `hooks/lib/config-schema.js`의 `SPEC`에 키를 더하면서 여기를 안 고치면 테스트가 빨개진다 — 조용히 못 묻는 설정이 생기는 것을 막는다. **개수는 적지 마라**(세어 적은 수는 곧 거짓이 된다).
+
+1. 언어·톤·서식 — `language` · `tone` · `format`
+2. PDCA — `pdca.enabled` → 켜면 `pdca.sensitivity` · `pdca.defaultTrack` · `pdca.docs`
+   - ⚠ 그중 `"lite"`는 **GAP·REVIEW를 REPORT의 선행조건에서 뺀다.** 고르기 전에 그 뜻을 한 줄로 말하고 확인받는다 — "리뷰 없이 완료 보고"가 가능해지는 것이 이 값의 의미다. `behaviors.json`은 어느 값에서도 필수다.
+3. 폴더 구조·테스트 정책 — `structure` · `testing`
+4. 코드 규칙 — `rules.noAny` · `rules.noConsoleLog` · `rules.noEmptyCatch` · `rules.tsxLogic` · `rules.naming` · `rules.testNudge` · `rules.maxLines`
+5. 커밋·머지 — `commit.convention` · `commit.coAuthoredBy` · `merge.strategy`
+6. 가드 — `guards.level` · `guards.newDependency` · `guards.protectedFiles.env` · `guards.protectedFiles.lockfile` · `guards.protectedFiles.git` · `guards.protectedFiles.nodeModules`
+7. 검증 — `verify.kinds` · `verify.timeouts.typecheck` · `verify.timeouts.lint` · `verify.tscOnEdit` · `receipts` · `formatOnEdit`
 
 ### `setup show`
 
@@ -260,6 +245,8 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
              코드 규칙·커밋/머지·검증·에이전트 모델. 설정 없으면 기본값으로 동작
              모델 목록은 설치된 CLI(Claude Code · Codex)의 로컬 캐시에서 읽는다 (없으면 고정 목록)
              감지가 틀렸으면 /kit setup --cli=codex 로 강제 노출
+  /kit setup models [<agent>]  한 단계의 CLI·모델만 조정 (effort는 카탈로그 권장값으로 유도)
+  /kit setup <자연어>  예: /kit setup 구현은 Codex로 — diff 확인 후 승인하면 적용
   /kit init 현재 프로젝트에 AGENTS.md + eslint + CI + settings.json 생성
   /kit sync  프로젝트 AGENTS.md·전역 ~/.codex/AGENTS.md의 규칙 사본 갱신 (마커 구간만)
   /kit audit 차단 이벤트(.devkit/audit.jsonl) 집계 조회
