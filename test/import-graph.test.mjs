@@ -150,3 +150,53 @@ test('어떤 입력에도 throw하지 않는다', () => {
   assert.doesNotThrow(() => blastRadius(['a.ts'], graphOf([])));
   assert.equal(moduleKey(null), '');
 });
+
+// ── G12: 200줄 래칫 — `hooks/`·`scripts/` 전체 (2026-10-02 REPORT) ──
+// 🔴 RULES.md가 "파일이 200줄을 넘으면 분리"라고 못박아 뒀는데 **그 규칙을 지키는 단언이
+//    없었다.** `S26`은 순수 3모듈만 보므로 `scripts/`에는 래칫이 없었고, 그래서
+//    `scripts/list-models.mjs`가 135 → 209줄로 **상한을 넘는 동안 아무도 몰랐다**
+//    (사이클 REPORT 단계에서 손으로 세다가 찾았다 — 규칙은 있는데 단언이 없는 모양이
+//    이 사이클의 공허 ⑦·⑨와 같다).
+//
+// ⚠ **상한을 넘는 기존 파일은 지금 줄 수로 묶는다(래칫).** 줄일 수는 있고 늘릴 수는 없다 —
+//    전부 당장 쪼개라고 하면 이 테스트가 처음부터 RED라 아무도 켜지 않는다. 숫자를 **올리는
+//    방향으로 고치지 마라**: 그건 래칫을 푸는 것이고, 네 사이클을 이월한 분할이 다섯 번째로
+//    이월된다는 뜻이다. 쪼개서 **지워라**.
+const LIMIT = 200;
+// ⚠ 줄 수는 `split('\n').length`로 센다 — `S26`과 **같은 관례**다(`wc -l`은 마지막
+//    개행을 안 세서 1 적게 나온다. 두 관례를 섞으면 경계에서 하나가 거짓이 된다).
+const GRANDFATHERED = {
+  'hooks/session-start.js': 312,
+  'hooks/lib/pdca-state.js': 284,
+  'hooks/lib/verify-classify.js': 235,
+  'hooks/lib/config-schema.js': 218,
+};
+
+test('G12: hooks와 scripts의 모든 실행 파일이 200줄 이내이고 이월 파일은 더 자라지 않는다', () => {
+  const root = path.join(dir, '..');
+  const walk = (rel, out = []) => {
+    for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) walk(r, out);
+      else if (/\.m?js$/.test(e.name)) out.push(r);
+    }
+    return out;
+  };
+  const files = [...walk('hooks'), ...walk('scripts')];
+  assert.ok(files.length >= 50, `대상 파일이 ${files.length}개뿐이다 — 탐색이 깨졌다`);
+  const over = [];
+  for (const rel of files) {
+    const lines = fs.readFileSync(path.join(root, rel), 'utf8').split('\n').length;
+    const cap = GRANDFATHERED[rel] ?? LIMIT;
+    if (lines > cap) over.push(`${rel}: ${lines}줄 (상한 ${cap})`);
+  }
+  assert.deepEqual(over, [], `200줄 상한을 넘었다 — 쪼개라(숫자를 올리지 마라):\n  ${over.join('\n  ')}`);
+  // 이월 목록이 **낡지 않게** 한다 — 쪼개서 상한 아래로 내려온 파일은 목록에서 빼야 한다.
+  // 안 빼면 그 파일이 다시 자라도 옛 상한까지 허용된다(래칫이 조용히 풀린다).
+  for (const [rel, cap] of Object.entries(GRANDFATHERED)) {
+    assert.ok(fs.existsSync(path.join(root, rel)), `이월 목록의 ${rel}이 없다 — 목록에서 빼라`);
+    const lines = fs.readFileSync(path.join(root, rel), 'utf8').split('\n').length;
+    assert.ok(lines > LIMIT,
+      `${rel}이 ${lines}줄로 200 이내가 됐다 — GRANDFATHERED에서 빼라(안 빼면 ${cap}줄까지 다시 자란다)`);
+  }
+});

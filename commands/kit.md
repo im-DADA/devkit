@@ -26,7 +26,7 @@ allowed-tools:
 | 인자 | 하는 일 |
 |---|---|
 | `setup` | 마법사 실행 |
-| `setup models [<agent>]` | 한 단계의 실행 CLI와 모델만 바꾼다(최대 2라운드 · effort는 묻지 않는다) |
+| `setup models [<agent>]` | 단계의 실행 CLI와 모델을 바꾼다 — `<agent>`를 주면 한 단계만, 안 주면 묶음으로 여러 단계를 한 번에(최대 2라운드) |
 | `setup <자연어 한 줄>` | 예: `/kit setup 구현은 Codex로` — 의도를 diff로 보여주고 승인받는다 |
 | `setup show` | 현재 값 · 기본값과 다른 항목 · frontmatter 일치 여부 · CLI 축 · 카탈로그 대조 |
 | `setup --cli=<name>` | CLI 감지가 틀렸을 때의 탈출구 — 감지 결과와 무관하게 그 CLI를 모델 선택지에 노출한다(`claude`·`codex`) |
@@ -43,9 +43,9 @@ allowed-tools:
    - ⚠ **라운드를 늘리지 마라.** 단계별로 하나씩 묻는 흐름을 만들지 마라 — 그건 `setup models`가 하는 일이다.
    - ⚠ **프리셋 표를 그리지 마라.** 배분을 표로 미리 보여줄 필요가 없다.
    - 문항 객체에 **키를 더하지 마라** — 도구가 거부한다. 답을 되돌릴 때는 형제 키 `map`을 쓴다(`map[header][label]` → 값).
-3. **답을 patch로 바꾼다.** `map`으로 얻은 두 값이 그대로 키가 된다 — `plan.patches["<scope>|<build>"]`(예: `patches["default|codex"]`). 구현 CLI 문항이 없었으면 `build`는 `claude`다. 그 조합의 `patch`와 `notes`가 나온다.
+3. **답을 patch로 바꾼다.** `map`으로 얻은 두 값이 그대로 키가 된다 — `plan.patches["<scope>|<build>"]`. `build`의 값 공간은 **`claude`** · **`codex:<모델 id>`** · **`other`** 셋이다(모델을 고르면 두 번째다). 구현 CLI 문항이 없었으면 `build`는 `claude`다. ⚠ `other`는 **키가 없다** — 이름을 받아 `--codex-model <id>`로 한 번 더 불러 완성된 patch를 받는다(없는 키를 꺼내 `undefined`가 나오는 것이 그 신호다).
 4. **diff와 `notes`를 보여주고 승인받는다.** `plan.current.nonDefault`(지금)와 patch를 나란히 보이고, 그 조합의 `patches[키].notes`를 **그대로 함께 출력한다** — 거기에만 있는 사실이 있다(되돌리지 않는다 · Codex 사용량 · effort를 쓰지 않는 모델). 기존 파일이 있으면 같은 폴더에 `config.backup-{ISO}.json`을 **먼저** 남기고 그 경로를 보고한다.
-   - **승인 후 쓰기는 병합이다.** `~/.devkit/config.json`을 Read해서 `{...기존 파일, ...patch, version: 1}`을 Write한다. ⚠ **기존 파일을 덮어쓰지 마라** — `patch`는 모델 축만 담으므로 `{"version":1, ...patch}`를 그대로 쓰면 사용자가 손으로 적은 `language`·`guards`·`pdca` 같은 키가 **말없이 사라진다**(2026-10-02 리뷰). 파일이 없으면 그때만 `{"version":1, ...patch}`다.
+   - **승인 후 쓰기 — 병합은 스크립트가 계산한다.** `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --merge '<patch JSON 한 덩이>'`를 돌리면 설정 파일 **원문**을 읽어 합친 결과가 `merged`로 나온다(`problem`이 `null`인지 먼저 본다). 그 `merged`를 **그대로** `~/.devkit/config.json`에 Write한다 — 합치기를 손으로 하지 마라. ⚠ 스크립트는 **파일을 쓰지 않는다**(읽기 전용 계약 그대로). 쓰기는 여기서 한다. ⚠ **기존 파일을 덮어쓰지 마라** — 얕게 합치면 사용자가 손으로 적은 `language`·`guards`·`pdca`와 **이번에 고르지 않은 단계의 `models` 항목**이 말없이 지워진다(2026-10-02 Gap). ⚠ `loadConfig()`의 결과를 쓰지 마라 — 기본값이 채워진 값이라 그대로 쓰면 그 사용자만 옛 기본값에 묶인다.
    - `기본값 그대로`는 **`{"version":1}` 한 줄만** 쓴다(patch가 빈 객체다). 동작은 완전 기본값이면서 "설정을 물어봤다"는 사실이 남아 첫 실행 안내가 다시 뜨지 않는다. 기본값 전체를 적어 넣지 마라 — 나중에 devkit의 기본값이 바뀌어도 그 사람만 옛 값에 묶인다.
    - ⚠ 이 파일은 **보호 파일**이라 Write 시 확인 창이 뜬다. 정상이다 — 거절되면 우회하지 말고 경로와 내용을 보여준다.
 5. **모델 설정을 `agents/*.md`에 적용한다** — `### 모델 배분`.
@@ -67,15 +67,29 @@ allowed-tools:
 
 ### setup models
 
-`/kit setup models [<agent>]` — **한 단계**의 실행 CLI와 모델만 바꾼다. `<agent>`가 없으면 어느 단계인지 먼저 묻는다.
+`/kit setup models [<agent>]` — 단계의 실행 CLI와 모델을 바꾼다. **`<agent>`를 주면 그 한 단계만**, 안 주면 **묶음으로 여러 단계를 한 번에** 바꾼다.
 
-1. `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --plan --agent <agent>` → `plan.model`.
-2. `plan.model.cliRound`가 있으면 그것을 묻는다(없으면 CLI는 Claude 고정이다). 그 답으로 `plan.model.byCli[<cli>].rounds`를 묻는다. **합쳐서 2라운드를 넘지 않는다.**
-3. **effort는 묻지 않는다** — `plan.model.byCli[<cli>].notes`에 유도값이 적혀 있으니 그걸 보고한다.
-4. 그 단계의 `{cli, model}`과 **유도된 effort**(3번의 notes에 적힌 값, 없으면 effort 키를 **빼라**)로 `{models: {<agent>: {…}}}` 하나만 만들어 `### 마법사 절차` 4~5와 같은 방식으로 **병합** 승인·적용한다. ⚠ effort를 직접 고르거나 지어내지 마라.
+**여러 단계(인자 없음)**
 
-- `plan.model.group`이 `returnsBody`면 **Codex 선택지가 없다.** 사유는 `notes`에 있다 — 이 단계들은 본문을 반환하고 파일 쓰기는 커맨드가 하는 계약이라 `codex exec`가 마크다운 본문을 온전히 담는지 **검증하지 않았다**(2026-09-30 결정).
-- **목록에 없는 모델도 그대로 적을 수 있다** — `그 외`를 고르면 이름을 받아 저장한다(허용 판정은 형태만 본다). 단 `claude-`로 시작하는 id가 카탈로그에 없으면 "이 머신의 카탈로그에는 없다 — 호출 시 404로 종료될 수 있다"를 한 번 말한다.
+1. `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --plan --agent ""` → `plan.stages`.
+2. `plan.stages.rounds[0].questions`를 그대로 묻는다(`단계`는 **multiSelect**라 답이 **배열**이다 · `실행 CLI`는 Codex가 쓸 수 있을 때만 있다). 답을 `map`으로 되돌려 묶음 id를 얻고, `plan.stages.tiers`에서 그 id의 `agents`를 꺼낸다. 고른 묶음이 없으면 "바꿀 것이 없다"로 끝낸다.
+3. `plan.stages.byCli[<CLI 답>].rounds`를 묻는다(없으면 CLI는 Claude 고정이다). **합쳐서 2라운드를 넘지 않는다.**
+4. 적용 데이터는 `plan.stages.byCli[<CLI>].apply[<모델 답>]`에 **단계별로 완성돼** 있다. 그 객체를 **그대로 복사**해 `{models: {…}}`를 만든다 — ⚠ **effort를 계산하지 마라.** 고른 단계가 `apply`에 **없으면** 건너뛰고 **사유는 `notes`에서 읽어 그대로 보고한다** — ⚠ 사유를 단정하지 마라. 원인이 여럿이다(본문을 반환하는 단계 · 모델 목록이 비었음 · 그 CLI를 못 씀). 모델 답이 `other`면 이름을 받아 **CLI별로 갈라서** 처리한다 — `codex`면 `--codex-model <id>`로 **한 번 더** 불러 완성된 데이터를 받고, `claude`면 받은 이름을 그대로 쓰되 effort는 `plan.defaults.models[<agent>].effort`에서 **복사**한다(계산하지 마라). ⚠ `--codex-model`은 Codex 전용이라 `inherit`을 **거부한다** — 세션 모델을 따라가게 하려면 CLI를 `claude`로 두고 이름 자리에 `inherit`을 적는다.
+
+**한 단계(`<agent>` 지정)** — `--plan --agent <agent>` → `plan.model`. `cliRound` → `byCli[<cli>].rounds` 순으로 묻고(**2라운드** 이내), 적용 데이터는 **`plan.model.byCli[<cli>].apply[<모델>]`**에서 같은 방식으로 꺼낸다.
+
+**쓰기 — 네 가지를 반드시 지킨다**
+
+1. **병합은 스크립트가 계산한다.** `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --merge '<patch JSON>'`로 불러 나온 `merged`를 **그대로** Write한다(`problem`이 `null`인지 먼저 본다) — 합치기를 손으로 하지 마라. `hooks/lib/setup-plan.js`의 `mergeConfigFile`이 그 계산을 하고 `S27`(함수)과 `IP18`(실행 경로)이 고정한다. ⚠ `models`를 **한 겹 더 깊게** 합치는 것이 본체다 — 얕게 합치면 **고르지 않은 단계가 말없이 지워진다.**
+2. **백업**을 먼저 남긴다 — 기존 파일이 있으면 `config.backup-{ISO}.json`을 만들고 그 경로를 보고한다.
+3. `applyModel`이 `{ok:false}`면 그 에이전트는 **건너뛰고** 사유를 보고한다 — 그 파일은 **한 바이트도** 고치지 않는다.
+4. 대상 디렉터리에 `.git`이 있으면 멈추고 확인받는다(거절하면 설정만 저장하고 `_appliedAt`은 `null`).
+
+- `group`이 `returnsBody`인 단계에는 **Codex 선택지가 없다.** 이 단계들은 본문을 반환하고 파일 쓰기는 커맨드가 하는 계약이라 `codex exec`가 마크다운 본문을 온전히 담는지 **검증하지 않았다**(2026-09-30 결정).
+- ⚠ **목록 순서는 품질 서열이 아니다.** 상위 1종을 말없이 집지 말고 설명과 권장 effort를 보여 고르게 한다 — 2026-10-02 실사용에서 1위가 사용자가 원한 모델이 아니었다.
+- **effort는 어느 경로에서도 묻지 않는다** — 유도값이 `notes`에 적혀 있으니 그걸 보고만 한다.
+- **목록에 없는 모델도 그대로 적을 수 있다** — `그 외`로 이름을 받는다(허용 판정은 형태만 본다). 단 `claude-`로 시작하는 id가 카탈로그에 없으면 "이 머신의 카탈로그에는 없다 — 호출 시 404로 종료될 수 있다"를 한 번 말한다.
+- 세션 모델을 따라가게 하려면 모델 이름 자리에 **`inherit`**을 적는다(`cli`가 `claude`일 때만 뜻이 있다).
 
 ### 자연어 한 줄
 
@@ -104,7 +118,7 @@ allowed-tools:
 
 `~/.devkit/config.json`의 `models.<agent>.cli`를 읽어 표에 **CLI 열**을 붙인다. `cli`가 `codex`인 행은 `(Codex)`로 표시하고, 그 행의 카탈로그 대조는 **판정하지 않음**이 정상이다(Claude 카탈로그 기준 대조이므로) — 라벨을 안 붙이면 사용자가 그걸 고장으로 읽는다.
 
-현재 값 · 기본값과 다른 항목 · `agents/*.md`가 설정과 맞는지(`readModel`로 대조) · **카탈로그 대조**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --check`를 돌려 `agents[]`를 표로 보인다 — `modelStatus`가 `absent`면 "이 머신의 Claude Code 카탈로그에 없다 — 호출 즉시 404로 종료된다", `effortStatus`가 `unsupported`면 "모델 X는 effort Y를 제공하지 않는다(카탈로그 기준)", `none`이면 "effort를 쓰지 않는 모델(값은 무시된다)", `unjudged`는 "판정하지 않음(정수 effort·alias·Codex 모델·카탈로그 없음)"으로 표기만 한다. `claude.status`가 `ok`가 아니면 대조를 건너뛰고 `reason` 한 줄. 이 대조는 **Claude 카탈로그 기준이다 — Codex 단계는 `clis.codex`가 따로 본다** · 설정 파일 경로 · `DEVKIT_CONFIG`가 설정돼 있으면 그 사실.
+현재 값 · 기본값과 다른 항목 · `agents/*.md`가 설정과 맞는지(`readModel`로 대조) · **카탈로그 대조**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/list-models.mjs" --check`를 돌려 `agents[]`를 표로 보인다 — `modelStatus`가 `inherit`이면 **"세션 모델을 따라간다(모델 고정 없음) — 카탈로그 대조 대상이 아니다"**로 적고, 그 행의 `cli`가 `codex`면 한 줄 더: "⚠ Codex 단계에 `inherit`은 뜻이 없다 — 모델 이름을 적거나 `cli`를 `claude`로 바꾼다". `absent`면 "이 머신의 Claude Code 카탈로그에 없다 — 호출 즉시 404로 종료된다", `effortStatus`가 `unsupported`면 "모델 X는 effort Y를 제공하지 않는다(카탈로그 기준)", `none`이면 "effort를 쓰지 않는 모델(값은 무시된다)", `unjudged`는 "판정하지 않음(정수 effort·alias·Codex 모델·카탈로그 없음)"으로 표기만 한다. `claude.status`가 `ok`가 아니면 대조를 건너뛰고 `reason` 한 줄. 이 대조는 **Claude 카탈로그 기준이다 — Codex 단계는 `clis.codex`가 따로 본다** · 설정 파일 경로 · `DEVKIT_CONFIG`가 설정돼 있으면 그 사실.
 
 ### `setup reset`
 
@@ -245,7 +259,7 @@ Codex가 받는 devkit 규칙은 이 파일의 `devkit:rules` 구간이고, 정�
              코드 규칙·커밋/머지·검증·에이전트 모델. 설정 없으면 기본값으로 동작
              모델 목록은 설치된 CLI(Claude Code · Codex)의 로컬 캐시에서 읽는다 (없으면 고정 목록)
              감지가 틀렸으면 /kit setup --cli=codex 로 강제 노출
-  /kit setup models [<agent>]  한 단계의 CLI·모델만 조정 (effort는 카탈로그 권장값으로 유도)
+  /kit setup models [<agent>]  단계의 CLI·모델 조정 — 인자 없으면 묶음으로 여러 단계를 한 번에
   /kit setup <자연어>  예: /kit setup 구현은 Codex로 — diff 확인 후 승인하면 적용
   /kit init 현재 프로젝트에 AGENTS.md + eslint + CI + settings.json 생성
   /kit sync  프로젝트 AGENTS.md·전역 ~/.codex/AGENTS.md의 규칙 사본 갱신 (마커 구간만)

@@ -488,6 +488,8 @@ export function formatCurrency(value: number): string {
 - `INTEGRITY.sha256`은 `hooks/`·`scripts/`만 덮으므로 이 변경의 대상이 아니다. **`/kit setup`은 매니페스트를 재생성하지 않는다** — 재생성하면 그 시점 `hooks/`의 상태를 무조건 정당화해 변조 탐지의 기준선을 말없이 다시 긋게 된다.
 - `effort` 허용값은 `low|medium|high|xhigh|max` 또는 양의 정수다. 허용값 밖이면 그 에이전트는 **건너뛴다**(파일을 열지 않는다).
 - **effort는 묻지 않고 유도한다.** `cli`가 `claude`면 `DEFAULTS.models[agent].effort`를 그대로 쓴다 — 카탈로그의 권장값으로 덮으면 `planner`의 `max`가 조용히 내려가 "계획은 가장 비싼 판단"이라는 배분이 뒤집힌다. `cli`가 `codex`면 그 모델의 권장값을 쓰고, 없으면 **effort 줄을 손대지 않는다**(모르는 값을 고른 척하지 않는다).
+- **`inherit`은 설정 축에서만 허용된다.** 사용자가 `models.<agent>.model`에 적으면 그 단계는 **세션 모델을 따라가고** effort는 기본값을 쓴다. devkit이 출하하는 `agents/*.md`에는 쓰지 않는다 — 기본값은 의견을 담은 배분이고 그 금지는 `test/agent-contract.test.mjs`의 `M1`이 지킨다. `cli: "codex"`에 `inherit`은 뜻이 없어 마법사가 받지 않는다.
+- **모델 목록의 순서는 품질 서열이 아니다.** 상위 1종을 말없이 고르지 말고 `description`과 권장 effort를 보여 사용자가 고르게 한다(2026-10-02 실사용에서 목록 1위가 사용자가 원한 모델이 아니었다).
 - **마법사가 Codex 후보로 제시하는 것은 파일을 직접 쓰는 단계뿐이다**(`feature-builder`·`tdd-driver`·`test-writer`). 나머지 다섯은 본문을 반환하고 파일 쓰기는 커맨드가 하는 계약이라 `codex exec`가 마크다운 본문을 온전히 담는지 **검증되지 않았다**. 설정 스키마는 여덟 단계 전부에 `cli: codex`를 받으므로 손으로 적을 수는 있고, 그 조합은 **미검증**이다.
 
 - **선택지의 출처는 Claude Code가 갱신하는 로컬 카탈로그**(`~/.claude/cache/model-catalog/`)다 — `/kit setup`은 `scripts/list-models.mjs`로 읽는다. 없거나 깨지거나 모양이 다르면 **기본값의 가족 3종·effort 5종으로 떨어진다**(파일이 없는 것은 정상 상태다 — 로그인 전·다른 OS). 카탈로그 파일에는 읽기만 하고 쓰거나 지우지 않는다.

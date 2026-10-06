@@ -308,3 +308,29 @@ test('CX6 B7 B8 B9 B11 B18: priority 오름차순·결측은 뒤로·동률은 �
     effortOptions:[{id:'medium'},{id:'low'}]})]).primary[0].effortOptions;
   assert.deepEqual(opts.map((o)=>o.id), ['medium','low']);
 });
+
+// ── C15: inherit은 고유 상태다 (B16) ──────────────────────────
+// 설계: docs/2026-10-02-role-model-choice-ux/DESIGN.md §6
+// ⚠ 새 상태의 **유일한** 방어선이다. 기존 테스트 중 상태 집합을 **닫아** 단언하는 것이
+//    하나도 없어서(C5·C8·I7 전수 확인), 분기를 지워도 그쪽은 전부 침묵한다.
+test('C15 B16: inherit은 unjudged로 뭉개지지 않고 카탈로그 없이도 inherit이다', () => {
+  const { normalizeClaudeCatalog, classifyModel, checkAssignments } = load();
+  const models = normalizeClaudeCatalog(FIXTURE).models;
+  assert.equal(classifyModel('inherit', models), 'inherit');
+  // 음성 대조 — 오타 모델명과 Codex 모델은 여전히 unjudged다(같은 칸에 뭉개지면 구분이 사라진다).
+  for (const other of ['inherits', 'gpt-6-astra', 'opus-5']) {
+    assert.notEqual(classifyModel(other, models), 'inherit', `${other}가 inherit으로 판정됐다`);
+  }
+  // 카탈로그가 없어도 inherit이다 — 이 판정은 설정만으로 성립한다.
+  const cfg = mergeConfig({ models: { planner: { model: 'inherit' } } }).config;
+  const rows = checkAssignments(cfg, { ok: false, models: [] });
+  const row = rows.find((r) => r.agent === 'planner');
+  assert.equal(row.modelStatus, 'inherit');
+  assert.equal(row.matched, null, '세션 모델을 모르니 매칭 대상이 없다');
+  assert.equal(row.effortStatus, 'unjudged', '모델을 모르면 effort도 판정할 수 없다');
+  // 행의 키 집합은 바뀌지 않는다 — 바뀌면 C8의 deepEqual과 --check 소비자가 함께 흔들린다.
+  assert.deepEqual(Object.keys(row).sort(), Object.keys(rows.find((r) => r.agent === 'architect')).sort());
+  // 카탈로그가 있어도 같다.
+  const withCatalog = checkAssignments(cfg, { ok: true, models });
+  assert.equal(withCatalog.find((r) => r.agent === 'planner').modelStatus, 'inherit');
+});

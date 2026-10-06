@@ -2,6 +2,10 @@
 const { DEFAULTS, AGENTS } = require('./config-schema');
 const { EFFORTS } = require('./agent-frontmatter');
 const CLAUDE_CATALOG_VERSION = 2;
+// 설정에 적힌 글자와 **같은 값**을 상태 이름으로 쓴다 — 새 어휘를 만들면 사용자가
+// `--check` 출력과 설정 파일을 연결하지 못한다. export하지 않는다(테스트가 import해
+// 비교하면 자기참조가 되어 상수를 고치는 것만으로 초록이 유지된다 — D24 ①).
+const INHERIT = 'inherit';
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const stringOrNull = (value) => typeof value === 'string' ? value : null;
 const modelList = (models) => Array.isArray(models) ? models.filter((m) => isObject(m) && typeof m.id === 'string') : [];
@@ -101,6 +105,10 @@ function isCatalogIdShape(value) {
   return typeof value === 'string' && /^claude-[a-z0-9-]{1,60}$/.test(value);
 }
 function classifyModel(value, models) {
+  // 세션 모델을 따라가는 값은 카탈로그 대조 대상이 아니다. 오타 모델명·Codex 모델과 같은
+  // `unjudged` 칸에 뭉개지면 사용자가 "판정 못 한 것"과 "일부러 비운 것"을 구분할 수 없다.
+  // ⚠ `matchModel`보다 **먼저** 본다 — 카탈로그에 같은 이름이 생겨도 판정이 흔들리지 않는다.
+  if (value === INHERIT) return INHERIT;
   return matchModel(value, models) ?? (isCatalogIdShape(value) ? 'absent' : 'unjudged');
 }
 
@@ -117,7 +125,9 @@ function checkAssignments(cfg, catalog) {
   return AGENTS.map((agent) => {
     const assignment = isObject(cfg?.models?.[agent]) ? cfg.models[agent] : DEFAULTS.models[agent];
     const { model, effort } = assignment;
-    const modelStatus = catalog?.ok === true ? classifyModel(model, models) : 'unjudged';
+    // 카탈로그가 없어도 `inherit`은 `inherit`이다 — 이 판정은 설정만으로 성립한다.
+    const modelStatus = model === INHERIT ? INHERIT
+      : catalog?.ok === true ? classifyModel(model, models) : 'unjudged';
     const matches = models.filter((m) => modelStatus === 'id' ? m.id === model
       : modelStatus === 'family' && m.section === 'main' && m.family === model);
     const matched = modelStatus === 'id' ? matches[0] : matches.length === 1 ? matches[0] : null;

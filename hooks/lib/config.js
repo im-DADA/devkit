@@ -34,26 +34,18 @@ const MAX_CONFIG_BYTES = 256 * 1024;
 // `loadConfig`가 이미 하는 stat/read를 재사용하므로 추가 IO는 0이다.
 let missing = false;
 
-/** 설정 파일 본문. 없으면 `null`(정상 — 설정하지 않은 사람이 다수다) */
+/**
+ * 설정 파일 본문. 없으면 `null`(정상 — 설정하지 않은 사람이 다수다).
+ * ⚠ 가드(FIFO·크기)를 **다시 구현하지 않고 `readConfigText`에 위임한다** — 두 자리에 두면
+ *   한쪽만 고쳐져 갈린다(2026-10-02 Gap 5회차가 이 함수의 사본화를 지적했다).
+ */
 function readRaw(p) {
-  if (p === null) return null;
-  try {
-    // ⚠ 읽기 **전에** 종류와 크기를 본다. FIFO를 readFileSync하면 영원히 매달린다.
-    const st = fs.statSync(p);
-    if (!st.isFile()) {
-      warn(`설정 경로가 정규 파일이 아니다(${p}) — 전부 기본값으로 진행한다`);
-      return null;
-    }
-    if (st.size > MAX_CONFIG_BYTES) {
-      warn(`설정 파일이 너무 크다(${p}: ${st.size}B) — 전부 기본값으로 진행한다`);
-      return null;
-    }
-    return fs.readFileSync(p, 'utf8');
-  } catch (e) {
-    // 여기서만 "없음"을 인정한다. EACCES·EISDIR 등은 **있는데 못 읽는 것**이라 안내 대상이 아니다.
-    if (e && e.code === 'ENOENT') missing = true;
-    return null;
-  }
+  const r = readConfigText(p);
+  if (r.state === 'missing') { if (p !== null) missing = true; return null; }
+  // ⚠ 못 읽은 이유를 **반드시** 남긴다 — 이 파일 머리말이 "무엇이 왜 떨어졌는지 stderr에
+  //   한 줄 남긴다"고 선언했는데 예전 구현은 EACCES에서 한 줄도 안 남겼다(같은 Gap 5회차).
+  if (r.state === 'unreadable') { warn(`${r.reason}(${p}) — 전부 기본값으로 진행한다`); return null; }
+  return r.text;
 }
 
 let cached = null;
@@ -115,4 +107,31 @@ function unconfiguredPath() {
   return missing ? configPath() : null;
 }
 
-module.exports = { DEFAULTS, AGENTS, mergeConfig, loadConfig, isDefault, configPath, unconfiguredPath };
+/**
+ * 설정 파일 본문을 **상태와 함께** 돌려준다 — `readRaw`는 "없음"과 "있는데 못 읽음"을 둘 다
+ * `null`로 뭉개서 호출자가 구분할 수 없다. `--merge` 같은 쓰기 전 단계는 그 둘을 **반드시**
+ * 갈라야 한다: 없으면 새로 쓰면 되지만, 깨졌는데 없다고 보면 **사용자 설정을 통째로 지운다**
+ * (2026-10-02 리뷰 🔴2가 실측했다).
+ * @returns `{ state: 'missing'|'ok'|'unreadable', text: string|null, reason: string|null }`
+ */
+function readConfigText(p) {
+  if (p === null) return { state: 'missing', text: null, reason: null };
+  let st = null;
+  try {
+    // ⚠ 읽기 **전에** 종류와 크기를 본다 — FIFO를 readFileSync하면 영원히 매달린다.
+    st = fs.statSync(p);
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return { state: 'missing', text: null, reason: null };
+    return { state: 'unreadable', text: null, reason: '설정 파일을 읽지 못했다(권한·경로)' };
+  }
+  if (!st.isFile()) return { state: 'unreadable', text: null, reason: '설정 경로가 정규 파일이 아니다' };
+  if (st.size > MAX_CONFIG_BYTES) return { state: 'unreadable', text: null, reason: '설정 파일이 너무 크다' };
+  try {
+    return { state: 'ok', text: fs.readFileSync(p, 'utf8'), reason: null };
+  } catch {
+    return { state: 'unreadable', text: null, reason: '설정 파일을 읽지 못했다(권한·경로)' };
+  }
+}
+
+module.exports = { DEFAULTS, AGENTS, mergeConfig, loadConfig, isDefault, configPath, unconfiguredPath,
+  MAX_CONFIG_BYTES, readConfigText };

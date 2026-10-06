@@ -9,7 +9,7 @@
 // 따라서 "마법사가 스키마에 맞는 JSON을 쓰는가"는 이 파일이 검증하지 못한다(RULES.md:414).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -373,4 +373,67 @@ test('SP2 B23: 직접 고르기 절이 항목 수나 라운드 수를 주장하�
   assert.ok(doc.includes('### 직접 고르기'), '절 제목에서 숫자를 빼야 한다');
   assert.doesNotMatch(pickSection(), /\d+\s*개\s*(항목|라운드)/, '수치 주장이 남아 있다');
   assert.doesNotMatch(pickSection(), /라운드가 \d+개 늘어난다/);
+});
+
+// ── U22: 못 읽은 설정은 **왜 못 읽었는지** stderr에 남는다 (2026-10-02 Gap 5회차) ──
+// 🔴 이 파일 머리말이 "무엇이 왜 떨어졌는지 stderr에 한 줄 남긴다"고 선언했는데, `readRaw`는
+//    EACCES·EISDIR에서 **한 줄도 안 남겼다**. 사용자는 "설정이 왜 안 먹히지"를 알 길이 없었다.
+//    `--merge`용으로 `readConfigText`를 신설하며 그 비대칭이 드러났고, 고치고 **여기서 고정한다**
+//    — 고칠 때 단언을 안 붙여서 돌연변이가 무결성 해시만 빨개졌다(그게 이 사이클의 반복 실패다).
+test('U22: 설정을 못 읽으면 사유를 stderr에 한 줄 남긴다(디렉터리·FIFO·크기 초과)', () => {
+  const cases = [
+    ['디렉터리', (p) => fs.mkdirSync(p), '정규 파일이 아니다'],
+    ['FIFO', (p) => execFileSync('mkfifo', [p]), '정규 파일이 아니다'],
+    ['크기 초과', (p) => fs.writeFileSync(p, 'x'.repeat(256 * 1024 + 1)), '너무 크다'],
+  ];
+  for (const [label, make, expect] of cases) {
+    const home = homeWith(null);
+    const file = path.join(home, '.devkit', 'config.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    make(file);
+    const probe = `require(${JSON.stringify(libPath)}).loadConfig();`;
+    // ⚠ `spawnSync`를 쓴다 — `execFileSync`는 stdout만 돌려주므로 **stderr를 단언할 수 없다**.
+    //   stdout만 보면 "진단을 지워도 초록"이 되어 이 테스트가 공허해진다(실측했다).
+    const r = spawnSync(process.execPath, ['-e', probe], {
+      encoding: 'utf8', env: { ...process.env, HOME: home, DEVKIT_CONFIG: file }, timeout: 5000,
+    });
+    assert.equal(r.signal, null, `${label}: 타임아웃으로 죽었다 — 읽기 전 가드가 없다`);
+    assert.equal(r.status, 0, `${label}: loadConfig가 죽었다 — 가드가 fail-open된다`);
+    assert.equal(r.stdout, '', `${label}: stdout을 오염시켰다 — 훅 계약이 깨진다`);
+    const err = r.stderr.trim();
+    assert.notEqual(err, '', `${label}: 사유를 한 줄도 안 남겼다 — 사용자는 설정이 왜 무시됐는지 알 수 없다`);
+    assert.ok(err.includes(expect), `${label}: 사유가 "${expect}"를 안 담았다 — 받은 것: ${err}`);
+    assert.ok(!err.includes('x'.repeat(50)), `${label}: 설정 본문이 진단으로 샜다`);
+  }
+});
+
+test('U22b: readConfigText가 세 상태를 가르고 readRaw가 그 가드를 **공유한다**', () => {
+  const { readConfigText } = require_(libPath);
+  const home = homeWith(null);
+  const mk = (name, make) => { const p = path.join(home, '.devkit', name);
+    fs.mkdirSync(path.dirname(p), { recursive: true }); make(p); return p; };
+  const ok = mk('ok.json', (p) => fs.writeFileSync(p, '{"version":1}'));
+  const dir = mk('d.json', (p) => fs.mkdirSync(p));
+  const fifo = mk('f.json', (p) => execFileSync('mkfifo', [p]));
+  const big = mk('big.json', (p) => fs.writeFileSync(p, 'x'.repeat(256 * 1024 + 1)));
+  const gone = path.join(home, '.devkit', 'nope.json');
+  // ① 세 상태가 실제로 갈린다. `unreadable`은 **사유를 반드시** 들고 온다.
+  assert.equal(readConfigText(ok).state, 'ok');
+  assert.equal(readConfigText(ok).text, '{"version":1}');
+  assert.equal(readConfigText(gone).state, 'missing');
+  assert.equal(readConfigText(null).state, 'missing');
+  for (const [label, p] of [['디렉터리', dir], ['FIFO', fifo], ['크기 초과', big]]) {
+    const r = readConfigText(p);
+    assert.equal(r.state, 'unreadable', `${label}을 unreadable로 안 봤다`);
+    assert.equal(r.text, null, `${label}에서 본문을 내줬다`);
+    assert.ok(typeof r.reason === 'string' && r.reason.length >= 5,
+      `${label}의 사유가 없다 — 호출자가 사용자에게 알릴 말이 없다`);
+  }
+  // ② `readRaw`가 **같은 가드를 쓴다** — 사본이면 한쪽만 고쳐져 갈린다.
+  //    `config.js` 본문에 `statSync`가 **한 번만** 나오는 것으로 확인한다(두 번이면 사본이다).
+  const src = fs.readFileSync(libPath, 'utf8');
+  assert.equal((src.match(/statSync/g) ?? []).length, 1,
+    'statSync가 두 자리에 있다 — 가드가 사본화됐다(Gap 5회차가 지적한 그 결함이다)');
+  assert.ok(/function readRaw\(p\) \{\s*\n\s*const r = readConfigText\(p\);/.test(src),
+    'readRaw가 readConfigText에 위임하지 않는다 — "한 자리로 공유"가 거짓이 된다');
 });

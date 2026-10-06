@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { DEFAULTS, AGENTS } = require('../hooks/lib/config-schema');
@@ -699,13 +700,32 @@ test('IP11: --agent가 감지 안 된 CLI를 권하지 않고 못 쓰는 사유�
   // 둘 다 있으면 문항이 살아 있다(양성 대조).
   const both = script(homeWith(null,{'u-h-cc.json':fixtureText},codexBody()),['--plan','--agent','tdd-driver']);
   assert.equal(both.plan.model.cliRound.questions[0].options.length,2);
+  // 🔴 **감지됐지만 목록이 비었음** — 이 축이 0건이었다(2026-10-02 Gap 6회차). 스크립트가
+  //    `codexHasModels`를 **공급하는지**는 라이브러리 테스트(`S32`)가 그 값을 직접 넘기므로
+  //    영원히 볼 수 없다. 배선 인자 하나를 지우면 REVIEW 🔴4의 막다른 길이 되살아나는데
+  //    무결성 해시만 빨개졌다 — 그 자리를 여기서 스크립트 경계로 닫는다.
+  const emptyHome = homeWith(null,{'u-h-cc.json':fixtureText},'{ not json');
+  const forced = spawnSync(process.execPath,
+    [path.join(root,'scripts/list-models.mjs'),'--plan','--agent','tdd-driver','--cli=codex'],
+    {env:{...process.env,HOME:emptyHome},cwd:root,input:'',timeout:10000,encoding:'utf8'});
+  assert.equal(forced.status,0,forced.stderr);
+  const f = JSON.parse(forced.stdout);
+  assert.equal(f.offer.find((o)=>o.cli==='codex').offered,true,'이 테스트의 전제가 깨졌다 — 강제 노출이 안 됐다');
+  assert.equal(f.plan.model.byCli.codex.rounds.length,0,'전제: 모델 목록이 비어 문항을 못 낸다');
+  assert.equal(f.plan.model.cliRound,null,
+    '목록이 비었는데 실행 CLI를 물었다 — 고른 뒤 라운드 2가 빈 손이라 막다른 길이다(REVIEW 🔴4)');
+  assert.ok(f.plan.model.notes.some((n)=>n.includes('목록이 비어')),
+    `사유가 "목록이 비어"를 안 담았다 — 커맨드가 틀린 사유를 보고한다: ${JSON.stringify(f.plan.model.notes)}`);
+  // 여러 단계 경로도 **같은 답**이어야 한다(두 경로가 갈리면 사용자가 경로에 따라 다른 문항을 받는다).
+  assert.deepEqual(f.plan.stages.rounds[0].questions.map((q)=>q.header),['단계'],
+    '여러 단계 경로가 실행 CLI를 물었다 — 한 단계 경로와 갈렸다');
 });
 
 test('문서 IP12: 마법사가 설정을 교체하지 않고 병합하며 사라질 키를 보여준다', () => {
   // 🔴 `{"version":1, ...patch}`를 쓰라고 적혀 있었다. patch는 모델 축만 담으므로 비기본
   // 홈에서 `기본값 그대로`를 고르면 손으로 적은 비모델 키가 **통째로 사라졌다**.
   const step = wizardSection();
-  for (const word of ['병합','기존 파일','덮어쓰지 마라']) {
+  for (const word of ['병합','기존 파일을 덮어쓰지 마라']) {
     assert.ok(step.includes(word), `마법사 절차에 "${word}"가 없다`);
   }
   assert.ok(!step.includes('`{"version":1, ...patch}`를 `~/.devkit/config.json`에 Write'),
@@ -713,4 +733,271 @@ test('문서 IP12: 마법사가 설정을 교체하지 않고 병합하며 사�
   // 승인 화면이 notes를 보여줘야 `되돌리지 않는다`·`Codex 사용량`이 사용자에게 닿는다.
   assert.ok(step.includes('patches') && /notes.*승인|승인.*notes/s.test(step),
     '승인 화면에서 notes를 보여주라는 지시가 없다');
+  // ⚠ 단어 존재만 보면 **의미 전복**을 못 잡는다(2026-10-02 Gap). 깊은 병합을 가리키는
+  //    구체 지시를 요구하고, 그 계산을 하는 순수 함수 이름을 박아 둔다(S27이 그 함수를 고정한다).
+  // 🔴 2026-10-02 Gap 2회차: 단어만 요구하면 "통째로 교체한다"로 뒤집어도 초록이었다.
+  //    이제 **스크립트 호출**을 요구한다 — 합치기를 사람이 손으로 하지 않는 것이 본체다.
+  for (const word of ['--merge','merged','그대로','loadConfig']) {
+    assert.ok(step.includes(word), `마법사 절차에 "${word}"가 없다 — 병합을 손으로 하게 된다`);
+  }
+  assert.ok(!/한 겹 더 깊게 합친다[^—]*손으로/.test(step));
+});
+
+// ── IP13·IP15·IP16: --codex-model과 inherit 행 (B7·B21·B16) ──
+test('IP13 B7: --codex-model이 그 id로 완성된 patch를 내고 model 키 없는 부분 patch가 없다', () => {
+  const home = homeWith(null,{'u-h-cc.json':fixtureText},codexBody());
+  for (const args of [['--plan','--codex-model','gpt-6-astra'],['--plan','--codex-model=gpt-6-astra']]) {
+    const j = script(home,args);
+    assert.deepEqual(j.plan.custom,{model:'gpt-6-astra',build:'codex:gpt-6-astra'});
+    const models = j.plan.patches['default|codex:gpt-6-astra'].patch.models;
+    assert.equal(Object.keys(models).length,3);
+    for (const e of Object.values(models)) { assert.equal(e.model,'gpt-6-astra'); assert.equal(e.cli,'codex'); }
+    assert.ok(j.plan.stages.byCli.codex.apply['gpt-6-astra'],'stages에도 같은 항목이 있어야 한다');
+  }
+  // ⚠ **한 단계 경로도** 본다 — `kit.md`가 `plan.model.byCli[<cli>].apply[<모델>]`에서 꺼내라고
+  //    지시하는 자리다. 여기를 안 보면 그 코드를 통째로 지워도 초록이었다(2026-10-02 Gap 5회차).
+  const one = script(home,['--plan','--agent','tdd-driver','--codex-model','gpt-custom-9']);
+  const mApply = one.plan.model.byCli.codex.apply;
+  assert.ok('gpt-custom-9' in mApply,
+    'plan.model 쪽에 그 외 이름이 없다 — 커맨드가 undefined를 받아 금지된 effort 계산으로 메운다');
+  assert.deepEqual(Object.keys(mApply['gpt-custom-9']).sort(),
+    ['feature-builder','tdd-driver','test-writer'],'한 단계 경로의 custom이 파일 쓰는 3단계를 못 덮는다');
+  for (const e of Object.values(mApply['gpt-custom-9'])) {
+    assert.equal(e.cli,'codex'); assert.equal(e.model,'gpt-custom-9');
+    assert.equal('effort' in e,false,'모르는 모델에 effort를 지어냈다');
+  }
+  // 두 경로가 **같은 답**을 낸다 — 갈리면 사용자가 경로에 따라 다른 설정을 받는다.
+  assert.deepEqual(mApply['gpt-custom-9'],
+    one.plan.stages.byCli.codex.apply['gpt-custom-9'],'한 단계 경로와 여러 단계 경로가 갈렸다');
+  // 프로토타입 이름은 **게이트에서** 거부된다 — 스크립트 경계에서도 같다.
+  const bad = script(home,['--plan','--agent','tdd-driver','--codex-model','__proto__']);
+  assert.equal(bad.plan.custom,null,'__proto__를 모델 id로 받아들였다');
+  assert.deepEqual(Object.keys(bad.plan.model.byCli.codex.apply).filter((k)=>k==='__proto__'),[]);
+  // 카탈로그에 없는 이름 — 받아들이되 **effort 키가 없다**(모르는 값을 지어내지 않는다).
+  const unknown = script(home,['--plan','--codex-model','gpt-unknown-9']);
+  for (const e of Object.values(unknown.plan.patches['default|codex:gpt-unknown-9'].patch.models)) {
+    assert.equal('effort' in e,false,'모르는 모델에 effort를 지어냈다');
+  }
+  // ⚠ JSON **전체**를 훑어 `cli`는 있는데 `model`이 없는 객체가 0건인지 본다 —
+  //    "이름을 받기 전에 쓸 수 있는 부분 patch가 없다"(B7)를 한 자리에서 닫는다.
+  const walk = (node, hit = []) => {
+    if (Array.isArray(node)) node.forEach((n) => walk(n,hit));
+    else if (node && typeof node === 'object') {
+      if ('cli' in node && !('model' in node)) hit.push(node);
+      Object.values(node).forEach((n) => walk(n,hit));
+    }
+    return hit;
+  };
+  assert.deepEqual(walk(script(home,['--plan','--codex-model','gpt-6-astra']).plan),[],
+    'cli만 있고 model이 없는 객체가 있다');
+});
+
+test('IP15 B21: --codex-model의 모르는 값과 누락이 stderr 한 줄과 exit 0을 지킨다', () => {
+  const home = homeWith(null,{'u-h-cc.json':fixtureText},codexBody());
+  for (const bad of [['--plan','--codex-model'],['--plan','--codex-model=--plan'],
+    ['--plan','--codex-model='],['--plan','--codex-model','inherit'],
+    ['--plan','--codex-model','claude-opus-5'],['--plan','--codex-model','opus'],
+    ['--plan','--codex-model','SECRET_MARKER two']]) {
+    const out = run(home,[path.join(root,'scripts/list-models.mjs'),...bad]);
+    assert.equal(out.status,0,`${bad.join(' ')}가 exit 0이 아니다`);
+    const err = out.stderr.toString();
+    // ⚠ **부재를 먼저 막는다.** 전에는 `if (err.trim() !== '')`로 감싸서 stderr를 통째로 지워도
+    //    초록이었다(2026-10-02 Gap이 돌연변이로 증명했다). 플래그가 왔는데 값을 못 얻으면
+    //    조용히 무시하는 것이 바로 그 공허함의 실체였다.
+    assert.notEqual(err.trim(),'',`${bad.join(' ')}가 조용히 무시됐다`);
+    assert.equal(err.trim().split('\n').length,1,`${bad.join(' ')}의 stderr가 한 줄이 아니다`);
+    assert.doesNotMatch(err,/SECRET_MARKER/,'거부된 값의 원문을 진단에 실었다');
+    const j = JSON.parse(out.stdout);
+    assert.equal(j.plan.custom,null,`${bad.join(' ')}가 custom으로 통과했다`);
+  }
+  // 양성 대조 — 받아들인 값에는 진단이 **없다**(위 단언이 "항상 뭔가 뱉는다"로 통과하지 않는다).
+  const ok = run(home,[path.join(root,'scripts/list-models.mjs'),'--plan','--codex-model','gpt-6-astra']);
+  assert.equal(ok.stderr.toString().trim(),'','유효한 값에 진단이 붙었다');
+  // 카탈로그 유래가 아닌 codex 키가 생기지 않았다.
+  const j = script(home,['--plan','--codex-model','inherit']);
+  for (const k of Object.keys(j.plan.patches)) assert.ok(!k.includes('inherit'),`${k}에 inherit이 샜다`);
+});
+
+test('IP16 B16: --check의 inherit 행이 고유 상태로 나오고 카탈로그 경고가 붙지 않는다', () => {
+  const cfg = JSON.stringify({version:1,models:{planner:{cli:'claude',model:'inherit',effort:'max'}}});
+  for (const files of [{'u-h-cc.json':fixtureText},{}]) {
+    const home = homeWith(cfg,files,codexBody());
+    const row = script(home,['--check']).agents.find((r)=>r.agent==='planner');
+    assert.equal(row.modelStatus,'inherit',`카탈로그 ${Object.keys(files).length?'있음':'없음'}에서 inherit이 아니다`);
+    assert.equal(row.matched,null);
+    assert.equal(row.effortStatus,'unjudged');
+    // 404 오경고가 붙으면 사용자가 멀쩡한 설정을 고장으로 읽는다.
+    const start = runStart(home);
+    assert.equal(start.status,0,start.stderr.toString());
+    assert.doesNotMatch(start.stdout.toString(),/카탈로그에 없다/);
+  }
+});
+
+// ── 문서 IP14·IP17: 다중 단계와 병합 쓰기 (B12·B17·B20) ──────
+test('문서 IP14 B12 B17: setup models 절이 병합 쓰기와 실패 건너뛰기를 적는다 (문서 + 훅 양성 대조)', () => {
+  const doc = kitDoc();
+  const step = doc.split('\n### setup models\n')[1].split('\n### ')[0];
+  // ⚠ **블록을 쪼개서 본다.** 이 절은 `여러 단계`와 `한 단계` 두 블록인데 `step`을 한 덩이로
+  //    보면 **형제 블록이 단어를 대신 충족한다** — `한 단계` 블록을 통째로 지워도 전 파일이
+  //    초록이었다(2026-10-02 Gap 6회차, 아홉 번째 공허). 1회차 B12의 교훈이 "단어 삭제는 잡고
+  //    의미 전복은 못 잡는다"였는데 이것은 그 아래다: **블록 삭제도 못 잡았다.**
+  //    ⚠ `commands/kit.md`는 `INTEGRITY.sha256`에 **없다** — 해시 안전망조차 없으므로
+  //      이 단언이 그 블록의 유일한 방벽이다.
+  const ONE = '**한 단계(`<agent>` 지정)**';
+  assert.ok(step.includes(ONE), `setup models 절에 ${ONE} 블록이 없다 — /kit setup models <agent>가 실사용 경로다`);
+  const oneStage = step.split(ONE)[1];
+  const manyStage = step.split(ONE)[0];
+  // 신규 요구 — 다중 단계와 **한 겹 더 깊은 병합**이 핵심이다(얕게 합치면 고르지 않은 단계가 사라진다).
+  // 🔴 2026-10-02 Gap 3회차: 마법사 절만 `--merge` 호출을 요구해서, **이 절에서 호출을 빼고
+  //    "손으로 합쳐 Write"로 되돌려도 전 파일이 초록**이었다. 같은 요구를 여기에도 건다.
+  for (const word of ['plan.stages','multiSelect','배열','병합','고르지 않은 단계','백업',
+    '건너뛰고','한 바이트도','.git','effort를 계산하지 마라',
+    '--merge','merged','mergeConfigFile']) {
+    assert.ok(step.includes(word), `setup models 절에 "${word}"가 없다`);
+  }
+  // 기존 요구가 재작성에서 살아남았는지(앵커가 조용히 사라지는 것을 막는다).
+  for (const word of ['2라운드','묻지 않는다','검증하지 않았다','목록에 없는 모델도 그대로 적을 수 있다']) {
+    assert.ok(step.includes(word), `setup models 절에서 "${word}"가 사라졌다`);
+  }
+  assert.ok(!step.includes('effort는 묻지 않고 유도한다'), 'IP8이 세는 문구를 이 절에 또 쓰면 RED가 된다');
+  // ── 블록별 요구 — 한쪽에 있다고 다른 쪽이 면제되지 않는다.
+  // ① `여러 단계` 블록: 묶음 축과 그 적용 경로.
+  for (const word of ['plan.stages','multiSelect','tiers']) {
+    assert.ok(manyStage.includes(word), `여러 단계 블록에 "${word}"가 없다`);
+  }
+  // ② `한 단계` 블록: 1회차 🔴이 여기서 났다 — 존재하지 않는 경로 `plan.model.apply[<모델>]`를
+  //    적어 뒀고, 커맨드가 그걸 꺼내면 undefined를 받아 금지된 effort 계산으로 메웠다.
+  for (const word of ['plan.model.byCli','cliRound','2라운드']) {
+    assert.ok(oneStage.includes(word), `한 단계 블록에 "${word}"가 없다 — 적용 데이터를 꺼낼 경로가 사라졌다`);
+  }
+  assert.ok(!/plan\.model\.apply/.test(step),
+    '존재하지 않는 경로 `plan.model.apply`를 적었다 — 1회차 🔴이 되살아났다');
+  // ③ 빈 `apply`의 사유를 **단정하지 않는다.** 원인이 여럿인데(본문 반환 단계 · 목록이 비었음 ·
+  //    그 CLI를 못 씀) 하나로 단정하면 커맨드가 **틀린 사유**를 보고한다(REVIEW 🔴4).
+  assert.ok(!step.includes('(본문을 반환하는 단계에 Codex를 고른 경우다)'),
+    '빈 apply의 사유를 하나로 단정했다 — 5회차가 지운 문장이 되살아났다');
+  assert.ok(/사유를 단정하지 마라|사유는 .*notes.*에서 읽어/.test(step),
+    '사유를 notes에서 읽으라는 지시가 없다 — 커맨드가 원인을 지어낸다');
+  // ⚠ 위는 **형태 관찰**이다 — 병합이 실제로 일어나는지는 기계로 증명하지 않는다(DESIGN §7.4).
+  //    승인을 강제하는 것은 훅이므로 그 방벽이 살아 있는지 **같은 테스트에서 양성 대조**한다.
+  const home = homeWith(null);
+  const input = JSON.stringify({ tool_name:'Write',
+    tool_input:{ file_path: path.join(home,'.devkit','config.json'), content:'{}' } });
+  const out = spawnSync(process.execPath,[path.join(root,'hooks/protected-file.js')],
+    { env:{...process.env,HOME:home}, input, timeout:10000 });
+  assert.equal(out.status,0,out.stderr.toString());
+  assert.match(out.stdout.toString(),/permissionDecision/,'설정 파일 쓰기가 확인 창을 거치지 않는다');
+});
+
+test('문서 IP17 B20: kit.md가 다중 단계와 inherit과 서열 아님을 적는다', () => {
+  const doc = kitDoc();
+  const show = doc.split('\n### `setup show`\n')[1].split('\n### ')[0];
+  for (const word of ['inherit','세션 모델']) assert.ok(show.includes(word), `setup show 절에 "${word}"가 없다`);
+  // 🔴 이 사이클 목표 ③(inherit 구멍)을 **사용자가 실제로 쓰는 경로**가 문서에 있어야 한다 —
+  //    `--codex-model`은 Codex 전용이라 inherit을 거부하므로, Claude 쪽 분기가 없으면 길이 끊긴다.
+  const models = doc.split('\n### setup models\n')[1].split('\n### ')[0];
+  for (const word of ['plan.defaults','복사','inherit']) {
+    assert.ok(models.includes(word), `setup models 절에 "${word}"가 없다 — inherit 입구가 끊긴다`);
+  }
+  const wiz = wizardSection();
+  for (const word of ['codex:','other']) assert.ok(wiz.includes(word), `마법사 절차에 "${word}"가 없다`);
+  assert.ok(doc.includes('품질 서열'), 'kit.md에 "목록 순서는 품질 서열이 아니다"가 없다');
+  // 한 단계만 바꾸는 경로가 남았다는 사실이 보여야 찾는다.
+  assert.ok(doc.split('## 인자 없음')[1].includes('setup models'), '도움말에 setup models가 없다');
+  // D36 재확인 — 새 문안이 휘발성 수치를 들여오지 않았다.
+  assert.doesNotMatch(doc, /`gpt-[0-9]/, 'kit.md에 Codex 모델 슬러그가 박혀 있다');
+});
+
+// ── IP18: --merge가 설정 원문과 patch를 합친다 (B12) ──────────
+// 🔴 2026-10-02 Gap 2회차: `mergeConfigFile`을 만들어 `S27`로 증명해 놓고 **런타임 호출자가 0**이었다.
+//    쓰기는 커맨드가 산문을 읽고 손으로 했으므로 그 증명이 겉돌았다. 이제 스크립트가 계산한다.
+test('IP18 B12: --merge가 설정 원문을 읽어 합치고 파일은 쓰지 않는다', () => {
+  const existing = JSON.stringify({ version:1, language:'ko', guards:{level:'strict'},
+    models:{ planner:{cli:'claude',model:'fable',effort:'max'},
+      'tdd-driver':{cli:'codex',model:'gpt-x',effort:'low'} } });
+  const home = homeWith(existing,{'u-h-cc.json':fixtureText},codexBody());
+  // ⚠ `tree`는 **파일 이름 목록**일 뿐이라 같은 이름을 덮어쓰면 못 잡는다(2026-10-02 Gap 3회차가
+  //    실측했다 — 덮어쓰기 변이에 101건 전부 초록이었다). 내용 해시로 본다.
+  const digest = (dir) => tree(dir).map((rel) => {
+    const abs = path.join(dir,rel);
+    return fs.statSync(abs).isFile()
+      ? `${rel}:${createHash('sha256').update(fs.readFileSync(abs)).digest('hex')}` : rel;
+  });
+  const before = digest(home);
+  const patch = JSON.stringify({ models:{ 'feature-builder':{cli:'codex',model:'gpt-y',effort:'medium'} } });
+  const out = run(home,[path.join(root,'scripts/list-models.mjs'),'--merge',patch]);
+  assert.equal(out.status,0,out.stderr.toString());
+  assert.equal(out.stdout.toString().trim().split('\n').length,1,'한 줄 JSON이 아니다');
+  const j = JSON.parse(out.stdout);
+  assert.equal(j.mode,'merge'); assert.equal(j.existed,true); assert.equal(j.problem,null);
+  // 🔴 본체 — 고르지 않은 단계와 비모델 키가 **살아 있어야** 한다.
+  assert.equal(j.merged.language,'ko');
+  assert.deepEqual(j.merged.guards,{level:'strict'});
+  assert.deepEqual(Object.keys(j.merged.models).sort(),['feature-builder','planner','tdd-driver']);
+  assert.deepEqual(j.merged.models.planner,{cli:'claude',model:'fable',effort:'max'});
+  // ⚠ 충돌하는 키가 없으면 **호출부의 인자 순서가 뒤집혀도 초록**이다(2026-10-02 Gap 4회차).
+  //    사용자가 방금 고른 값이 기존에 지면 선택이 통째로 버려진다.
+  const clash = JSON.stringify({ language:'en', models:{ planner:{cli:'claude',model:'opus',effort:'low'} } });
+  const c = JSON.parse(run(home,[path.join(root,'scripts/list-models.mjs'),'--merge',clash]).stdout);
+  assert.equal(c.merged.language,'en','patch가 기존에 졌다 — 인자 순서가 뒤집혔다');
+  assert.deepEqual(c.merged.models.planner,{cli:'claude',model:'opus',effort:'low'});
+  assert.deepEqual(c.merged.models['tdd-driver'],{cli:'codex',model:'gpt-x',effort:'low'},'고르지 않은 단계가 사라졌다');
+  assert.equal(j.merged.version,1);
+  // 읽기 전용 계약은 그대로다 — 쓰기는 커맨드가 한다.
+  assert.deepEqual(digest(home),before,'--merge가 파일을 썼거나 내용을 바꿨다');
+  // 설정이 없던 홈에서는 patch만 남는다(기본값을 적어 넣지 않는다).
+  const bare = JSON.parse(run(homeWith(null),[path.join(root,'scripts/list-models.mjs'),'--merge',patch]).stdout);
+  assert.equal(bare.existed,false);
+  assert.deepEqual(Object.keys(bare.merged).sort(),['models','version']);
+  // 깨진 patch는 exit 0 + stderr 한 줄 + merged null이다.
+  const bad = run(homeWith(null),[path.join(root,'scripts/list-models.mjs'),'--merge','{not json']);
+  assert.equal(bad.status,0);
+  assert.equal(JSON.parse(bad.stdout).merged,null);
+  // ⚠ **부재를 먼저 막는다** — `''.trim().split('\n')`도 길이가 1이라 0줄이어도 통과했다
+  //    (2026-10-02 Gap 4회차: IP15와 **같은 모양의 재발**이다).
+  assert.notEqual(bad.stderr.toString().trim(),'','깨진 patch를 조용히 삼켰다');
+  assert.equal(bad.stderr.toString().trim().split('\n').length,1);
+});
+
+// ── IP19: --merge의 읽기 실패 의미론 (🔴1·🔴2 · 2026-10-02 리뷰) ──
+// 🔴 `IP18`이 ①정상 ②설정 없음 ③깨진 patch만 돌고 **"파일이 있는데 못 읽었다"를 0건** 돌았다.
+//    그 그림자에 FIFO 무한 대기와 설정 소실이 둘 다 숨어 있었다.
+test('IP19 B12: --merge가 못 읽는 설정을 없음으로 뭉개지 않고 FIFO에도 매달리지 않는다', () => {
+  const P = JSON.stringify({models:{'tdd-driver':{cli:'codex',model:'x'}}});
+  // ⚠ `DEVKIT_CONFIG`를 지운다 — 이 파일의 `run()`과 같은 규약이다. 안 지우면 전체 실행
+  //    (`DEVKIT_CONFIG=`)에서만 경로가 달라져 개별 실행과 결과가 갈린다.
+  const envOf = (home) => { const e = {...process.env, HOME:home}; delete e.DEVKIT_CONFIG; return e; };
+  const call = (home) => spawnSync(process.execPath,[path.join(root,'scripts/list-models.mjs'),'--merge',P],
+    { env:envOf(home), input:'', timeout:5000, encoding:'utf8' });
+  // ① 깨진 JSON — **없음으로 뭉개면 사용자 설정이 통째로 날아간다.**
+  const broken = call(homeWith('{"language":"ko",'));
+  assert.equal(broken.status,0);
+  const bj = JSON.parse(broken.stdout);
+  assert.equal(bj.state,'ok','파일은 읽혔다');
+  assert.equal(bj.existed,false);
+  assert.ok(bj.problem,'깨진 설정을 조용히 삼켰다 — 그 위에 쓰면 설정이 사라진다');
+  assert.equal(bj.merged,null,'merged를 내주면 커맨드가 그걸 쓴다');
+  // ② 정규 파일이 아님(디렉터리)
+  const dirHome = temp(); fs.mkdirSync(path.join(dirHome,'.devkit'),{recursive:true});
+  fs.mkdirSync(path.join(dirHome,'.devkit','config.json'));
+  const d = JSON.parse(call(dirHome).stdout);
+  assert.equal(d.state,'unreadable'); assert.ok(d.problem); assert.equal(d.merged,null);
+  // ③ FIFO — **읽기 전에 종류를 보지 않으면 영원히 매달린다**(실측: 5초 초과).
+  const fifoHome = temp(); fs.mkdirSync(path.join(fifoHome,'.devkit'),{recursive:true});
+  spawnSync('mkfifo',[path.join(fifoHome,'.devkit','config.json')]);
+  const f = call(fifoHome);
+  assert.equal(f.signal,null,'FIFO에서 타임아웃으로 죽었다 — "항상 exit 0"이 깨졌다');
+  assert.equal(f.status,0);
+  assert.equal(JSON.parse(f.stdout).state,'unreadable');
+  // ④ patch가 객체가 아니면 **조용히 무시하지 않는다**(배열·문자열·null·값 누락).
+  for (const bad of [['--merge','[1]'],['--merge','"x"'],['--merge','null'],['--merge']]) {
+    const out = spawnSync(process.execPath,[path.join(root,'scripts/list-models.mjs'),...bad],
+      { env:envOf(homeWith(null)), input:'', timeout:5000, encoding:'utf8' });
+    assert.equal(out.status,0,`${bad.join(' ')}가 exit 0이 아니다`);
+    const j = JSON.parse(out.stdout);
+    assert.ok(j.problem,`${bad.join(' ')}를 조용히 무시했다 — "적용했다"는 거짓 보고가 된다`);
+    assert.equal(j.merged,null);
+    assert.notEqual(out.stderr.trim(),'');
+    assert.equal(out.stderr.trim().split('\n').length,1);
+  }
 });

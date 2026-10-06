@@ -615,6 +615,9 @@ const MODEL_PLAN = {
 };
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+// ⚠ 이 금지는 **소스 레포가 출하하는 frontmatter**에 대한 것이다. 사용자가 자기 설정에
+//    `inherit`을 적는 것은 `test/agent-frontmatter.test.mjs`의 `U14b`가 **허용**한다 —
+//    두 층이 다르고 그 비대칭이 의도다(2026-10-02).
 test('M1: 모든 에이전트가 모델·effort를 명시한다 (inherit 금지)', () => {
   for (const a of ALL_AGENTS) {
     const fm = frontmatter(read(`agents/${a}.md`));

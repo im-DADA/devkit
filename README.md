@@ -75,7 +75,7 @@ devkit의 기본값은 만든 사람의 취향이라(한국어·PDCA·`features/
 받쳐주는 것:
 - **receipt** — Bash 명령·출력을 `.devkit/receipts.jsonl`에 남겨 evidence 인용과 대조한다(`/gap`의 `verify-evidence`). 알려진 키 형식 11종만 마스킹하고 그 외는 평문으로 남는다.
 - **감사 로그** — 거부·확인·경고·검증 결과가 `.devkit/audit.jsonl`에 남는다. `/kit audit`로 집계.
-- **무결성 매니페스트** — `INTEGRITY.sha256`이 `hooks/`·`scripts/`의 실행 파일 56개를 해싱한다. **수동 실행**: `node scripts/verify-integrity.mjs`. `agents`·`commands`·`skills`의 `.md`는 대상이 아니다.
+- **무결성 매니페스트** — `INTEGRITY.sha256`이 `hooks/`·`scripts/`의 실행 파일 58개를 해싱한다. **수동 실행**: `node scripts/verify-integrity.mjs`. `agents`·`commands`·`skills`의 `.md`는 대상이 아니다.
 
 ## 구성
 

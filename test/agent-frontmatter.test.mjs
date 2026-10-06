@@ -38,9 +38,37 @@ test('U14: effort 허용값은 문자열 5종과 양의 정수뿐이다', () => 
 test('U14b: model은 형태만 본다 — 이름을 열거하면 그 목록이 낡는다', () => {
   assert.equal(validateModel('opus'), true);
   assert.equal(validateModel('claude-opus-5'), true, '새 모델 이름이 막히면 목록이 낡은 것이다');
-  for (const bad of ['', '  ', 'two words', 'inherit', null, 3]) {
+  // ⚠ `inherit`은 2026-10-02에 거부 → **허용**으로 뒤집었다. 이것은 **사용자 설정 축**의 허용이다.
+  //    devkit이 출하하는 `agents/*.md`에는 여전히 금지이고 그 금지는 `agent-contract.test.mjs`의
+  //    `M1`이 지킨다 — **두 층이 다르다.** 뒤집은 이유: `mergeConfig`는 이미 `inherit`을 받고
+  //    있었는데(스키마의 `isName` 통과) 여기서만 거부해 그 에이전트가 **조용히 건너뛰어졌다**.
+  //    ⚠ `cli:'codex'`에 `inherit`을 금지하는 단언은 **여기 둘 수 없다** — `validateModel`은
+  //    문자열 하나만 받아 형제 키 `cli`를 구조적으로 볼 수 없다. 그 계약은 `setup-plan`의
+  //    `acceptCodexModel`에 있고 단언은 `test/setup-plan.test.mjs`의 S24다.
+  assert.equal(validateModel('inherit'), true, '설정 축의 inherit이 막히면 적용이 조용히 건너뛴다');
+  for (const bad of ['', '  ', 'two words', null, 3]) {
     assert.equal(validateModel(bad), false, `${JSON.stringify(bad)}가 통과했다`);
   }
+});
+
+// ── U21: inherit의 적용 계약 (B13) ─────────────────────────────
+test('U21 B13: applyModel이 inherit을 쓰면 model 줄만 바뀌고 나머지는 바이트 그대로다', () => {
+  const src = ['---', 'name: planner', 'description: 설명 한 줄', 'model: opus', 'effort: max',
+    'tools: Read, Grep, Glob', '---', '', '본문 첫 줄', '본문 둘째 줄', ''].join('\n');
+  // ⚠ 범위를 이름에 밝힌다: **effort 줄에 같은 값을 쓸 때** 바이트가 동일하다는 뜻이다.
+  //    effort를 바꿔 넘기면 그 줄도 바뀌는 것이 정상이다(아래 양성 대조).
+  const out = applyModel(src, { model: 'inherit', effort: 'max' });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.text.split('\n').length, src.split('\n').length, '줄 수가 바뀌었다');
+  const before = src.split('\n'); const after = out.text.split('\n');
+  for (let i = 0; i < before.length; i += 1) {
+    if (i === 3) { assert.equal(after[i], 'model: inherit'); continue; }
+    assert.equal(after[i], before[i], `${i}행이 바뀌었다 — model 줄만 바뀌어야 한다`);
+  }
+  // 양성 대조 — effort를 다르게 주면 그 줄도 바뀐다(위 단언이 공허하지 않다는 증거).
+  const moved = applyModel(src, { model: 'inherit', effort: 'low' });
+  assert.equal(moved.ok, true);
+  assert.match(moved.text, /^effort: low$/m);
 });
 
 // ── U18: 기본값이 실물과 일치 (B18) ────────────────────────────
@@ -192,3 +220,56 @@ test('FM4 B21: cli가 claude거나 없으면 현행대로 보고한다 (양성 �
   // 값이 같으면 cli가 claude여도 침묵한다(경고가 cli 때문에 켜지는 게 아니다).
   assert.equal(modelDriftMessage({ models: { planner: { cli: 'claude', model: 'opus', effort: 'max' } } }, current), '');
 });
+
+// ── FM5: inherit 적용 후 드리프트가 침묵한다 (B15) ─────────────
+// DESIGN §3.2의 "effort 줄도 그대로 쓴다" 결정을 못박는다 — 안 쓰면 설정과 frontmatter가
+// 영구히 갈려 `modelDriftMessage`가 **매 세션 거짓 경고**를 낸다(그 함수의 존재 이유를 깬다).
+test('FM5 B15: inherit을 적용한 뒤 설정과 frontmatter가 일치해 드리프트가 침묵한다', () => {
+  const src = ['---','name: planner','model: opus','effort: max','---','본문'].join('\n');
+  const want = { cli: 'claude', model: 'inherit', effort: DEFAULTS.models.planner.effort };
+  const out = applyModel(src, { model: want.model, effort: want.effort });
+  assert.equal(out.ok, true, out.reason);
+  const now = readModel(out.text);
+  assert.equal(modelDriftMessage({ models: { planner: want } }, { planner: now }), '',
+    'inherit을 적용했는데 드리프트 경고가 난다');
+  // 양성 대조 — effort가 어긋나면 경고가 **있다**(위 단언이 "항상 침묵"으로 통과하지 않는다).
+  assert.notEqual(modelDriftMessage({ models: { planner: { ...want, effort: 'low' } } }, { planner: now }), '');
+});
+
+test('FM6 B17: 한 에이전트가 거부돼도 나머지는 적용되고 그 파일은 바이트 그대로다', () => {
+  // 🔴 "건너뛰고 나머지는 적용"이 문서 단어 존재뿐이었다(2026-10-02 Gap 1·2회차).
+  //    커맨드가 도는 루프의 **원시 계약**을 여기서 실행으로 고정한다.
+  const good = (name) => ['---', `name: ${name}`, 'model: opus', 'effort: max', '---', '본문'].join('\n');
+  // ⚠ 거부 **한 종류**만 돌리면 나머지 경로는 무검증이다(2026-10-02 Gap 3회차: `validateModel`
+  //    게이트를 지우면 공백이 든 이름이 frontmatter에 그대로 써지는데 행동 테스트가 0건이었다).
+  //    `applyModel`이 거부해야 하는 네 가지를 전부 돈다.
+  const REJECT = [
+    { why: 'model 줄이 없다', src: ['---', 'name: n', 'effort: max', '---', '본문'].join('\n'), want: { model: 'inherit', effort: 'max' } },
+    { why: 'frontmatter가 없다', src: '본문만 있다', want: { model: 'opus', effort: 'max' } },
+    { why: 'model에 공백이 있다', src: good('n'), want: { model: 'two words', effort: 'max' } },
+    { why: 'effort가 허용값 밖이다', src: good('n'), want: { model: 'opus', effort: 'nope' } },
+  ];
+  for (const { why, src, want } of REJECT) {
+    const before = src;
+    const r = applyModel(src, want);
+    assert.equal(r.ok, false, `거부돼야 하는데 통과했다: ${why}`);
+    assert.equal('text' in r, false, `실패한 에이전트의 텍스트를 돌려줬다 — 그 파일이 바뀐다: ${why}`);
+    // ⚠ `assert.ok(r.reason)`은 **존재만** 본다 — 모든 사유를 'x'로 바꿔도 통과했다
+    //    (2026-10-02 Gap 4회차). 사람이 읽고 고칠 수 있는 길이를 요구한다.
+    assert.equal(typeof r.reason, 'string');
+    assert.ok(r.reason.length >= 5, `사유가 너무 짧아 쓸모가 없다: ${JSON.stringify(r.reason)}`);
+    // ⚠ `assert.equal(src, before)`는 **동어반복이었다**(JS 문자열은 불변이라 실패할 수 없다).
+    //    "그 파일이 안 바뀐다"를 지키는 것은 **`text`를 안 돌려주는 것**이고 위에서 단언했다.
+    void before;
+  }
+  // 그리고 **하나가 막아도 나머지는 적용된다** — 커맨드가 도는 루프의 원시 계약이다.
+  const sources = { a: good('a'), b: REJECT[0].src, c: good('c') };
+  const results = {};
+  for (const [k, src] of Object.entries(sources)) results[k] = applyModel(src, { model: 'inherit', effort: 'max' });
+  assert.equal(results.b.ok, false);
+  for (const k of ['a', 'c']) {
+    assert.equal(results[k].ok, true, `${k}가 함께 실패했다 — 하나가 막으면 안 된다`);
+    assert.match(results[k].text, /^model: inherit$/m);
+  }
+});
+
