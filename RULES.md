@@ -45,6 +45,7 @@ Claude Code에서는 devkit 플러그인이 hook으로 강제하지만 **Codex�
 ## PDCA 사이클 — 구현자로서 할 일
 
 - 작업 폴더 `docs/{YYYY-MM-DD}-{slug}/`가 주어지면 **PLAN.md를 먼저 읽고, DESIGN.md가 있으면 그것도 읽고** 그대로 구현한다. 문서와 다르게 가야 할 이유가 생기면 구현 전에 멈추고 묻는다.
+- **묻는 곳은 지시를 보낸 쪽이다.** 지시문에 회신 명령(예: `orca orchestration send --to run:…`)이 들어 있으면 **질문·막힘도 그 명령으로 보내고**(`--subject "[질문] <한 줄 요약>"`, `--body`에 질문 내용) 멈춰서 답을 기다린다. 터미널에만 묻고 기다리지 않는다 — 그 화면은 설계를 쓴 Claude Code가 아니라 사용자만 본다. 완료 보고도 같은 명령으로 한다.
 - `behaviors.json`이 분모다. behavior를 통과시킬 때마다 `passes`와 `evidence`를 갱신한다.
   - **`passes: true`는 실행 흔적이 있어야 유효하다.** `evidence`는 `{kind, ref, cmd, output, at}` — 실제로 돌린 명령(`cmd`)과 그 출력(`output`)을 그대로 넣는다. 출력 없이 통과로 적지 않는다.
   - behavior를 지우거나 합쳐서 분모를 줄이지 않는다.
